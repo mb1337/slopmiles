@@ -10,7 +10,17 @@ struct WeatherTool {
         }
 
         do {
-            let (data, _) = try await URLSession.shared.data(from: url)
+            var request = URLRequest(url: url)
+            request.timeoutInterval = 10
+
+            let (data, response) = try await URLSession.shared.data(for: request)
+
+            guard let httpResponse = response as? HTTPURLResponse,
+                  (200...299).contains(httpResponse.statusCode) else {
+                let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
+                return ["error": .string("Weather API returned status \(statusCode)")]
+            }
+
             guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let daily = json["daily"] as? [String: Any],
                   let dates = daily["time"] as? [String],
@@ -24,7 +34,8 @@ struct WeatherTool {
             }
 
             var forecasts: [JSONValue] = []
-            for i in 0..<dates.count {
+            let count = min(dates.count, tempMaxs.count, tempMins.count, precipProbs.count, windSpeeds.count, uvIndices.count, weatherCodes.count)
+            for i in 0..<count {
                 forecasts.append(.object([
                     "date": .string(dates[i]),
                     "temp_high_c": .number(tempMaxs[i]),
