@@ -1,7 +1,7 @@
 import Foundation
 
 struct WeatherTool {
-    static func getForecast(latitude: Double, longitude: Double, days: Int) async -> [String: Any] {
+    static func getForecast(latitude: Double, longitude: Double, days: Int) async -> [String: JSONValue] {
         let clampedDays = min(max(days, 1), 14)
         let urlString = "https://api.open-meteo.com/v1/forecast?latitude=\(latitude)&longitude=\(longitude)&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max,wind_speed_10m_max,uv_index_max,weather_code&forecast_days=\(clampedDays)&timezone=auto"
 
@@ -23,22 +23,22 @@ struct WeatherTool {
                 return ["error": "Failed to parse weather response"]
             }
 
-            var forecasts: [[String: Any]] = []
+            var forecasts: [JSONValue] = []
             for i in 0..<dates.count {
-                forecasts.append([
-                    "date": dates[i],
-                    "temp_high_c": tempMaxs[i],
-                    "temp_low_c": tempMins[i],
-                    "precipitation_probability_pct": precipProbs[i],
-                    "wind_speed_kmh": windSpeeds[i],
-                    "condition": weatherCondition(from: weatherCodes[i]),
-                    "uv_index": uvIndices[i],
-                ])
+                forecasts.append(.object([
+                    "date": .string(dates[i]),
+                    "temp_high_c": .number(tempMaxs[i]),
+                    "temp_low_c": .number(tempMins[i]),
+                    "precipitation_probability_pct": .int(precipProbs[i]),
+                    "wind_speed_kmh": .number(windSpeeds[i]),
+                    "condition": .string(weatherCondition(from: weatherCodes[i])),
+                    "uv_index": .number(uvIndices[i]),
+                ]))
             }
 
-            return ["daily": forecasts]
+            return ["daily": .array(forecasts)]
         } catch {
-            return ["error": "Weather fetch failed: \(error.localizedDescription)"]
+            return ["error": .string("Weather fetch failed: \(error.localizedDescription)")]
         }
     }
 

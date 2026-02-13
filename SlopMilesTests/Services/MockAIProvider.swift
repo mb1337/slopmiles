@@ -10,7 +10,7 @@ final class MockAIProvider: AIProvider, @unchecked Sendable {
     func sendMessages(
         _ messages: [AIMessage],
         systemPrompt: String,
-        tools: [[String: Any]],
+        tools: [[String: JSONValue]],
         model: String
     ) async throws -> AIResponse {
         receivedMessages.append(messages)

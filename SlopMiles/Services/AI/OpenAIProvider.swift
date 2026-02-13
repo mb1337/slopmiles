@@ -14,7 +14,7 @@ final class OpenAIProvider: AIProvider, @unchecked Sendable {
     func sendMessages(
         _ messages: [AIMessage],
         systemPrompt: String,
-        tools: [[String: Any]],
+        tools: [[String: JSONValue]],
         model: String
     ) async throws -> AIResponse {
         guard let key = apiKey() else { throw AIProviderError.invalidAPIKey }
@@ -35,7 +35,7 @@ final class OpenAIProvider: AIProvider, @unchecked Sendable {
             "max_tokens": 8192,
         ]
         if !tools.isEmpty {
-            body["tools"] = tools
+            body["tools"] = tools.map { $0.mapValues(\.anyValue) }
         }
 
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
@@ -88,7 +88,7 @@ final class OpenAIProvider: AIProvider, @unchecked Sendable {
                         "type": "function",
                         "function": [
                             "name": tc.name,
-                            "arguments": (try? JSONSerialization.data(withJSONObject: tc.arguments))
+                            "arguments": (try? JSONSerialization.data(withJSONObject: tc.arguments.mapValues(\.anyValue)))
                                 .flatMap { String(data: $0, encoding: .utf8) } ?? "{}",
                         ] as [String: Any],
                     ] as [String: Any]
@@ -129,7 +129,8 @@ final class OpenAIProvider: AIProvider, @unchecked Sendable {
                 if let function = tc["function"] as? [String: Any] {
                     let name = function["name"] as? String ?? ""
                     let argsStr = function["arguments"] as? String ?? "{}"
-                    let args = (try? JSONSerialization.jsonObject(with: Data(argsStr.utf8))) as? [String: Any] ?? [:]
+                    let argsAny = (try? JSONSerialization.jsonObject(with: Data(argsStr.utf8))) as? [String: Any] ?? [:]
+                    let args = argsAny.mapValues { JSONValue.from($0) }
                     toolCalls.append(ToolCall(id: id, name: name, arguments: args))
                 }
             }

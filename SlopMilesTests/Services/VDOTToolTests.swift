@@ -6,14 +6,14 @@ struct VDOTToolTests {
     @Test("Calculate VDOT from 5K race")
     func calculateVDOTFrom5K() {
         let result = VDOTTool.calculateVDOT(raceDistanceMeters: 5000, raceTimeSeconds: 1200)
-        let vdot = result["vdot"] as! Double
+        let vdot = result["vdot"]!.doubleValue!
         #expect(vdot > 40 && vdot < 50)
     }
 
     @Test("Calculate VDOT from half marathon")
     func calculateVDOTFromHalfMarathon() {
         let result = VDOTTool.calculateVDOT(raceDistanceMeters: 21097.5, raceTimeSeconds: 5400)
-        let vdot = result["vdot"] as! Double
+        let vdot = result["vdot"]!.doubleValue!
         #expect(vdot > 48 && vdot < 54)
     }
 
@@ -26,9 +26,9 @@ struct VDOTToolTests {
         #expect(result["interval_min_per_km"] != nil)
         #expect(result["repetition_min_per_km"] != nil)
 
-        let easy = result["easy_min_per_km"] as! Double
-        let threshold = result["threshold_min_per_km"] as! Double
-        let repetition = result["repetition_min_per_km"] as! Double
+        let easy = result["easy_min_per_km"]!.doubleValue!
+        let threshold = result["threshold_min_per_km"]!.doubleValue!
+        let repetition = result["repetition_min_per_km"]!.doubleValue!
         #expect(easy > threshold)
         #expect(threshold > repetition)
     }
@@ -36,15 +36,15 @@ struct VDOTToolTests {
     @Test("Training paces are formatted")
     func trainingPacesFormatted() {
         let result = VDOTTool.getTrainingPaces(vdot: 50)
-        let formatted = result["easy_formatted"] as! String
+        let formatted = result["easy_formatted"]!.stringValue!
         #expect(formatted.contains(":"))
     }
 
     @Test("Project race time for marathon")
     func projectMarathonTime() {
         let result = VDOTTool.projectRaceTime(vdot: 50, distanceMeters: 42195)
-        let seconds = result["projected_time_seconds"] as! Double
-        let formatted = result["projected_time_formatted"] as! String
+        let seconds = result["projected_time_seconds"]!.doubleValue!
+        let formatted = result["projected_time_formatted"]!.stringValue!
         #expect(seconds > 10000 && seconds < 15000)
         #expect(formatted.contains(":"))
     }

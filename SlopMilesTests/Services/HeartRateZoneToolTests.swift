@@ -6,22 +6,22 @@ struct HeartRateZoneToolTests {
     @Test("Zones from max HR")
     func zonesFromMaxHR() {
         let result = HeartRateZoneTool.calculateZones(maxHR: 190)
-        let zone1 = result["zone1"] as! [String: Any]
-        let zone5 = result["zone5"] as! [String: Any]
-        #expect(zone1["name"] as! String == "Recovery")
-        #expect(zone5["name"] as! String == "VO2max")
-        #expect(zone1["min"] as! Int == 95)
-        #expect(zone1["max"] as! Int == 114)
-        #expect(zone5["max"] as! Int == 190)
+        let zone1 = result["zone1"]!.objectValue!
+        let zone5 = result["zone5"]!.objectValue!
+        #expect(zone1["name"]!.stringValue! == "Recovery")
+        #expect(zone5["name"]!.stringValue! == "VO2max")
+        #expect(zone1["min"]!.intValue! == 95)
+        #expect(zone1["max"]!.intValue! == 114)
+        #expect(zone5["max"]!.intValue! == 190)
     }
 
     @Test("Zones from LTHR")
     func zonesFromLTHR() {
         let result = HeartRateZoneTool.calculateZones(lthr: 170)
-        let zone4 = result["zone4"] as! [String: Any]
-        #expect(zone4["name"] as! String == "Threshold")
-        #expect(zone4["min"] as! Int == 160)
-        #expect(zone4["max"] as! Int == 168)
+        let zone4 = result["zone4"]!.objectValue!
+        #expect(zone4["name"]!.stringValue! == "Threshold")
+        #expect(zone4["min"]!.intValue! == 160)
+        #expect(zone4["max"]!.intValue! == 168)
     }
 
     @Test("Error when no HR provided")

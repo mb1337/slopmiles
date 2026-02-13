@@ -14,7 +14,7 @@ final class AnthropicProvider: AIProvider, @unchecked Sendable {
     func sendMessages(
         _ messages: [AIMessage],
         systemPrompt: String,
-        tools: [[String: Any]],
+        tools: [[String: JSONValue]],
         model: String
     ) async throws -> AIResponse {
         guard let key = apiKey() else { throw AIProviderError.invalidAPIKey }
@@ -29,7 +29,7 @@ final class AnthropicProvider: AIProvider, @unchecked Sendable {
             "model": model,
             "max_tokens": 8192,
             "system": systemPrompt,
-            "tools": tools,
+            "tools": tools.map { $0.mapValues(\.anyValue) },
             "messages": encodeMessages(messages),
         ]
 
@@ -125,7 +125,7 @@ final class AnthropicProvider: AIProvider, @unchecked Sendable {
                         "type": "tool_use",
                         "id": tc.id,
                         "name": tc.name,
-                        "input": tc.arguments,
+                        "input": tc.arguments.mapValues(\.anyValue),
                     ])
                 }
                 return ["role": "assistant", "content": content]
@@ -170,7 +170,8 @@ final class AnthropicProvider: AIProvider, @unchecked Sendable {
                 } else if type == "tool_use" {
                     let id = block["id"] as? String ?? UUID().uuidString
                     let name = block["name"] as? String ?? ""
-                    let input = block["input"] as? [String: Any] ?? [:]
+                    let inputAny = block["input"] as? [String: Any] ?? [:]
+                    let input = inputAny.mapValues { JSONValue.from($0) }
                     toolCalls.append(ToolCall(id: id, name: name, arguments: input))
                 }
             }

@@ -10,7 +10,7 @@ struct PaceConverterTool {
 
     static let kmPerMile = 1.60934
 
-    static func convert(value: Double, from fromUnit: String, to toUnit: String) -> [String: Any] {
+    static func convert(value: Double, from fromUnit: String, to toUnit: String) -> [String: JSONValue] {
         guard value > 0 else {
             return ["error": "Value must be greater than 0"]
         }
@@ -36,8 +36,8 @@ struct PaceConverterTool {
 
         let rounded = round(result * 100) / 100
         return [
-            "result": rounded,
-            "formatted": formatResult(rounded, unit: to),
+            "result": .number(rounded),
+            "formatted": .string(formatResult(rounded, unit: to)),
         ]
     }
 

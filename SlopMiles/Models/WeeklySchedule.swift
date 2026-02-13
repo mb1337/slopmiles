@@ -85,19 +85,19 @@ final class WeeklySchedule {
         (1...7).filter { timeWindow(for: $0) == nil }
     }
 
-    func dictionaryForPrompt() -> [[String: Any]] {
+    func dictionaryForPrompt() -> [JSONValue] {
         let dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
         return (1...7).map { day in
-            var entry: [String: Any] = ["day": dayNames[day - 1]]
+            var entry: [String: JSONValue] = ["day": .string(dayNames[day - 1])]
             if let window = timeWindow(for: day) {
                 entry["available"] = true
-                entry["start"] = window.startTimeFormatted
-                entry["end"] = window.endTimeFormatted
-                entry["duration_minutes"] = window.durationMinutes
+                entry["start"] = .string(window.startTimeFormatted)
+                entry["end"] = .string(window.endTimeFormatted)
+                entry["duration_minutes"] = .int(window.durationMinutes)
             } else {
                 entry["available"] = false
             }
-            return entry
+            return JSONValue.object(entry)
         }
     }
 }

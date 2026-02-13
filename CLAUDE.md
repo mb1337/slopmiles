@@ -59,7 +59,7 @@ SlopMiles/
 - **`AIProvider` protocol** abstracts Anthropic vs OpenAI. Both use `URLSession` directly (no third-party AI SDKs).
 - **API keys** stored in iOS Keychain (never synced via CloudKit).
 - **`@Observable` + `@MainActor`** for all services that touch UI state (AppState, AIService, HealthKitService, WorkoutKitService).
-- **`ToolCall`/`ToolResult`** are `@unchecked Sendable` because `[String: Any]` is not natively Sendable.
+- **`JSONValue`** enum (in `AIProvider.swift`) provides a type-safe, `Sendable` replacement for `[String: Any]` across actor boundaries. All tool arguments, tool results, tool definitions, and prompt dictionaries use `[String: JSONValue]`. Use `.anyValue` to convert back for `JSONSerialization`.
 - **WorkoutKit types**: Use `HKWorkoutSessionLocationType` (not `WorkoutLocationType`), `WorkoutPlan` + `WorkoutScheduler.shared.schedule(_:at:)`, `SpeedRangeAlert(target: ClosedRange<Measurement<UnitSpeed>>)`.
 
 ## Testing

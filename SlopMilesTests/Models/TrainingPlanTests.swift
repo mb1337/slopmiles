@@ -69,9 +69,9 @@ struct TrainingPlanTests {
         equipment.hasTreadmill = true
         equipment.hasTrackAccess = true
         let dict = equipment.dictionaryForPrompt()
-        #expect(dict["treadmill_available"] as! Bool == true)
-        #expect(dict["track_available"] as! Bool == true)
-        #expect(dict["trail_available"] as! Bool == false)
+        #expect(dict["treadmill_available"]?.boolValue == true)
+        #expect(dict["track_available"]?.boolValue == true)
+        #expect(dict["trail_available"]?.boolValue == false)
     }
 
     @Test("Running stats dictionary for prompt")
@@ -81,7 +81,7 @@ struct TrainingPlanTests {
         stats.averagePaceMinPerKm = 5.5
         stats.totalRunsLast30Days = 12
         let dict = stats.dictionaryForPrompt()
-        #expect(dict["total_runs_last_30_days"] as! Int == 12)
-        #expect(dict["average_weekly_distance_km"] as! Double == 45.3)
+        #expect(dict["total_runs_last_30_days"]?.intValue == 12)
+        #expect(dict["average_weekly_distance_km"]?.doubleValue == 45.3)
     }
 }

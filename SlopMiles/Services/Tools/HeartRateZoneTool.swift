@@ -8,7 +8,7 @@ struct HeartRateZoneTool {
         let max: Int
     }
 
-    static func calculateZones(maxHR: Int? = nil, lthr: Int? = nil) -> [String: Any] {
+    static func calculateZones(maxHR: Int? = nil, lthr: Int? = nil) -> [String: JSONValue] {
         let zones: [HRZone]
 
         if let lthr = lthr {
@@ -46,13 +46,13 @@ struct HeartRateZoneTool {
             return ["error": "Either max_hr or lthr must be provided"]
         }
 
-        var result: [String: Any] = [:]
+        var result: [String: JSONValue] = [:]
         for zone in zones {
-            result["zone\(zone.number)"] = [
-                "min": zone.min,
-                "max": zone.max,
-                "name": zone.name,
-            ]
+            result["zone\(zone.number)"] = .object([
+                "min": .int(zone.min),
+                "max": .int(zone.max),
+                "name": .string(zone.name),
+            ])
         }
         return result
     }

@@ -1,12 +1,12 @@
 import Foundation
 
 struct MileageProgressionTool {
-    static func check(weeklyDistancesKm: [Double]) -> [String: Any] {
+    static func check(weeklyDistancesKm: [Double]) -> [String: JSONValue] {
         guard weeklyDistancesKm.count >= 2 else {
-            return ["safe": true, "warnings": [] as [[String: Any]]]
+            return ["safe": true, "warnings": .array([])]
         }
 
-        var warnings: [[String: Any]] = []
+        var warnings: [JSONValue] = []
         var preRecoveryDistance: Double?
 
         for i in 1..<weeklyDistancesKm.count {
@@ -38,11 +38,11 @@ struct MileageProgressionTool {
                     }
                 }
 
-                warnings.append([
-                    "week": i + 1,
-                    "increase_pct": round(changePct * 10) / 10,
-                    "message": "Week \(i + 1) increases \(round(changePct * 10) / 10)% over week \(i) (\(round(prev * 10) / 10) km → \(round(curr * 10) / 10) km). Recommended max is 10%.",
-                ])
+                warnings.append(.object([
+                    "week": .int(i + 1),
+                    "increase_pct": .number(round(changePct * 10) / 10),
+                    "message": .string("Week \(i + 1) increases \(round(changePct * 10) / 10)% over week \(i) (\(round(prev * 10) / 10) km → \(round(curr * 10) / 10) km). Recommended max is 10%."),
+                ]))
             }
 
             if changePct > -30 {
@@ -51,8 +51,8 @@ struct MileageProgressionTool {
         }
 
         return [
-            "safe": warnings.isEmpty,
-            "warnings": warnings,
+            "safe": .bool(warnings.isEmpty),
+            "warnings": .array(warnings),
         ]
     }
 }

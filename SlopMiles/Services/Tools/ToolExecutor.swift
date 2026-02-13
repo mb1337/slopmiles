@@ -1,17 +1,18 @@
 import Foundation
 
-struct ToolCall: @unchecked Sendable {
+struct ToolCall: Sendable {
     let id: String
     let name: String
-    let arguments: [String: Any]
+    let arguments: [String: JSONValue]
 }
 
-struct ToolResult: @unchecked Sendable {
+struct ToolResult: Sendable {
     let toolCallId: String
-    let result: [String: Any]
+    let result: [String: JSONValue]
 
     var jsonString: String {
-        guard let data = try? JSONSerialization.data(withJSONObject: result, options: .sortedKeys),
+        let anyDict = result.mapValues(\.anyValue)
+        guard let data = try? JSONSerialization.data(withJSONObject: anyDict, options: .sortedKeys),
               let string = String(data: data, encoding: .utf8) else {
             return "{\"error\": \"Failed to serialize result\"}"
         }
@@ -21,46 +22,51 @@ struct ToolResult: @unchecked Sendable {
 
 actor ToolExecutor {
     func execute(_ toolCall: ToolCall) async -> ToolResult {
-        let result: [String: Any]
+        let result: [String: JSONValue]
 
         switch toolCall.name {
         case "calculate_vdot":
-            let distance = toolCall.arguments["race_distance_meters"] as? Double ?? 0
-            let time = toolCall.arguments["race_time_seconds"] as? Double ?? 0
+            let distance = toolCall.arguments["race_distance_meters"]?.doubleValue ?? 0
+            let time = toolCall.arguments["race_time_seconds"]?.doubleValue ?? 0
             result = VDOTTool.calculateVDOT(raceDistanceMeters: distance, raceTimeSeconds: time)
 
         case "get_training_paces":
-            let vdot = toolCall.arguments["vdot"] as? Double ?? 0
+            let vdot = toolCall.arguments["vdot"]?.doubleValue ?? 0
             result = VDOTTool.getTrainingPaces(vdot: vdot)
 
         case "project_race_time":
-            let vdot = toolCall.arguments["vdot"] as? Double ?? 0
-            let distance = toolCall.arguments["distance_meters"] as? Double ?? 0
+            let vdot = toolCall.arguments["vdot"]?.doubleValue ?? 0
+            let distance = toolCall.arguments["distance_meters"]?.doubleValue ?? 0
             result = VDOTTool.projectRaceTime(vdot: vdot, distanceMeters: distance)
 
         case "calculate_hr_zones":
-            let maxHR = (toolCall.arguments["max_hr"] as? NSNumber)?.intValue
-            let lthr = (toolCall.arguments["lthr"] as? NSNumber)?.intValue
+            let maxHR = toolCall.arguments["max_hr"]?.intValue
+            let lthr = toolCall.arguments["lthr"]?.intValue
             result = HeartRateZoneTool.calculateZones(maxHR: maxHR, lthr: lthr)
 
         case "convert_pace":
-            let value = toolCall.arguments["value"] as? Double ?? 0
-            let fromUnit = toolCall.arguments["from_unit"] as? String ?? ""
-            let toUnit = toolCall.arguments["to_unit"] as? String ?? ""
+            let value = toolCall.arguments["value"]?.doubleValue ?? 0
+            let fromUnit = toolCall.arguments["from_unit"]?.stringValue ?? ""
+            let toUnit = toolCall.arguments["to_unit"]?.stringValue ?? ""
             result = PaceConverterTool.convert(value: value, from: fromUnit, to: toUnit)
 
         case "check_mileage_progression":
-            let distances = toolCall.arguments["weekly_distances_km"] as? [Double] ?? []
+            let distances: [Double]
+            if let arr = toolCall.arguments["weekly_distances_km"]?.arrayValue {
+                distances = arr.compactMap(\.doubleValue)
+            } else {
+                distances = []
+            }
             result = MileageProgressionTool.check(weeklyDistancesKm: distances)
 
         case "get_weather_forecast":
-            let lat = toolCall.arguments["latitude"] as? Double ?? 0
-            let lon = toolCall.arguments["longitude"] as? Double ?? 0
-            let days = (toolCall.arguments["days"] as? NSNumber)?.intValue ?? 7
+            let lat = toolCall.arguments["latitude"]?.doubleValue ?? 0
+            let lon = toolCall.arguments["longitude"]?.doubleValue ?? 0
+            let days = toolCall.arguments["days"]?.intValue ?? 7
             result = await WeatherTool.getForecast(latitude: lat, longitude: lon, days: days)
 
         default:
-            result = ["error": "Unknown tool: \(toolCall.name)"]
+            result = ["error": .string("Unknown tool: \(toolCall.name)")]
         }
 
         return ToolResult(toolCallId: toolCall.id, result: result)

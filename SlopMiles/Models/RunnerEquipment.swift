@@ -32,16 +32,16 @@ final class RunnerEquipment {
 
     init() {}
 
-    func dictionaryForPrompt() -> [String: Any] {
-        var dict: [String: Any] = [
-            "treadmill_available": hasTreadmill,
-            "track_available": hasTrackAccess,
-            "trail_available": hasTrailAccess,
-            "gym_available": hasGymAccess,
-            "preference": indoorOutdoorPreference.rawValue,
+    func dictionaryForPrompt() -> [String: JSONValue] {
+        var dict: [String: JSONValue] = [
+            "treadmill_available": .bool(hasTreadmill),
+            "track_available": .bool(hasTrackAccess),
+            "trail_available": .bool(hasTrailAccess),
+            "gym_available": .bool(hasGymAccess),
+            "preference": .string(indoorOutdoorPreference.rawValue),
         ]
         if !terrainNotes.isEmpty {
-            dict["terrain_notes"] = terrainNotes
+            dict["terrain_notes"] = .string(terrainNotes)
         }
         return dict
     }

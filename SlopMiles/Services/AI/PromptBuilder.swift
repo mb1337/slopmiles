@@ -85,17 +85,17 @@ struct PromptBuilder {
             prompt += "\n- Lactate threshold HR: \(lthr) bpm"
         }
 
-        if let scheduleJSON = try? JSONSerialization.data(withJSONObject: schedule.dictionaryForPrompt(), options: .prettyPrinted),
+        if let scheduleJSON = try? JSONSerialization.data(withJSONObject: schedule.dictionaryForPrompt().map(\.anyValue), options: .prettyPrinted),
            let scheduleStr = String(data: scheduleJSON, encoding: .utf8) {
             prompt += "\n\n## Weekly Schedule\n\(scheduleStr)"
         }
 
-        if let equipJSON = try? JSONSerialization.data(withJSONObject: equipment.dictionaryForPrompt(), options: .prettyPrinted),
+        if let equipJSON = try? JSONSerialization.data(withJSONObject: equipment.dictionaryForPrompt().mapValues(\.anyValue), options: .prettyPrinted),
            let equipStr = String(data: equipJSON, encoding: .utf8) {
             prompt += "\n\n## Equipment & Facilities\n\(equipStr)"
         }
 
-        if let statsJSON = try? JSONSerialization.data(withJSONObject: stats.dictionaryForPrompt(), options: .prettyPrinted),
+        if let statsJSON = try? JSONSerialization.data(withJSONObject: stats.dictionaryForPrompt().mapValues(\.anyValue), options: .prettyPrinted),
            let statsStr = String(data: statsJSON, encoding: .utf8) {
             prompt += "\n\n## Recent Running Data\n\(statsStr)"
         }
@@ -146,10 +146,11 @@ struct PromptBuilder {
                       "type": "warmup|work|recovery|cooldown",
                       "name": "string",
                       "goal_type": "distance|time|open",
-                      "goal_value": number or null,
+                      "goal_value": number or null (distance in meters, time in seconds),
                       "target_pace_min_per_km": number or null,
                       "hr_zone": number or null,
-                      "repeat_count": number
+                      "repeat_count": number,
+                      "group_id": number (0 = ungrouped; steps sharing the same non-zero group_id form an interval repeat group, e.g. work+recovery repeated N times. The repeat_count on the first step in the group sets iterations.)
                     }
                   ]
                 }
@@ -183,10 +184,11 @@ struct PromptBuilder {
               "type": "warmup|work|recovery|cooldown",
               "name": "string",
               "goal_type": "distance|time|open",
-              "goal_value": number or null,
+              "goal_value": number or null (distance in meters, time in seconds),
               "target_pace_min_per_km": number or null,
               "hr_zone": number or null,
-              "repeat_count": number
+              "repeat_count": number,
+              "group_id": number (0 = ungrouped; steps sharing the same non-zero group_id form an interval repeat group, e.g. work+recovery repeated N times. The repeat_count on the first step in the group sets iterations.)
             }
           ]
         }
