@@ -17,7 +17,7 @@ struct PlanDetailView: View {
                     Text(plan.goalDescription).font(.subheadline)
                     HStack(spacing: 16) {
                         Label("\(plan.totalWeeks) weeks", systemImage: "calendar")
-                        Label(plan.difficulty.capitalized, systemImage: "gauge.with.needle")
+                        Label(plan.difficulty.displayName, systemImage: "gauge.with.needle")
                     }
                     .font(.caption).foregroundStyle(.secondary)
                 }

@@ -26,6 +26,10 @@ struct ResponseParser {
         let plan = TrainingPlan()
         plan.name = dict["name"] as? String ?? "Training Plan"
         plan.goalDescription = dict["goal_description"] as? String ?? ""
+        if let difficultyStr = dict["difficulty"] as? String,
+           let level = DifficultyLevel(rawValue: difficultyStr) {
+            plan.difficulty = level
+        }
         plan.rawAIResponse = responseText
         plan.startDate = startDate
 

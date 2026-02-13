@@ -1,6 +1,16 @@
 import Foundation
 import SwiftData
 
+enum DifficultyLevel: String, Codable, CaseIterable {
+    case beginner
+    case intermediate
+    case advanced
+
+    var displayName: String {
+        rawValue.capitalized
+    }
+}
+
 @Model
 final class TrainingPlan {
     var id: UUID = UUID()
@@ -8,12 +18,17 @@ final class TrainingPlan {
     var goalDescription: String = ""
     var raceDistance: Double?
     var raceDate: Date?
-    var difficulty: String = "intermediate"
+    var difficultyRaw: String = DifficultyLevel.intermediate.rawValue
     var startDate: Date = Date()
     var endDate: Date = Date()
     var weeklyMileageTargetKm: Double = 0
     var rawAIResponse: String = ""
     var createdAt: Date = Date()
+
+    var difficulty: DifficultyLevel {
+        get { DifficultyLevel(rawValue: difficultyRaw) ?? .intermediate }
+        set { difficultyRaw = newValue.rawValue }
+    }
 
     @Relationship(deleteRule: .cascade, inverse: \TrainingWeek.plan)
     var weeks: [TrainingWeek]? = []
@@ -28,7 +43,7 @@ final class TrainingPlan {
 
     init() {}
 
-    init(name: String, goalDescription: String, raceDistance: Double? = nil, raceDate: Date? = nil, difficulty: String = "intermediate", startDate: Date, endDate: Date, weeklyMileageTargetKm: Double = 0) {
+    init(name: String, goalDescription: String, raceDistance: Double? = nil, raceDate: Date? = nil, difficulty: DifficultyLevel = .intermediate, startDate: Date, endDate: Date, weeklyMileageTargetKm: Double = 0) {
         self.name = name
         self.goalDescription = goalDescription
         self.raceDistance = raceDistance

@@ -8,7 +8,7 @@ struct TrainingPlanTests {
     func defaultInit() {
         let plan = TrainingPlan()
         #expect(plan.name == "")
-        #expect(plan.difficulty == "intermediate")
+        #expect(plan.difficulty == .intermediate)
         #expect(plan.totalWeeks == 0)
     }
 
@@ -16,12 +16,12 @@ struct TrainingPlanTests {
     func customInit() {
         let plan = TrainingPlan(
             name: "Half Marathon Plan", goalDescription: "Sub 1:45 half",
-            raceDistance: 21097.5, difficulty: "advanced",
+            raceDistance: 21097.5, difficulty: .advanced,
             startDate: Date(), endDate: Date(), weeklyMileageTargetKm: 50
         )
         #expect(plan.name == "Half Marathon Plan")
         #expect(plan.raceDistance == 21097.5)
-        #expect(plan.difficulty == "advanced")
+        #expect(plan.difficulty == .advanced)
     }
 
     @Test("Workout type properties")
