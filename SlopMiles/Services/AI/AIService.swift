@@ -15,6 +15,9 @@ final class AIService {
     private let toolExecutor = ToolExecutor()
     private var keychainService: KeychainService
 
+    /// Override for testing — when set, `generatePlan` uses this instead of building a real provider.
+    var providerOverride: AIProvider?
+
     var generationStatus: GenerationStatus = .complete
     var totalTokensUsed: Int = 0
 
@@ -37,7 +40,7 @@ final class AIService {
         generationStatus = .starting
         totalTokensUsed = 0
 
-        let provider = makeProvider(for: settings)
+        let provider = providerOverride ?? makeProvider(for: settings)
         let tools = settings.provider == .anthropic
             ? ToolDefinitions.anthropicTools()
             : ToolDefinitions.openAITools()
