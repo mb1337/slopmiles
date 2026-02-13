@@ -39,8 +39,8 @@ actor ToolExecutor {
             result = VDOTTool.projectRaceTime(vdot: vdot, distanceMeters: distance)
 
         case "calculate_hr_zones":
-            let maxHR = toolCall.arguments["max_hr"] as? Int
-            let lthr = toolCall.arguments["lthr"] as? Int
+            let maxHR = (toolCall.arguments["max_hr"] as? NSNumber)?.intValue
+            let lthr = (toolCall.arguments["lthr"] as? NSNumber)?.intValue
             result = HeartRateZoneTool.calculateZones(maxHR: maxHR, lthr: lthr)
 
         case "convert_pace":
@@ -56,7 +56,7 @@ actor ToolExecutor {
         case "get_weather_forecast":
             let lat = toolCall.arguments["latitude"] as? Double ?? 0
             let lon = toolCall.arguments["longitude"] as? Double ?? 0
-            let days = toolCall.arguments["days"] as? Int ?? 7
+            let days = (toolCall.arguments["days"] as? NSNumber)?.intValue ?? 7
             result = await WeatherTool.getForecast(latitude: lat, longitude: lon, days: days)
 
         default:
