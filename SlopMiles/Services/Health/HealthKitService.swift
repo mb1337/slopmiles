@@ -138,12 +138,17 @@ final class HealthKitService {
 
     private func fetchAverageRunningHeartRate(from startDate: Date) async -> Double? {
         guard let hrType = HKQuantityType.quantityType(forIdentifier: .heartRate) else { return nil }
-        let predicate = HKQuery.predicateForSamples(withStart: startDate, end: Date(), options: .strictStartDate)
+
+        let workouts = await fetchRunningWorkouts(from: startDate, to: Date())
+        guard !workouts.isEmpty else { return nil }
+
+        let workoutPredicates = workouts.map { HKQuery.predicateForObjects(from: $0) }
+        let workoutPredicate = NSCompoundPredicate(orPredicateWithSubpredicates: workoutPredicates)
 
         return await withCheckedContinuation { continuation in
             let query = HKStatisticsQuery(
                 quantityType: hrType,
-                quantitySamplePredicate: predicate,
+                quantitySamplePredicate: workoutPredicate,
                 options: .discreteAverage
             ) { _, result, _ in
                 let avg = result?.averageQuantity()?.doubleValue(for: HKUnit.count().unitDivided(by: .minute()))
