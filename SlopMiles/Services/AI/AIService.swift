@@ -57,46 +57,55 @@ final class AIService {
         var messages: [AIMessage] = [.user(userPrompt)]
         let maxRounds = 10
 
-        for _ in 0..<maxRounds {
-            generationStatus = .sendingToAI
+        do {
+            for _ in 0..<maxRounds {
+                generationStatus = .sendingToAI
 
-            let response = try await provider.sendMessages(
-                messages,
-                systemPrompt: systemPrompt,
-                tools: tools,
-                model: settings.selectedModel
-            )
+                let response = try await provider.sendMessages(
+                    messages,
+                    systemPrompt: systemPrompt,
+                    tools: tools,
+                    model: settings.selectedModel
+                )
 
-            if let usage = response.usage {
-                totalTokensUsed += usage.inputTokens + usage.outputTokens
-            }
-
-            messages.append(response.message)
-
-            if response.stopReason == .toolUse, let toolCalls = response.message.toolCalls {
-                for toolCall in toolCalls {
-                    generationStatus = .executingTool(toolCall.name)
+                if let usage = response.usage {
+                    totalTokensUsed += usage.inputTokens + usage.outputTokens
                 }
 
-                let results = await toolExecutor.executeAll(toolCalls)
+                messages.append(response.message)
 
-                for result in results {
-                    messages.append(AIMessage(
-                        role: .tool,
-                        content: result.jsonString,
-                        toolCallId: result.toolCallId
-                    ))
+                if response.stopReason == .toolUse, let toolCalls = response.message.toolCalls {
+                    for toolCall in toolCalls {
+                        generationStatus = .executingTool(toolCall.name)
+                    }
+
+                    let results = await toolExecutor.executeAll(toolCalls)
+
+                    for result in results {
+                        messages.append(AIMessage(
+                            role: .tool,
+                            content: result.jsonString,
+                            toolCallId: result.toolCallId
+                        ))
+                    }
+
+                    continue
                 }
 
-                continue
+                generationStatus = .parsingResponse
+                let content = response.message.content
+                generationStatus = .complete
+                return content
             }
 
-            generationStatus = .parsingResponse
-            return response.message.content
+            generationStatus = .failed("Max conversation rounds exceeded")
+            throw AIProviderError.modelError("AI conversation exceeded maximum rounds")
+        } catch {
+            if case .complete = generationStatus { } else {
+                generationStatus = .failed(error.localizedDescription)
+            }
+            throw error
         }
-
-        generationStatus = .failed("Max conversation rounds exceeded")
-        throw AIProviderError.modelError("AI conversation exceeded maximum rounds")
     }
 
     func validateKey(provider: AIProviderType, key: String) async throws -> Bool {
