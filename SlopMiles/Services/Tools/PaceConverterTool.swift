@@ -11,6 +11,10 @@ struct PaceConverterTool {
     static let kmPerMile = 1.60934
 
     static func convert(value: Double, from fromUnit: String, to toUnit: String) -> [String: Any] {
+        guard value > 0 else {
+            return ["error": "Value must be greater than 0"]
+        }
+
         guard let from = PaceUnit(rawValue: fromUnit),
               let to = PaceUnit(rawValue: toUnit) else {
             return ["error": "Invalid unit. Use: min_per_km, min_per_mile, km_per_hour, mph"]
