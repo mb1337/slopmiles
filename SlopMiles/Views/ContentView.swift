@@ -5,10 +5,27 @@ struct ContentView: View {
     @Environment(AppState.self) private var appState
     @Query private var aiSettings: [AISettings]
 
+    private let keychain = KeychainService()
+
+    /// True only when onboarding was completed AND an API key for the
+    /// selected provider exists on this device. CloudKit syncs the
+    /// SwiftData flag, but the Keychain is device-local — so a new
+    /// device may have `hasCompletedOnboarding == true` with no key.
+    private var isFullyOnboarded: Bool {
+        guard let settings = aiSettings.first,
+              settings.hasCompletedOnboarding else {
+            return false
+        }
+        switch settings.provider {
+        case .anthropic: return keychain.anthropicAPIKey != nil
+        case .openai:    return keychain.openAIAPIKey != nil
+        }
+    }
+
     var body: some View {
         Group {
-            if let settings = aiSettings.first {
-                if settings.hasCompletedOnboarding {
+            if aiSettings.first != nil {
+                if isFullyOnboarded {
                     MainTabView()
                 } else {
                     OnboardingView()
