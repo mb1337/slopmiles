@@ -5,7 +5,6 @@ struct APIKeyStepView: View {
     let onContinue: () -> Void
     @Environment(AppState.self) private var appState
     @Query private var aiSettings: [AISettings]
-    @Environment(\.modelContext) private var modelContext
 
     @State private var selectedProvider: AIProviderType = .anthropic
     @State private var apiKey = ""
@@ -13,11 +12,9 @@ struct APIKeyStepView: View {
     @State private var validationError: String?
     @State private var isValid = false
 
-    private var settings: AISettings {
-        if let existing = aiSettings.first { return existing }
-        let s = AISettings()
-        modelContext.insert(s)
-        return s
+    /// Read-only access to the singleton AISettings seeded at app launch.
+    private var settings: AISettings? {
+        aiSettings.first
     }
 
     var body: some View {
@@ -53,18 +50,20 @@ struct APIKeyStepView: View {
                 }
                 .padding(.horizontal)
 
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Model").font(.subheadline.bold())
-                    Picker("Model", selection: selectedProvider == .anthropic ?
-                           Binding(get: { settings.anthropicModel }, set: { settings.anthropicModel = $0 }) :
-                           Binding(get: { settings.openAIModel }, set: { settings.openAIModel = $0 })) {
-                        ForEach(selectedProvider.availableModels, id: \.self) { model in
-                            Text(model).tag(model)
+                if let settings {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Model").font(.subheadline.bold())
+                        Picker("Model", selection: selectedProvider == .anthropic ?
+                               Binding(get: { settings.anthropicModel }, set: { settings.anthropicModel = $0 }) :
+                               Binding(get: { settings.openAIModel }, set: { settings.openAIModel = $0 })) {
+                            ForEach(selectedProvider.availableModels, id: \.self) { model in
+                                Text(model).tag(model)
+                            }
                         }
+                        .pickerStyle(.menu)
                     }
-                    .pickerStyle(.menu)
+                    .padding(.horizontal)
                 }
-                .padding(.horizontal)
 
                 Spacer()
 
@@ -97,7 +96,7 @@ struct APIKeyStepView: View {
                 case .anthropic: appState.keychainService.setAnthropicAPIKey(apiKey)
                 case .openai: appState.keychainService.setOpenAIAPIKey(apiKey)
                 }
-                if saved { settings.provider = selectedProvider; isValid = true }
+                if saved { settings?.provider = selectedProvider; isValid = true }
                 else { validationError = "Failed to save API key to Keychain." }
             } else { validationError = "API key validation failed." }
         } catch { validationError = error.localizedDescription }

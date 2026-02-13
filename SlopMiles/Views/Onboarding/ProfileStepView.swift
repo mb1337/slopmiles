@@ -4,7 +4,6 @@ import SwiftData
 struct ProfileStepView: View {
     let onContinue: () -> Void
     @Query private var profiles: [UserProfile]
-    @Environment(\.modelContext) private var modelContext
 
     @State private var experienceLevel: ExperienceLevel = .intermediate
     @State private var weeklyMileage: Double = 20
@@ -12,11 +11,9 @@ struct ProfileStepView: View {
     @State private var injuryNotes = ""
     @State private var maxHR = ""
 
-    private var profile: UserProfile {
-        if let existing = profiles.first { return existing }
-        let p = UserProfile()
-        modelContext.insert(p)
-        return p
+    /// Read-only access to the singleton UserProfile seeded at app launch.
+    private var profile: UserProfile? {
+        profiles.first
     }
 
     var body: some View {
@@ -76,7 +73,7 @@ struct ProfileStepView: View {
     }
 
     private func saveProfile() {
-        let p = profile
+        guard let p = profile else { return }
         p.experienceLevel = experienceLevel
         p.currentWeeklyMileageKm = unitPreference == .imperial ? UnitConverter.milesToKm(weeklyMileage) : weeklyMileage
         p.unitPreference = unitPreference
