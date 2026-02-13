@@ -1,0 +1,106 @@
+import SwiftUI
+import SwiftData
+
+struct APIKeyStepView: View {
+    let onContinue: () -> Void
+    @Environment(AppState.self) private var appState
+    @Query private var aiSettings: [AISettings]
+    @Environment(\.modelContext) private var modelContext
+
+    @State private var selectedProvider: AIProviderType = .anthropic
+    @State private var apiKey = ""
+    @State private var isValidating = false
+    @State private var validationError: String?
+    @State private var isValid = false
+
+    private var settings: AISettings {
+        if let existing = aiSettings.first { return existing }
+        let s = AISettings()
+        modelContext.insert(s)
+        return s
+    }
+
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 24) {
+                VStack(spacing: 8) {
+                    Text("AI Provider").font(.title2.bold())
+                    Text("Choose your AI provider and enter your API key.")
+                        .font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                }
+                .padding(.top, 32)
+
+                Picker("Provider", selection: $selectedProvider) {
+                    ForEach(AIProviderType.allCases, id: \.self) { provider in
+                        Text(provider.displayName).tag(provider)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .padding(.horizontal)
+                .onChange(of: selectedProvider) { apiKey = ""; isValid = false; validationError = nil }
+
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("API Key").font(.subheadline.bold())
+                    SecureField("Enter your \(selectedProvider.displayName) API key", text: $apiKey)
+                        .textFieldStyle(.roundedBorder).textContentType(.password).autocorrectionDisabled()
+                    if let error = validationError {
+                        Text(error).font(.caption).foregroundStyle(.red)
+                    }
+                    if isValid {
+                        Label("API key is valid", systemImage: "checkmark.circle.fill")
+                            .font(.caption).foregroundStyle(.green)
+                    }
+                }
+                .padding(.horizontal)
+
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Model").font(.subheadline.bold())
+                    Picker("Model", selection: selectedProvider == .anthropic ?
+                           Binding(get: { settings.anthropicModel }, set: { settings.anthropicModel = $0 }) :
+                           Binding(get: { settings.openAIModel }, set: { settings.openAIModel = $0 })) {
+                        ForEach(selectedProvider.availableModels, id: \.self) { model in
+                            Text(model).tag(model)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                }
+                .padding(.horizontal)
+
+                Spacer()
+
+                VStack(spacing: 12) {
+                    Button {
+                        Task { await validateAndSave() }
+                    } label: {
+                        if isValidating { ProgressView().frame(maxWidth: .infinity) }
+                        else { Text("Validate & Save").frame(maxWidth: .infinity) }
+                    }
+                    .buttonStyle(.borderedProminent).controlSize(.large)
+                    .disabled(apiKey.isEmpty || isValidating)
+
+                    Button("Continue", action: onContinue)
+                        .controlSize(.large).disabled(!isValid)
+                }
+                .padding(.horizontal)
+                .padding(.bottom, 32)
+            }
+        }
+    }
+
+    private func validateAndSave() async {
+        isValidating = true
+        validationError = nil
+        do {
+            let valid = try await appState.aiService.validateKey(provider: selectedProvider, key: apiKey)
+            if valid {
+                let saved: Bool = switch selectedProvider {
+                case .anthropic: appState.keychainService.setAnthropicAPIKey(apiKey)
+                case .openai: appState.keychainService.setOpenAIAPIKey(apiKey)
+                }
+                if saved { settings.provider = selectedProvider; isValid = true }
+                else { validationError = "Failed to save API key to Keychain." }
+            } else { validationError = "API key validation failed." }
+        } catch { validationError = error.localizedDescription }
+        isValidating = false
+    }
+}

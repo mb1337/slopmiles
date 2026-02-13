@@ -1,0 +1,54 @@
+name: SlopMiles
+options:
+  bundleIdPrefix: com.slopmiles
+  deploymentTarget:
+    iOS: "18.0"
+  xcodeVersion: "16.0"
+  generateEmptyDirectories: true
+
+packages:
+  VDotCalculator:
+    url: https://github.com/mb1337/vdot-calc-swift
+    from: "1.0.0"
+
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    TARGETED_DEVICE_FAMILY: "1"
+
+targets:
+  SlopMiles:
+    type: application
+    platform: iOS
+    sources:
+      - SlopMiles
+    dependencies:
+      - package: VDotCalculator
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.slopmiles.app
+        INFOPLIST_FILE: SlopMiles/Resources/Info.plist
+        CODE_SIGN_ENTITLEMENTS: SlopMiles/Resources/SlopMiles.entitlements
+        DEVELOPMENT_TEAM: ""
+    entitlements:
+      path: SlopMiles/Resources/SlopMiles.entitlements
+      properties:
+        com.apple.developer.healthkit: true
+        com.apple.developer.healthkit.access:
+          - health-records
+        com.apple.developer.icloud-container-identifiers:
+          - iCloud.com.slopmiles.app
+        com.apple.developer.icloud-services:
+          - CloudKit
+
+  SlopMilesTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - SlopMilesTests
+    dependencies:
+      - target: SlopMiles
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.slopmiles.app.tests
+        GENERATE_INFOPLIST_FILE: YES

@@ -1,0 +1,46 @@
+import SwiftUI
+import SwiftData
+
+struct PlanDetailView: View {
+    let plan: TrainingPlan
+    @Environment(AppState.self) private var appState
+    @Query private var profiles: [UserProfile]
+
+    private var unitPref: UnitPreference { profiles.first?.unitPreference ?? .metric }
+
+    var body: some View {
+        List {
+            Section {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(plan.goalDescription).font(.subheadline)
+                    HStack(spacing: 16) {
+                        Label("\(plan.totalWeeks) weeks", systemImage: "calendar")
+                        Label(plan.difficulty.capitalized, systemImage: "gauge.with.needle")
+                    }
+                    .font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            ForEach(plan.sortedWeeks) { week in
+                Section("Week \(week.weekNumber) \u{2014} \(week.theme)") {
+                    ForEach(week.sortedWorkouts) { workout in
+                        NavigationLink(value: workout) { WorkoutRowView(workout: workout, unitPref: unitPref) }
+                    }
+                    HStack { Text("Total").foregroundStyle(.secondary); Spacer(); Text(UnitConverter.formatDistance(week.totalDistanceKm, unit: unitPref)).foregroundStyle(.secondary) }.font(.caption)
+                }
+            }
+        }
+        .navigationTitle(plan.name)
+        .navigationDestination(for: PlannedWorkout.self) { WorkoutDetailView(workout: $0) }
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Menu {
+                    Button("Schedule Next Week to Watch") {
+                        if let week = plan.sortedWeeks.first(where: { $0.sortedWorkouts.contains { $0.completionStatus == .planned } }) {
+                            Task { try? await appState.workoutKitService.scheduleWeek(week) }
+                        }
+                    }
+                } label: { Image(systemName: "ellipsis.circle") }
+            }
+        }
+    }
+}

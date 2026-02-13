@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleName</key>
+    <string>Slop Miles</string>
+    <key>CFBundleDisplayName</key>
+    <string>Slop Miles</string>
+    <key>CFBundleIdentifier</key>
+    <string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+    <key>CFBundleVersion</key>
+    <string>1</string>
+    <key>CFBundleShortVersionString</key>
+    <string>1.0.0</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleExecutable</key>
+    <string>$(EXECUTABLE_NAME)</string>
+    <key>LSRequiresIPhoneOS</key>
+    <true/>
+    <key>UILaunchScreen</key>
+    <dict/>
+    <key>UISupportedInterfaceOrientations</key>
+    <array>
+        <string>UIInterfaceOrientationPortrait</string>
+    </array>
+    <key>NSHealthShareUsageDescription</key>
+    <string>Slop Miles reads your running history to personalize training plans with accurate fitness data.</string>
+    <key>NSHealthUpdateUsageDescription</key>
+    <string>Slop Miles saves scheduled workouts to your health data.</string>
+    <key>NSLocationWhenInUseUsageDescription</key>
+    <string>Slop Miles uses your location to check weather conditions for workout scheduling.</string>
+</dict>
+</plist>

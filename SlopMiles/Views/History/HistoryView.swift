@@ -1,0 +1,53 @@
+import SwiftUI
+import HealthKit
+
+struct HistoryView: View {
+    @Environment(AppState.self) private var appState
+    @State private var workouts: [HKWorkout] = []
+    @State private var isLoading = false
+
+    var body: some View {
+        NavigationStack {
+            Group {
+                if !appState.healthKitService.isAuthorized {
+                    ContentUnavailableView { Label("No Health Access", systemImage: "heart.slash") }
+                        description: { Text("Enable HealthKit access in Settings to see your run history.") }
+                        actions: { Button("Request Access") { Task { await appState.healthKitService.requestAuthorization() } }.buttonStyle(.borderedProminent) }
+                } else if isLoading {
+                    ProgressView("Loading runs...")
+                } else if workouts.isEmpty {
+                    ContentUnavailableView("No Runs Found", systemImage: "figure.run", description: Text("Your recent running workouts will appear here."))
+                } else {
+                    List(workouts, id: \.uuid) { workout in
+                        HStack {
+                            Image(systemName: "figure.run").foregroundStyle(.blue)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(DateFormatters.shortDate.string(from: workout.startDate)).font(.subheadline)
+                                HStack(spacing: 8) {
+                                    if let d = workout.totalDistance { Text(String(format: "%.1f km", d.doubleValue(for: .meterUnit(with: .kilo)))) }
+                                    Text(String(format: "%.0f min", workout.duration / 60))
+                                    if let d = workout.totalDistance {
+                                        let km = d.doubleValue(for: .meterUnit(with: .kilo))
+                                        if km > 0 { Text(UnitConverter.formatPace((workout.duration / 60) / km, unit: .metric)) }
+                                    }
+                                }
+                                .font(.caption).foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                        }
+                    }
+                }
+            }
+            .navigationTitle("History")
+            .task { await loadWorkouts() }
+        }
+    }
+
+    private func loadWorkouts() async {
+        guard appState.healthKitService.isAuthorized else { return }
+        isLoading = true
+        let ninetyDaysAgo = Calendar.current.date(byAdding: .day, value: -90, to: Date())!
+        workouts = await appState.healthKitService.fetchRunningWorkouts(from: ninetyDaysAgo, to: Date())
+        isLoading = false
+    }
+}
