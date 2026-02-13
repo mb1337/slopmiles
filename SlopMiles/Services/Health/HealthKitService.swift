@@ -92,18 +92,22 @@ final class HealthKitService {
         let workouts = await fetchRunningWorkouts(from: startDate, to: endDate)
         let calendar = Calendar.current
 
-        var weeklyDistances: [Int: Double] = [:]
+        var weeklyDistances: [String: Double] = [:]
         for workout in workouts {
-            let weekOfYear = calendar.component(.weekOfYear, from: workout.startDate)
+            let year = calendar.component(.yearForWeekOfYear, from: workout.startDate)
+            let week = calendar.component(.weekOfYear, from: workout.startDate)
+            let key = "\(year)-W\(week)"
             let distance = workout.totalDistance?.doubleValue(for: .meterUnit(with: .kilo)) ?? 0
-            weeklyDistances[weekOfYear, default: 0] += distance
+            weeklyDistances[key, default: 0] += distance
         }
 
         var result: [Double] = []
         var date = startDate
         while date < endDate {
+            let year = calendar.component(.yearForWeekOfYear, from: date)
             let week = calendar.component(.weekOfYear, from: date)
-            result.append(weeklyDistances[week] ?? 0)
+            let key = "\(year)-W\(week)"
+            result.append(weeklyDistances[key] ?? 0)
             date = calendar.date(byAdding: .weekOfYear, value: 1, to: date) ?? endDate
         }
 
