@@ -30,14 +30,7 @@ targets:
         INFOPLIST_FILE: SlopMiles/Resources/Info.plist
         CODE_SIGN_ENTITLEMENTS: SlopMiles/Resources/SlopMiles.entitlements
         DEVELOPMENT_TEAM: ""
-    entitlements:
-      path: SlopMiles/Resources/SlopMiles.entitlements
-      properties:
-        com.apple.developer.healthkit: true
-        com.apple.developer.icloud-container-identifiers:
-          - iCloud.com.slopmiles.app
-        com.apple.developer.icloud-services:
-          - CloudKit
+        SWIFT_STRICT_CONCURRENCY: complete
 
   SlopMilesTests:
     type: bundle.unit-test
