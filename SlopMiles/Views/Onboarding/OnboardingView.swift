@@ -11,9 +11,24 @@ struct OnboardingView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            ProgressView(value: Double(currentStep), total: Double(totalSteps - 1))
+            HStack {
+                Button {
+                    previousStep()
+                } label: {
+                    Image(systemName: "chevron.left")
+                        .font(.body.weight(.semibold))
+                }
+                .opacity(currentStep > 0 ? 1 : 0)
+                .disabled(currentStep == 0)
+
+                Spacer()
+            }
+            .padding(.horizontal)
+            .padding(.top, 8)
+
+            ProgressView(value: Double(currentStep), total: Double(totalSteps))
                 .padding(.horizontal)
-                .padding(.top, 8)
+                .padding(.top, 4)
 
             TabView(selection: $currentStep) {
                 WelcomeStepView(onContinue: nextStep)
@@ -33,6 +48,12 @@ struct OnboardingView: View {
             }
             .tabViewStyle(.page(indexDisplayMode: .never))
             .animation(.easeInOut, value: currentStep)
+        }
+    }
+
+    private func previousStep() {
+        if currentStep > 0 {
+            currentStep -= 1
         }
     }
 
