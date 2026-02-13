@@ -1,12 +1,13 @@
 import SwiftUI
 import SwiftData
 
-@main
-struct SlopMilesApp: App {
-    @State private var appState = AppState()
+// MARK: - Schema Versioning
 
-    var sharedModelContainer: ModelContainer = {
-        let schema = Schema([
+enum SchemaV1: VersionedSchema {
+    static let versionIdentifier = Schema.Version(1, 0, 0)
+
+    static var models: [any PersistentModel.Type] {
+        [
             TrainingPlan.self,
             TrainingWeek.self,
             PlannedWorkout.self,
@@ -15,14 +16,40 @@ struct SlopMilesApp: App {
             WeeklySchedule.self,
             RunnerEquipment.self,
             AISettings.self,
-        ])
+        ]
+    }
+}
+
+enum SlopMilesMigrationPlan: SchemaMigrationPlan {
+    static var schemas: [any VersionedSchema.Type] {
+        [SchemaV1.self]
+    }
+
+    static var stages: [MigrationStage] {
+        // No migrations yet — add stages here when SchemaV2 is introduced.
+        []
+    }
+}
+
+// MARK: - App
+
+@main
+struct SlopMilesApp: App {
+    @State private var appState = AppState()
+
+    var sharedModelContainer: ModelContainer = {
+        let schema = Schema(versionedSchema: SchemaV1.self)
         let modelConfiguration = ModelConfiguration(
             schema: schema,
             isStoredInMemoryOnly: false,
             cloudKitDatabase: .automatic
         )
         do {
-            return try ModelContainer(for: schema, configurations: [modelConfiguration])
+            return try ModelContainer(
+                for: schema,
+                migrationPlan: SlopMilesMigrationPlan.self,
+                configurations: [modelConfiguration]
+            )
         } catch {
             fatalError("Could not create ModelContainer: \(error)")
         }
