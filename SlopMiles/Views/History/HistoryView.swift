@@ -1,10 +1,16 @@
 import SwiftUI
+import SwiftData
 import HealthKit
 
 struct HistoryView: View {
     @Environment(AppState.self) private var appState
+    @Query private var profiles: [UserProfile]
     @State private var workouts: [HKWorkout] = []
     @State private var isLoading = false
+
+    private var unitPreference: UnitPreference {
+        profiles.first?.unitPreference ?? .metric
+    }
 
     var body: some View {
         NavigationStack {
@@ -24,11 +30,14 @@ struct HistoryView: View {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(DateFormatters.shortDate(from: workout.startDate)).font(.subheadline)
                                 HStack(spacing: 8) {
-                                    if let d = workout.totalDistance { Text(String(format: "%.1f km", d.doubleValue(for: .meterUnit(with: .kilo)))) }
+                                    if let d = workout.totalDistance {
+                                        let km = d.doubleValue(for: .meterUnit(with: .kilo))
+                                        Text(UnitConverter.formatDistance(km, unit: unitPreference))
+                                    }
                                     Text(String(format: "%.0f min", workout.duration / 60))
                                     if let d = workout.totalDistance {
                                         let km = d.doubleValue(for: .meterUnit(with: .kilo))
-                                        if km > 0 { Text(UnitConverter.formatPace((workout.duration / 60) / km, unit: .metric)) }
+                                        if km > 0 { Text(UnitConverter.formatPace((workout.duration / 60) / km, unit: unitPreference)) }
                                     }
                                 }
                                 .font(.caption).foregroundStyle(.secondary)
