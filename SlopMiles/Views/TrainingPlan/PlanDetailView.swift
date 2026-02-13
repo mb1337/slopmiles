@@ -5,6 +5,8 @@ struct PlanDetailView: View {
     let plan: TrainingPlan
     @Environment(AppState.self) private var appState
     @Query private var profiles: [UserProfile]
+    @State private var errorMessage: String?
+    @State private var showError = false
 
     private var unitPref: UnitPreference { profiles.first?.unitPreference ?? .metric }
 
@@ -36,11 +38,23 @@ struct PlanDetailView: View {
                 Menu {
                     Button("Schedule Next Week to Watch") {
                         if let week = plan.sortedWeeks.first(where: { $0.sortedWorkouts.contains { $0.completionStatus == .planned } }) {
-                            Task { try? await appState.workoutKitService.scheduleWeek(week) }
+                            Task {
+                                do {
+                                    try await appState.workoutKitService.scheduleWeek(week)
+                                } catch {
+                                    errorMessage = error.localizedDescription
+                                    showError = true
+                                }
+                            }
                         }
                     }
                 } label: { Image(systemName: "ellipsis.circle") }
             }
+        }
+        .alert("Scheduling Error", isPresented: $showError) {
+            Button("OK") {}
+        } message: {
+            Text(errorMessage ?? "")
         }
     }
 }

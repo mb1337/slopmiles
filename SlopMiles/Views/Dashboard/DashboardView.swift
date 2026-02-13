@@ -81,6 +81,8 @@ private struct NextWorkoutCard: View {
     let workout: PlannedWorkout
     let unitPref: UnitPreference
     @Environment(AppState.self) private var appState
+    @State private var errorMessage: String?
+    @State private var showError = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -98,7 +100,16 @@ private struct NextWorkoutCard: View {
             }
             .foregroundStyle(.secondary)
             if workout.completionStatus != .scheduled {
-                Button("Schedule to Watch") { Task { try? await appState.workoutKitService.scheduleWorkout(workout) } }
+                Button("Schedule to Watch") {
+                    Task {
+                        do {
+                            try await appState.workoutKitService.scheduleWorkout(workout)
+                        } catch {
+                            errorMessage = error.localizedDescription
+                            showError = true
+                        }
+                    }
+                }
                     .buttonStyle(.borderedProminent).controlSize(.small)
             } else {
                 Label("Scheduled on Watch", systemImage: "applewatch").font(.caption).foregroundStyle(.green)
@@ -106,6 +117,11 @@ private struct NextWorkoutCard: View {
         }
         .padding()
         .background(.fill.quaternary, in: RoundedRectangle(cornerRadius: 16))
+        .alert("Scheduling Error", isPresented: $showError) {
+            Button("OK") {}
+        } message: {
+            Text(errorMessage ?? "")
+        }
     }
 }
 

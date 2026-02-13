@@ -5,6 +5,8 @@ struct WorkoutDetailView: View {
     let workout: PlannedWorkout
     @Environment(AppState.self) private var appState
     @Query private var profiles: [UserProfile]
+    @State private var errorMessage: String?
+    @State private var showError = false
 
     private var unitPref: UnitPreference { profiles.first?.unitPreference ?? .metric }
 
@@ -58,7 +60,16 @@ struct WorkoutDetailView: View {
             if !workout.notes.isEmpty { Section("Notes") { Text(workout.notes).font(.subheadline) } }
             Section {
                 if workout.completionStatus == .planned {
-                    Button("Schedule to Watch") { Task { try? await appState.workoutKitService.scheduleWorkout(workout) } }
+                    Button("Schedule to Watch") {
+                        Task {
+                            do {
+                                try await appState.workoutKitService.scheduleWorkout(workout)
+                            } catch {
+                                errorMessage = error.localizedDescription
+                                showError = true
+                            }
+                        }
+                    }
                 }
                 if workout.completionStatus == .planned || workout.completionStatus == .scheduled {
                     Button("Mark as Completed") { workout.completionStatus = .completed }
@@ -67,5 +78,10 @@ struct WorkoutDetailView: View {
             }
         }
         .navigationTitle(workout.name)
+        .alert("Scheduling Error", isPresented: $showError) {
+            Button("OK") {}
+        } message: {
+            Text(errorMessage ?? "")
+        }
     }
 }
