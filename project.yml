@@ -34,8 +34,6 @@ targets:
       path: SlopMiles/Resources/SlopMiles.entitlements
       properties:
         com.apple.developer.healthkit: true
-        com.apple.developer.healthkit.access:
-          - health-records
         com.apple.developer.icloud-container-identifiers:
           - iCloud.com.slopmiles.app
         com.apple.developer.icloud-services:
