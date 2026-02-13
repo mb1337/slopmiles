@@ -76,6 +76,8 @@ private struct DayScheduleRow: View {
                 Text(DateFormatters.dayName(for: day.dayOfWeek)).font(.subheadline.bold())
                 Spacer()
                 Toggle("", isOn: $day.isAvailable).labelsHidden()
+                    .accessibilityLabel("\(DateFormatters.dayName(for: day.dayOfWeek)) available")
+                    .accessibilityHint(day.isAvailable ? "Currently enabled, double tap to mark as rest day" : "Currently rest day, double tap to enable")
             }
             if day.isAvailable {
                 HStack {
@@ -83,11 +85,13 @@ private struct DayScheduleRow: View {
                         get: { day.startDate },
                         set: { let c = Calendar.current.dateComponents([.hour, .minute], from: $0); day.startMinutes = (c.hour ?? 0) * 60 + (c.minute ?? 0) }
                     ), displayedComponents: .hourAndMinute).labelsHidden()
+                        .accessibilityLabel("\(DateFormatters.dayName(for: day.dayOfWeek)) start time")
                     Text("to").foregroundStyle(.secondary)
                     DatePicker("End", selection: Binding(
                         get: { day.endDate },
                         set: { let c = Calendar.current.dateComponents([.hour, .minute], from: $0); day.endMinutes = (c.hour ?? 0) * 60 + (c.minute ?? 0) }
                     ), displayedComponents: .hourAndMinute).labelsHidden()
+                        .accessibilityLabel("\(DateFormatters.dayName(for: day.dayOfWeek)) end time")
                     Spacer()
                     Text("\(day.endMinutes - day.startMinutes) min").font(.caption).foregroundStyle(.secondary)
                 }

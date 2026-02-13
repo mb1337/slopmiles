@@ -18,10 +18,10 @@ struct WorkoutRowView: View {
             }
             Spacer()
             switch workout.completionStatus {
-            case .completed: Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
-            case .scheduled: Image(systemName: "applewatch").foregroundStyle(.blue)
-            case .skipped: Image(systemName: "xmark.circle").foregroundStyle(.orange)
-            case .planned: Image(systemName: "circle").foregroundStyle(.quaternary)
+            case .completed: Image(systemName: "checkmark.circle.fill").foregroundStyle(.green).accessibilityLabel("Completed")
+            case .scheduled: Image(systemName: "applewatch").foregroundStyle(.blue).accessibilityLabel("Scheduled on Watch")
+            case .skipped: Image(systemName: "xmark.circle").foregroundStyle(.orange).accessibilityLabel("Skipped")
+            case .planned: Image(systemName: "circle").foregroundStyle(.quaternary).accessibilityLabel("Planned")
             }
         }
     }

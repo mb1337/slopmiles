@@ -111,6 +111,7 @@ private struct NextWorkoutCard: View {
                     }
                 }
                     .buttonStyle(.borderedProminent).controlSize(.small)
+                    .accessibilityLabel("Schedule \(workout.name) to Apple Watch")
             } else {
                 Label("Scheduled on Watch", systemImage: "applewatch").font(.caption).foregroundStyle(.green)
             }
@@ -142,10 +143,10 @@ private struct WeekOverviewCard: View {
                     Spacer()
                     if workout.distanceKm > 0 { Text(UnitConverter.formatDistance(workout.distanceKm, unit: unitPref)).font(.caption).foregroundStyle(.secondary) }
                     switch workout.completionStatus {
-                    case .completed: Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
-                    case .scheduled: Image(systemName: "applewatch").foregroundStyle(.blue)
-                    case .skipped: Image(systemName: "xmark.circle.fill").foregroundStyle(.orange)
-                    case .planned: Image(systemName: "circle").foregroundStyle(.secondary)
+                    case .completed: Image(systemName: "checkmark.circle.fill").foregroundStyle(.green).accessibilityLabel("Completed")
+                    case .scheduled: Image(systemName: "applewatch").foregroundStyle(.blue).accessibilityLabel("Scheduled on Watch")
+                    case .skipped: Image(systemName: "xmark.circle.fill").foregroundStyle(.orange).accessibilityLabel("Skipped")
+                    case .planned: Image(systemName: "circle").foregroundStyle(.secondary).accessibilityLabel("Planned")
                     }
                 }
             }

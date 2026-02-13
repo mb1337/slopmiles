@@ -49,5 +49,6 @@ private struct FeatureRow: View {
                 Text(description).font(.caption).foregroundStyle(.secondary)
             }
         }
+        .accessibilityElement(children: .combine)
     }
 }
