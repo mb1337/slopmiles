@@ -49,28 +49,88 @@ struct WorkoutMapper {
         let workAndRecoverySteps = steps.filter { $0.stepType == .work || $0.stepType == .recovery }
         guard !workAndRecoverySteps.isEmpty else { return [] }
 
-        var blocks: [IntervalBlock] = []
-        var i = 0
+        // Partition steps into segments: each segment is either a run of consecutive
+        // steps sharing the same non-zero groupId, or a maximal run of consecutive
+        // steps with groupId == 0 (ungrouped).
+        struct Segment {
+            let steps: [PlannedWorkoutStep]
+            let isGrouped: Bool  // true when groupId != 0
+        }
 
-        while i < workAndRecoverySteps.count {
-            let step = workAndRecoverySteps[i]
+        var segments: [Segment] = []
+        var currentSteps: [PlannedWorkoutStep] = []
+        var currentGroupId: Int? = nil
 
-            if step.stepType == .work {
-                let workInterval = IntervalStep(.work, goal: mapGoal(step), alert: mapAlert(step))
-
-                if i + 1 < workAndRecoverySteps.count && workAndRecoverySteps[i + 1].stepType == .recovery {
-                    let recoveryStep = workAndRecoverySteps[i + 1]
-                    let recoveryInterval = IntervalStep(.recovery, goal: mapGoal(recoveryStep))
-
-                    let intervals = [workInterval, recoveryInterval]
-                    blocks.append(IntervalBlock(steps: intervals, iterations: step.repeatCount))
-                    i += 2
+        for step in workAndRecoverySteps {
+            if step.groupId != 0 {
+                // Grouped step — flush any pending ungrouped segment first.
+                if currentGroupId == nil && !currentSteps.isEmpty {
+                    segments.append(Segment(steps: currentSteps, isGrouped: false))
+                    currentSteps = []
+                }
+                // If continuing the same group, accumulate. Otherwise flush and start new.
+                if currentGroupId == step.groupId {
+                    currentSteps.append(step)
                 } else {
-                    blocks.append(IntervalBlock(steps: [workInterval], iterations: step.repeatCount))
-                    i += 1
+                    if currentGroupId != nil && !currentSteps.isEmpty {
+                        segments.append(Segment(steps: currentSteps, isGrouped: true))
+                        currentSteps = []
+                    }
+                    currentGroupId = step.groupId
+                    currentSteps.append(step)
                 }
             } else {
-                i += 1
+                // Ungrouped step — flush any pending grouped segment first.
+                if currentGroupId != nil && !currentSteps.isEmpty {
+                    segments.append(Segment(steps: currentSteps, isGrouped: true))
+                    currentSteps = []
+                    currentGroupId = nil
+                }
+                currentSteps.append(step)
+            }
+        }
+        if !currentSteps.isEmpty {
+            segments.append(Segment(steps: currentSteps, isGrouped: currentGroupId != nil))
+        }
+
+        var blocks: [IntervalBlock] = []
+
+        for segment in segments {
+            if segment.isGrouped {
+                // Grouped interval block: all steps become interval steps, the first
+                // step's repeatCount determines iterations for the whole group.
+                let iterations = segment.steps.first?.repeatCount ?? 1
+                var intervals: [IntervalStep] = []
+                for step in segment.steps {
+                    if step.stepType == .work {
+                        intervals.append(IntervalStep(.work, goal: mapGoal(step), alert: mapAlert(step)))
+                    } else {
+                        intervals.append(IntervalStep(.recovery, goal: mapGoal(step)))
+                    }
+                }
+                if !intervals.isEmpty {
+                    blocks.append(IntervalBlock(steps: intervals, iterations: iterations))
+                }
+            } else {
+                // Ungrouped: use legacy work+recovery pairing logic.
+                var i = 0
+                while i < segment.steps.count {
+                    let step = segment.steps[i]
+                    if step.stepType == .work {
+                        let workInterval = IntervalStep(.work, goal: mapGoal(step), alert: mapAlert(step))
+                        if i + 1 < segment.steps.count && segment.steps[i + 1].stepType == .recovery {
+                            let recoveryStep = segment.steps[i + 1]
+                            let recoveryInterval = IntervalStep(.recovery, goal: mapGoal(recoveryStep))
+                            blocks.append(IntervalBlock(steps: [workInterval, recoveryInterval], iterations: step.repeatCount))
+                            i += 2
+                        } else {
+                            blocks.append(IntervalBlock(steps: [workInterval], iterations: step.repeatCount))
+                            i += 1
+                        }
+                    } else {
+                        i += 1
+                    }
+                }
             }
         }
 

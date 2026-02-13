@@ -21,10 +21,15 @@ final class PlannedWorkoutStep {
     var stepTypeRaw: String = StepType.work.rawValue
     var name: String = ""
     var goalTypeRaw: String = StepGoalType.open.rawValue
+    /// Goal value in WorkoutKit native units: distance in meters, time in seconds.
     var goalValue: Double?
     var targetPaceMinPerKm: Double?
     var hrZone: Int?
     var repeatCount: Int = 1
+    /// Steps sharing the same non-zero groupId form an interval repeat group.
+    /// The repeatCount on the first step in the group sets the iteration count.
+    /// A groupId of 0 means the step is ungrouped (legacy behavior).
+    var groupId: Int = 0
 
     var workout: PlannedWorkout?
 
@@ -40,7 +45,7 @@ final class PlannedWorkoutStep {
 
     init() {}
 
-    init(order: Int, stepType: StepType, name: String = "", goalType: StepGoalType = .open, goalValue: Double? = nil, targetPaceMinPerKm: Double? = nil, hrZone: Int? = nil, repeatCount: Int = 1) {
+    init(order: Int, stepType: StepType, name: String = "", goalType: StepGoalType = .open, goalValue: Double? = nil, targetPaceMinPerKm: Double? = nil, hrZone: Int? = nil, repeatCount: Int = 1, groupId: Int = 0) {
         self.order = order
         self.stepTypeRaw = stepType.rawValue
         self.name = name
@@ -49,5 +54,6 @@ final class PlannedWorkoutStep {
         self.targetPaceMinPerKm = targetPaceMinPerKm
         self.hrZone = hrZone
         self.repeatCount = repeatCount
+        self.groupId = groupId
     }
 }

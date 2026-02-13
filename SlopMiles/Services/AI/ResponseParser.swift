@@ -115,6 +115,7 @@ struct ResponseParser {
         step.targetPaceMinPerKm = dict["target_pace_min_per_km"] as? Double
         step.hrZone = dict["hr_zone"] as? Int
         step.repeatCount = dict["repeat_count"] as? Int ?? 1
+        step.groupId = dict["group_id"] as? Int ?? 0
 
         return step
     }
