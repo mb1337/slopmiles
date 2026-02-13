@@ -55,6 +55,16 @@ struct GeneratePlanView: View {
             }
             .navigationTitle("New Plan")
             .toolbar {
+                if isGenerating {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Cancel", role: .cancel) {
+                            generationTask?.cancel()
+                            generationTask = nil
+                            isGenerating = false
+                            errorMessage = nil
+                        }
+                    }
+                }
                 ToolbarItem(placement: .primaryAction) {
                     Button("Generate") {
                         generationTask = Task { await generate(profile: profile, schedule: schedule, equipment: equipment, settings: settings) }
@@ -97,9 +107,18 @@ struct GeneratePlanView: View {
 
 struct GenerationProgressView: View {
     let status: GenerationStatus
+    private var isInProgress: Bool {
+        switch status {
+        case .starting, .sendingToAI, .executingTool, .parsingResponse: return true
+        case .complete, .failed: return false
+        }
+    }
+
     var body: some View {
         HStack(spacing: 12) {
-            ProgressView()
+            if isInProgress {
+                ProgressView()
+            }
             switch status {
             case .starting: Text("Starting...")
             case .sendingToAI: Text("Thinking...")
