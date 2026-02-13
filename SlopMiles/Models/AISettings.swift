@@ -19,6 +19,7 @@ enum AIProviderType: String, Codable, CaseIterable {
         }
     }
 
+    // TODO: Update model IDs periodically as new versions are released.
     var availableModels: [String] {
         switch self {
         case .anthropic: return ["claude-sonnet-4-5-20250929", "claude-haiku-4-5-20251001"]
