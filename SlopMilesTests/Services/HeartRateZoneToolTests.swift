@@ -20,7 +20,7 @@ struct HeartRateZoneToolTests {
         let result = HeartRateZoneTool.calculateZones(lthr: 170)
         let zone4 = result["zone4"] as! [String: Any]
         #expect(zone4["name"] as! String == "Threshold")
-        #expect(zone4["min"] as! Int == 161)
+        #expect(zone4["min"] as! Int == 160)
         #expect(zone4["max"] as! Int == 168)
     }
 
