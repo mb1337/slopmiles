@@ -48,8 +48,22 @@ final class WorkoutKitService {
     }
 
     func removeScheduledWorkout(_ workout: PlannedWorkout) async throws {
+        let custom = WorkoutMapper.mapToCustomWorkout(workout)
+        let plan = WorkoutPlan(.custom(custom))
+
+        let dateComponents = Calendar.current.dateComponents(
+            [.year, .month, .day, .hour, .minute],
+            from: workout.scheduledDate
+        )
+
+        try await Self.unscheduleWorkout(plan, at: dateComponents)
+
         workout.completionStatus = .planned
         workout.watchScheduleID = nil
+    }
+
+    private nonisolated static func unscheduleWorkout(_ plan: WorkoutPlan, at dateComponents: DateComponents) async throws {
+        try await WorkoutScheduler.shared.remove(plan, at: dateComponents)
     }
 
     func scheduleWeek(_ week: TrainingWeek) async throws {
