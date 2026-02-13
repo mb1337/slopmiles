@@ -7,23 +7,27 @@ struct KeychainService: Sendable {
     func save(key: String, value: String) -> Bool {
         guard let data = value.data(using: .utf8) else { return false }
 
-        let deleteQuery: [String: Any] = [
+        let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: serviceName,
             kSecAttrAccount as String: key,
         ]
-        SecItemDelete(deleteQuery as CFDictionary)
 
-        let addQuery: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: serviceName,
-            kSecAttrAccount as String: key,
+        let attributes: [String: Any] = [
             kSecValueData as String: data,
-            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock,
+            kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlocked,
         ]
 
-        let status = SecItemAdd(addQuery as CFDictionary, nil)
-        return status == errSecSuccess
+        let updateStatus = SecItemUpdate(query as CFDictionary, attributes as CFDictionary)
+
+        if updateStatus == errSecItemNotFound {
+            var addQuery = query
+            addQuery[kSecValueData as String] = data
+            addQuery[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlocked
+            return SecItemAdd(addQuery as CFDictionary, nil) == errSecSuccess
+        }
+
+        return updateStatus == errSecSuccess
     }
 
     func read(key: String) -> String? {
@@ -54,7 +58,16 @@ struct KeychainService: Sendable {
     }
 
     func hasKey(_ key: String) -> Bool {
-        read(key: key) != nil
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: serviceName,
+            kSecAttrAccount as String: key,
+            kSecReturnAttributes as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne,
+        ]
+
+        var result: AnyObject?
+        return SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess
     }
 
     var anthropicAPIKey: String? {
