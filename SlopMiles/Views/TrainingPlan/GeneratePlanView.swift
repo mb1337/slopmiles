@@ -18,52 +18,63 @@ struct GeneratePlanView: View {
     @State private var isGenerating = false
     @State private var errorMessage: String?
 
-    private var profile: UserProfile { profiles.first ?? UserProfile() }
-    private var schedule: WeeklySchedule { schedules.first ?? WeeklySchedule() }
-    private var equipment: RunnerEquipment { equipmentList.first ?? RunnerEquipment() }
-    private var settings: AISettings { aiSettings.first ?? AISettings() }
-
     var body: some View {
-        Form {
-            Section("Goal") {
-                Toggle("Training for a race", isOn: $hasRace)
-                if hasRace {
-                    Picker("Distance", selection: $selectedRaceDistance) {
-                        Text("Select").tag(nil as Double?)
-                        ForEach(Constants.RaceDistances.all, id: \.meters) { Text($0.name).tag($0.meters as Double?) }
+        if let profile = profiles.first, let schedule = schedules.first,
+           let equipment = equipmentList.first, let settings = aiSettings.first {
+            Form {
+                Section("Goal") {
+                    Toggle("Training for a race", isOn: $hasRace)
+                    if hasRace {
+                        Picker("Distance", selection: $selectedRaceDistance) {
+                            Text("Select").tag(nil as Double?)
+                            ForEach(Constants.RaceDistances.all, id: \.meters) { Text($0.name).tag($0.meters as Double?) }
+                        }
+                        DatePicker("Race Date", selection: $raceDate, displayedComponents: .date)
                     }
-                    DatePicker("Race Date", selection: $raceDate, displayedComponents: .date)
+                    TextField("Describe your goal", text: $goalDescription, axis: .vertical).lineLimit(2...4)
                 }
-                TextField("Describe your goal", text: $goalDescription, axis: .vertical).lineLimit(2...4)
-            }
-            Section("Schedule") {
-                DatePicker("Start Date", selection: $startDate, displayedComponents: .date)
-                HStack {
-                    Text("Duration"); Spacer()
-                    let weeks = Calendar.current.dateComponents([.weekOfYear], from: startDate, to: hasRace ? raceDate : Calendar.current.date(byAdding: .month, value: 3, to: startDate)!).weekOfYear ?? 12
-                    Text("\(weeks) weeks").foregroundStyle(.secondary)
+                Section("Schedule") {
+                    DatePicker("Start Date", selection: $startDate, displayedComponents: .date)
+                    HStack {
+                        Text("Duration"); Spacer()
+                        let weeks = Calendar.current.dateComponents([.weekOfYear], from: startDate, to: hasRace ? raceDate : Calendar.current.date(byAdding: .month, value: 3, to: startDate)!).weekOfYear ?? 12
+                        Text("\(weeks) weeks").foregroundStyle(.secondary)
+                    }
+                }
+                Section("AI Coach") {
+                    HStack { Text("Provider"); Spacer(); Text(settings.provider.displayName).foregroundStyle(.secondary) }
+                    HStack { Text("Model"); Spacer(); Text(settings.selectedModel).foregroundStyle(.secondary) }
+                }
+                if isGenerating {
+                    Section("Generating...") { GenerationProgressView(status: appState.aiService.generationStatus) }
+                }
+                if let error = errorMessage {
+                    Section { Text(error).foregroundStyle(.red).font(.caption) }
                 }
             }
-            Section("AI Coach") {
-                HStack { Text("Provider"); Spacer(); Text(settings.provider.displayName).foregroundStyle(.secondary) }
-                HStack { Text("Model"); Spacer(); Text(settings.selectedModel).foregroundStyle(.secondary) }
+            .navigationTitle("New Plan")
+            .toolbar {
+                ToolbarItem(placement: .primaryAction) {
+                    Button("Generate") {
+                        Task { await generate(profile: profile, schedule: schedule, equipment: equipment, settings: settings) }
+                    }.disabled(isGenerating || goalDescription.isEmpty)
+                }
             }
-            if isGenerating {
-                Section("Generating...") { GenerationProgressView(status: appState.aiService.generationStatus) }
-            }
-            if let error = errorMessage {
-                Section { Text(error).foregroundStyle(.red).font(.caption) }
-            }
-        }
-        .navigationTitle("New Plan")
-        .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                Button("Generate") { Task { await generate() } }.disabled(isGenerating || goalDescription.isEmpty)
-            }
+        } else {
+            ProgressView("Loading profile...")
+                .navigationTitle("New Plan")
+                .task { ensureModelsExist() }
         }
     }
 
-    private func generate() async {
+    private func ensureModelsExist() {
+        if profiles.first == nil { modelContext.insert(UserProfile()) }
+        if schedules.first == nil { modelContext.insert(WeeklySchedule()) }
+        if equipmentList.first == nil { modelContext.insert(RunnerEquipment()) }
+        if aiSettings.first == nil { modelContext.insert(AISettings()) }
+    }
+
+    private func generate(profile: UserProfile, schedule: WeeklySchedule, equipment: RunnerEquipment, settings: AISettings) async {
         isGenerating = true; errorMessage = nil
         let endDate = hasRace ? raceDate : Calendar.current.date(byAdding: .month, value: 3, to: startDate)!
         let stats: RunningStats = appState.healthKitService.isAuthorized ? await appState.healthKitService.fetchRunningStats() : RunningStats()

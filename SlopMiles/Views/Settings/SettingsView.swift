@@ -5,65 +5,67 @@ struct SettingsView: View {
     @Environment(AppState.self) private var appState
     @Query private var aiSettings: [AISettings]
     @Query private var profiles: [UserProfile]
-    @Environment(\.modelContext) private var modelContext
-
-    private var settings: AISettings { aiSettings.first ?? AISettings() }
-    private var profile: UserProfile { profiles.first ?? UserProfile() }
 
     var body: some View {
         NavigationStack {
-            List {
-                Section("AI Provider") {
-                    Picker("Provider", selection: Binding(
-                        get: { settings.provider },
-                        set: { settings.provider = $0 }
-                    )) {
-                        ForEach(AIProviderType.allCases, id: \.self) { Text($0.displayName).tag($0) }
-                    }
+            if let settings = aiSettings.first, let profile = profiles.first {
+                List {
+                    Section("AI Provider") {
+                        Picker("Provider", selection: Binding(
+                            get: { settings.provider },
+                            set: { settings.provider = $0 }
+                        )) {
+                            ForEach(AIProviderType.allCases, id: \.self) { Text($0.displayName).tag($0) }
+                        }
 
-                    Picker("Model", selection: settings.provider == .anthropic ?
-                           Binding(get: { settings.anthropicModel }, set: { settings.anthropicModel = $0 }) :
-                           Binding(get: { settings.openAIModel }, set: { settings.openAIModel = $0 })) {
-                        ForEach(settings.provider.availableModels, id: \.self) { Text($0).tag($0) }
-                    }
+                        Picker("Model", selection: settings.provider == .anthropic ?
+                               Binding(get: { settings.anthropicModel }, set: { settings.anthropicModel = $0 }) :
+                               Binding(get: { settings.openAIModel }, set: { settings.openAIModel = $0 })) {
+                            ForEach(settings.provider.availableModels, id: \.self) { Text($0).tag($0) }
+                        }
 
-                    NavigationLink("Update API Key") { APIKeySettingsView() }
+                        NavigationLink("Update API Key") { APIKeySettingsView() }
 
-                    HStack {
-                        Text("API Key"); Spacer()
-                        let hasKey = settings.provider == .anthropic
-                            ? appState.keychainService.hasKey("anthropic_api_key")
-                            : appState.keychainService.hasKey("openai_api_key")
-                        Text(hasKey ? "Configured" : "Not Set")
-                            .foregroundStyle(hasKey ? .green : .red)
-                    }
-                }
-
-                Section("Profile") {
-                    LabeledContent("Experience", value: profile.experienceLevel.displayName)
-                    LabeledContent("Weekly Mileage", value: UnitConverter.formatDistance(profile.currentWeeklyMileageKm, unit: profile.unitPreference))
-                    LabeledContent("Units", value: profile.unitPreference == .metric ? "Metric" : "Imperial")
-                }
-
-                Section("Health & Watch") {
-                    HStack {
-                        Text("HealthKit"); Spacer()
-                        Text(appState.healthKitService.isAuthorized ? "Connected" : "Not Connected")
-                            .foregroundStyle(appState.healthKitService.isAuthorized ? .green : .secondary)
-                    }
-                    if !appState.healthKitService.isAuthorized {
-                        Button("Connect HealthKit") {
-                            Task { await appState.healthKitService.requestAuthorization() }
+                        HStack {
+                            Text("API Key"); Spacer()
+                            let hasKey = settings.provider == .anthropic
+                                ? appState.keychainService.hasKey("anthropic_api_key")
+                                : appState.keychainService.hasKey("openai_api_key")
+                            Text(hasKey ? "Configured" : "Not Set")
+                                .foregroundStyle(hasKey ? .green : .red)
                         }
                     }
-                }
 
-                Section("About") {
-                    LabeledContent("Version", value: "1.0.0")
-                    LabeledContent("License", value: "MIT")
+                    Section("Profile") {
+                        LabeledContent("Experience", value: profile.experienceLevel.displayName)
+                        LabeledContent("Weekly Mileage", value: UnitConverter.formatDistance(profile.currentWeeklyMileageKm, unit: profile.unitPreference))
+                        LabeledContent("Units", value: profile.unitPreference == .metric ? "Metric" : "Imperial")
+                    }
+
+                    Section("Health & Watch") {
+                        HStack {
+                            Text("HealthKit"); Spacer()
+                            Text(appState.healthKitService.isAuthorized ? "Connected" : "Not Connected")
+                                .foregroundStyle(appState.healthKitService.isAuthorized ? .green : .secondary)
+                        }
+                        if !appState.healthKitService.isAuthorized {
+                            Button("Connect HealthKit") {
+                                Task { await appState.healthKitService.requestAuthorization() }
+                            }
+                        }
+                    }
+
+                    Section("About") {
+                        LabeledContent("Version", value: "1.0.0")
+                        LabeledContent("License", value: "MIT")
+                    }
                 }
+                .navigationTitle("Settings")
+            } else {
+                // Singleton models are seeded at app launch; this shows briefly on first launch.
+                ProgressView("Loading settings...")
+                    .navigationTitle("Settings")
             }
-            .navigationTitle("Settings")
         }
     }
 }
@@ -76,27 +78,30 @@ struct APIKeySettingsView: View {
     @State private var message: String?
     @State private var isError = false
 
-    private var settings: AISettings { aiSettings.first ?? AISettings() }
-
     var body: some View {
-        Form {
-            Section { SecureField("API Key", text: $apiKey).textContentType(.password) }
-            if let message {
-                Section { Text(message).foregroundStyle(isError ? .red : .green).font(.caption) }
-            }
-            Section {
-                Button {
-                    Task { await validateAndSave() }
-                } label: {
-                    if isValidating { ProgressView() } else { Text("Validate & Save") }
+        if let settings = aiSettings.first {
+            Form {
+                Section { SecureField("API Key", text: $apiKey).textContentType(.password) }
+                if let message {
+                    Section { Text(message).foregroundStyle(isError ? .red : .green).font(.caption) }
                 }
-                .disabled(apiKey.isEmpty || isValidating)
+                Section {
+                    Button {
+                        Task { await validateAndSave(settings: settings) }
+                    } label: {
+                        if isValidating { ProgressView() } else { Text("Validate & Save") }
+                    }
+                    .disabled(apiKey.isEmpty || isValidating)
+                }
             }
+            .navigationTitle("API Key")
+        } else {
+            ContentUnavailableView("Settings Not Found", systemImage: "gear.badge.xmark", description: Text("AI settings are not configured yet."))
+                .navigationTitle("API Key")
         }
-        .navigationTitle("API Key")
     }
 
-    private func validateAndSave() async {
+    private func validateAndSave(settings: AISettings) async {
         isValidating = true; message = nil
         do {
             let valid = try await appState.aiService.validateKey(provider: settings.provider, key: apiKey)
