@@ -8,20 +8,30 @@ final class WorkoutKitService {
     var authorizationError: String?
 
     func requestAuthorization() async {
-        let status = await Self.fetchAuthorizationState()
+        var status = await Self.fetchAuthorizationState()
+
+        if status == .notDetermined {
+            await Self.performAuthorizationRequest()
+            status = await Self.fetchAuthorizationState()
+        }
+
         switch status {
         case .authorized:
             isAuthorized = true
-        case .notDetermined:
-            isAuthorized = false
         default:
             isAuthorized = false
-            authorizationError = "WorkoutKit authorization denied. Enable in Settings > Privacy > Health."
+            if status != .notDetermined {
+                authorizationError = "WorkoutKit authorization denied. Enable in Settings > Privacy > Health."
+            }
         }
     }
 
     private nonisolated static func fetchAuthorizationState() async -> WorkoutScheduler.AuthorizationState {
         await WorkoutScheduler.shared.authorizationState
+    }
+
+    private nonisolated static func performAuthorizationRequest() async {
+        await WorkoutScheduler.shared.requestAuthorization()
     }
 
     func scheduleWorkout(_ workout: PlannedWorkout) async throws {
