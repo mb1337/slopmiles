@@ -17,6 +17,7 @@ struct GeneratePlanView: View {
     @State private var hasRace = true
     @State private var isGenerating = false
     @State private var errorMessage: String?
+    @State private var generationTask: Task<Void, Never>?
 
     var body: some View {
         if let profile = profiles.first, let schedule = schedules.first,
@@ -56,10 +57,14 @@ struct GeneratePlanView: View {
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
                     Button("Generate") {
-                        Task { await generate(profile: profile, schedule: schedule, equipment: equipment, settings: settings) }
+                        generationTask = Task { await generate(profile: profile, schedule: schedule, equipment: equipment, settings: settings) }
                     }.disabled(isGenerating || goalDescription.isEmpty)
                 }
             }
+        .onDisappear {
+            generationTask?.cancel()
+            generationTask = nil
+        }
         } else {
             ProgressView("Loading profile...")
                 .navigationTitle("New Plan")
@@ -83,6 +88,8 @@ struct GeneratePlanView: View {
             let plan = try ResponseParser.parsePlan(from: responseText, startDate: startDate, context: modelContext)
             plan.goalDescription = goalDescription; plan.raceDistance = selectedRaceDistance; plan.raceDate = hasRace ? raceDate : nil
             try modelContext.save(); dismiss()
+        } catch is CancellationError {
+            // Task was cancelled (e.g. user navigated away), no error to show
         } catch { errorMessage = error.localizedDescription }
         isGenerating = false
     }

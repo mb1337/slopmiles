@@ -59,6 +59,7 @@ final class AIService {
 
         do {
             for _ in 0..<maxRounds {
+                try Task.checkCancellation()
                 generationStatus = .sendingToAI
 
                 let response = try await provider.sendMessages(
@@ -80,6 +81,7 @@ final class AIService {
                     }
 
                     let results = await toolExecutor.executeAll(toolCalls)
+                    try Task.checkCancellation()
 
                     for result in results {
                         messages.append(AIMessage(
@@ -90,6 +92,10 @@ final class AIService {
                     }
 
                     continue
+                }
+
+                if response.stopReason == .maxTokens {
+                    throw AIProviderError.modelError("Response was truncated — try a shorter plan")
                 }
 
                 generationStatus = .parsingResponse
