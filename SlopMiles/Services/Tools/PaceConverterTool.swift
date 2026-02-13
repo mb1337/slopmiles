@@ -8,8 +8,6 @@ struct PaceConverterTool {
         case mph = "mph"
     }
 
-    static let kmPerMile = 1.60934
-
     static func convert(value: Double, from fromUnit: String, to toUnit: String) -> [String: JSONValue] {
         guard value > 0 else {
             return ["error": "Value must be greater than 0"]
@@ -22,16 +20,16 @@ struct PaceConverterTool {
 
         let minPerKm: Double = switch from {
         case .minPerKm: value
-        case .minPerMile: value / kmPerMile
+        case .minPerMile: value / Constants.kmPerMile
         case .kmPerHour: 60.0 / value
-        case .mph: 60.0 / (value * kmPerMile)
+        case .mph: 60.0 / (value * Constants.kmPerMile)
         }
 
         let result: Double = switch to {
         case .minPerKm: minPerKm
-        case .minPerMile: minPerKm * kmPerMile
+        case .minPerMile: minPerKm * Constants.kmPerMile
         case .kmPerHour: 60.0 / minPerKm
-        case .mph: 60.0 / (minPerKm * kmPerMile)
+        case .mph: 60.0 / (minPerKm * Constants.kmPerMile)
         }
 
         let rounded = round(result * 100) / 100
@@ -44,7 +42,7 @@ struct PaceConverterTool {
     private static func formatResult(_ value: Double, unit: PaceUnit) -> String {
         switch unit {
         case .minPerKm, .minPerMile:
-            let totalSeconds = Int(value * 60)
+            let totalSeconds = Int((value * 60).rounded())
             let minutes = totalSeconds / 60
             let seconds = totalSeconds % 60
             return String(format: "%d:%02d %@", minutes, seconds, unit == .minPerKm ? "/km" : "/mi")

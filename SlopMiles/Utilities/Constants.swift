@@ -20,6 +20,8 @@ enum Constants {
         static let openAIAPIKey = "openai_api_key"
     }
 
+    static let kmPerMile = 1.60934
+
     enum Defaults {
         static let maxConversationRounds = 10
         static let maxTokens = 8192

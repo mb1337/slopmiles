@@ -1,22 +1,20 @@
 import Foundation
 
 struct UnitConverter {
-    static let kmPerMile = 1.60934
-
     static func kmToMiles(_ km: Double) -> Double {
-        km / kmPerMile
+        km / Constants.kmPerMile
     }
 
     static func milesToKm(_ miles: Double) -> Double {
-        miles * kmPerMile
+        miles * Constants.kmPerMile
     }
 
     static func minPerKmToMinPerMile(_ minPerKm: Double) -> Double {
-        minPerKm * kmPerMile
+        minPerKm * Constants.kmPerMile
     }
 
     static func minPerMileToMinPerKm(_ minPerMile: Double) -> Double {
-        minPerMile / kmPerMile
+        minPerMile / Constants.kmPerMile
     }
 
     static func formatDistance(_ km: Double, unit: UnitPreference) -> String {
@@ -39,7 +37,7 @@ struct UnitConverter {
             pace = minPerKmToMinPerMile(minPerKm)
             label = "/mi"
         }
-        let totalSeconds = Int(pace * 60)
+        let totalSeconds = Int((pace * 60).rounded())
         let minutes = totalSeconds / 60
         let seconds = totalSeconds % 60
         return String(format: "%d:%02d%@", minutes, seconds, label)

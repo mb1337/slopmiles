@@ -39,16 +39,17 @@ struct VDOTTool {
     }
 
     static func formatPace(_ minPerKm: Double) -> String {
-        let totalSeconds = Int(minPerKm * 60)
+        let totalSeconds = Int((minPerKm * 60).rounded())
         let minutes = totalSeconds / 60
         let seconds = totalSeconds % 60
         return String(format: "%d:%02d", minutes, seconds)
     }
 
     static func formatDuration(_ totalSeconds: Double) -> String {
-        let hours = Int(totalSeconds) / 3600
-        let minutes = (Int(totalSeconds) % 3600) / 60
-        let seconds = Int(totalSeconds) % 60
+        let rounded = Int(totalSeconds.rounded())
+        let hours = rounded / 3600
+        let minutes = (rounded % 3600) / 60
+        let seconds = rounded % 60
         if hours > 0 {
             return String(format: "%d:%02d:%02d", hours, minutes, seconds)
         }
