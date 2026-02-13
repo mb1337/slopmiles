@@ -39,20 +39,31 @@ struct SlopMilesApp: App {
         }
     }
 
-    /// Seed singleton SwiftData models once at app launch so views never
-    /// need to create them during body evaluation.
+    /// Ensure exactly one instance of each singleton SwiftData model exists.
+    ///
+    /// On first launch this seeds the default instance. On subsequent launches
+    /// it deduplicates — CloudKit sync can create duplicates across devices
+    /// because `@Attribute(.unique)` is not compatible with CloudKit.
+    /// We keep the first fetched instance and delete any extras.
     private func ensureSingletonModelsExist() {
         let context = sharedModelContainer.mainContext
-        func ensureExists<T: PersistentModel>(_ type: T.Type, create: () -> T) {
+
+        func deduplicateAndEnsure<T: PersistentModel>(_ type: T.Type, create: () -> T) {
             let descriptor = FetchDescriptor<T>()
-            let count = (try? context.fetchCount(descriptor)) ?? 0
-            if count == 0 {
+            let all = (try? context.fetch(descriptor)) ?? []
+            if all.isEmpty {
                 context.insert(create())
+            } else if all.count > 1 {
+                // Keep the first instance, delete the rest
+                for duplicate in all.dropFirst() {
+                    context.delete(duplicate)
+                }
             }
         }
-        ensureExists(AISettings.self) { AISettings() }
-        ensureExists(UserProfile.self) { UserProfile() }
-        ensureExists(WeeklySchedule.self) { WeeklySchedule() }
-        ensureExists(RunnerEquipment.self) { RunnerEquipment() }
+
+        deduplicateAndEnsure(AISettings.self) { AISettings() }
+        deduplicateAndEnsure(UserProfile.self) { UserProfile() }
+        deduplicateAndEnsure(WeeklySchedule.self) { WeeklySchedule() }
+        deduplicateAndEnsure(RunnerEquipment.self) { RunnerEquipment() }
     }
 }
