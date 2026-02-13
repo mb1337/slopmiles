@@ -73,7 +73,7 @@ final class OpenAIProvider: AIProvider, @unchecked Sendable {
     private func encodeMessage(_ message: AIMessage) -> [String: Any]? {
         switch message.role {
         case .system:
-            return ["role": "system", "content": message.content]
+            return nil
         case .user:
             return ["role": "user", "content": message.content]
         case .assistant:
