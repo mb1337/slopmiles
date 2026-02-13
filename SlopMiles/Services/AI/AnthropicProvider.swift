@@ -30,7 +30,7 @@ final class AnthropicProvider: AIProvider, @unchecked Sendable {
             "max_tokens": 8192,
             "system": systemPrompt,
             "tools": tools,
-            "messages": messages.compactMap { encodeMessage($0) },
+            "messages": encodeMessages(messages),
         ]
 
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
@@ -74,6 +74,40 @@ final class AnthropicProvider: AIProvider, @unchecked Sendable {
         return httpResponse.statusCode == 200
     }
 
+    /// Encode messages for the Anthropic API, consolidating consecutive tool-result
+    /// messages into a single ``user`` message with multiple ``tool_result`` content blocks.
+    /// The Anthropic API requires strictly alternating user/assistant roles, so each
+    /// tool-result message cannot be its own ``user`` message.
+    private func encodeMessages(_ messages: [AIMessage]) -> [[String: Any]] {
+        var encoded: [[String: Any]] = []
+        var i = 0
+        while i < messages.count {
+            let message = messages[i]
+            if message.role == .tool {
+                // Gather all consecutive .tool messages into one user message
+                var toolResultBlocks: [[String: Any]] = []
+                while i < messages.count && messages[i].role == .tool {
+                    toolResultBlocks.append([
+                        "type": "tool_result",
+                        "tool_use_id": messages[i].toolCallId ?? "",
+                        "content": messages[i].content,
+                    ])
+                    i += 1
+                }
+                encoded.append([
+                    "role": "user",
+                    "content": toolResultBlocks,
+                ])
+            } else if let msg = encodeMessage(message) {
+                encoded.append(msg)
+                i += 1
+            } else {
+                i += 1
+            }
+        }
+        return encoded
+    }
+
     private func encodeMessage(_ message: AIMessage) -> [String: Any]? {
         switch message.role {
         case .system:
@@ -98,6 +132,7 @@ final class AnthropicProvider: AIProvider, @unchecked Sendable {
             }
             return ["role": "assistant", "content": message.content]
         case .tool:
+            // Should not be reached when using encodeMessages, but kept for safety
             return [
                 "role": "user",
                 "content": [
