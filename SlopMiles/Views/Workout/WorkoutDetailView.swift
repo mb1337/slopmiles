@@ -7,6 +7,8 @@ struct WorkoutDetailView: View {
     @Query private var profiles: [UserProfile]
     @State private var errorMessage: String?
     @State private var showError = false
+    @State private var showCompletionConfirm = false
+    @State private var showSkipConfirm = false
 
     private var unitPref: UnitPreference { profiles.first?.unitPreference ?? .metric }
 
@@ -72,8 +74,8 @@ struct WorkoutDetailView: View {
                     }
                 }
                 if workout.completionStatus == .planned || workout.completionStatus == .scheduled {
-                    Button("Mark as Completed") { workout.completionStatus = .completed }
-                    Button("Skip Workout") { workout.completionStatus = .skipped }.foregroundStyle(.orange)
+                    Button("Mark as Completed") { showCompletionConfirm = true }
+                    Button("Skip Workout") { showSkipConfirm = true }.foregroundStyle(.orange)
                 }
             }
         }
@@ -82,6 +84,18 @@ struct WorkoutDetailView: View {
             Button("OK") {}
         } message: {
             Text(errorMessage ?? "")
+        }
+        .confirmationDialog("Mark as Completed", isPresented: $showCompletionConfirm, titleVisibility: .visible) {
+            Button("Complete Workout") { workout.completionStatus = .completed }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Are you sure you want to mark this workout as completed? This action cannot be undone.")
+        }
+        .confirmationDialog("Skip Workout", isPresented: $showSkipConfirm, titleVisibility: .visible) {
+            Button("Skip Workout", role: .destructive) { workout.completionStatus = .skipped }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Are you sure you want to skip this workout? This action cannot be undone.")
         }
     }
 }
