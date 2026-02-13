@@ -92,7 +92,7 @@ struct ResponseParser {
         let weekOffset = weekNumber - 1
         if let weekStart = calendar.date(byAdding: .weekOfYear, value: weekOffset, to: planStartDate) {
             let currentWeekday = calendar.component(.weekday, from: weekStart)
-            let dayDiff = dayOfWeek - currentWeekday
+            let dayDiff = (dayOfWeek - currentWeekday + 7) % 7
             workout.scheduledDate = calendar.date(byAdding: .day, value: dayDiff, to: weekStart) ?? planStartDate
         }
 
