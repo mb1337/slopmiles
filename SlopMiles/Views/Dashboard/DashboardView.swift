@@ -90,7 +90,7 @@ private struct NextWorkoutCard: View {
                 Image(systemName: workout.workoutType.iconName).foregroundStyle(.blue)
                 Text("Next Workout").font(.caption.bold()).foregroundStyle(.secondary)
                 Spacer()
-                Text(DateFormatters.shortDate.string(from: workout.scheduledDate)).font(.caption).foregroundStyle(.secondary)
+                Text(DateFormatters.shortDate(from: workout.scheduledDate)).font(.caption).foregroundStyle(.secondary)
             }
             Text(workout.name).font(.title3.bold())
             HStack(spacing: 16) {
@@ -137,7 +137,7 @@ private struct WeekOverviewCard: View {
                     Image(systemName: workout.workoutType.iconName).foregroundStyle(.blue).frame(width: 24)
                     VStack(alignment: .leading) {
                         Text(workout.name).font(.subheadline)
-                        Text(DateFormatters.shortDayOfWeek.string(from: workout.scheduledDate)).font(.caption).foregroundStyle(.secondary)
+                        Text(DateFormatters.shortDayOfWeek(from: workout.scheduledDate)).font(.caption).foregroundStyle(.secondary)
                     }
                     Spacer()
                     if workout.distanceKm > 0 { Text(UnitConverter.formatDistance(workout.distanceKm, unit: unitPref)).font(.caption).foregroundStyle(.secondary) }

@@ -21,7 +21,7 @@ struct PlansListView: View {
                                     HStack {
                                         Text("\(plan.totalWeeks) weeks")
                                         Text("\u{00B7}")
-                                        Text("\(DateFormatters.shortDate.string(from: plan.startDate)) \u{2013} \(DateFormatters.shortDate.string(from: plan.endDate))")
+                                        Text("\(DateFormatters.shortDate(from: plan.startDate)) \u{2013} \(DateFormatters.shortDate(from: plan.endDate))")
                                     }
                                     .font(.caption).foregroundStyle(.secondary)
                                 }

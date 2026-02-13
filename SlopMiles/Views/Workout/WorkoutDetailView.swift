@@ -17,7 +17,7 @@ struct WorkoutDetailView: View {
                     Image(systemName: workout.workoutType.iconName).font(.title2).foregroundStyle(.blue)
                     VStack(alignment: .leading) {
                         Text(workout.workoutType.displayName).font(.caption).foregroundStyle(.secondary)
-                        Text(DateFormatters.shortDate.string(from: workout.scheduledDate)).font(.caption).foregroundStyle(.secondary)
+                        Text(DateFormatters.shortDate(from: workout.scheduledDate)).font(.caption).foregroundStyle(.secondary)
                     }
                 }
                 if workout.distanceKm > 0 { LabeledContent("Distance", value: UnitConverter.formatDistance(workout.distanceKm, unit: unitPref)) }

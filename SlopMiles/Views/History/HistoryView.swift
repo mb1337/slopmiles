@@ -22,7 +22,7 @@ struct HistoryView: View {
                         HStack {
                             Image(systemName: "figure.run").foregroundStyle(.blue)
                             VStack(alignment: .leading, spacing: 2) {
-                                Text(DateFormatters.shortDate.string(from: workout.startDate)).font(.subheadline)
+                                Text(DateFormatters.shortDate(from: workout.startDate)).font(.subheadline)
                                 HStack(spacing: 8) {
                                     if let d = workout.totalDistance { Text(String(format: "%.1f km", d.doubleValue(for: .meterUnit(with: .kilo)))) }
                                     Text(String(format: "%.0f min", workout.duration / 60))

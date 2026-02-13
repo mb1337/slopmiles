@@ -10,7 +10,7 @@ struct WorkoutRowView: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(workout.name).font(.subheadline)
                 HStack(spacing: 8) {
-                    Text(DateFormatters.shortDayOfWeek.string(from: workout.scheduledDate))
+                    Text(DateFormatters.shortDayOfWeek(from: workout.scheduledDate))
                     if workout.distanceKm > 0 { Text(UnitConverter.formatDistance(workout.distanceKm, unit: unitPref)) }
                     if let pace = workout.targetPaceMinPerKm { Text(UnitConverter.formatPace(pace, unit: unitPref)) }
                 }
