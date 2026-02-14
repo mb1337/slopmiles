@@ -19,43 +19,71 @@ struct GeneratePlanView: View {
     @State private var isGenerating = false
     @State private var errorMessage: String?
     @State private var generationTask: Task<Void, Never>?
+    @State private var userResponse = ""
+
+    private var isWaitingForInput: Bool {
+        if case .waitingForInput = appState.aiService.generationStatus { return true }
+        return false
+    }
 
     var body: some View {
         if let profile = profiles.first, let schedule = schedules.first,
            let equipment = equipmentList.first, let settings = aiSettings.first {
-            Form {
-                Section("Goal") {
-                    Toggle("Training for a race", isOn: $hasRace)
-                    if hasRace {
-                        Picker("Distance", selection: $selectedRaceDistance) {
-                            Text("Select").tag(nil as Double?)
-                            ForEach(Constants.RaceDistances.all, id: \.meters) { Text($0.name).tag($0.meters as Double?) }
+            ScrollViewReader { scrollProxy in
+                Form {
+                    Section("Goal") {
+                        Toggle("Training for a race", isOn: $hasRace)
+                        if hasRace {
+                            Picker("Distance", selection: $selectedRaceDistance) {
+                                Text("Select").tag(nil as Double?)
+                                ForEach(Constants.RaceDistances.all, id: \.meters) { Text($0.name).tag($0.meters as Double?) }
+                            }
+                            DatePicker("Race Date", selection: $raceDate, displayedComponents: .date)
                         }
-                        DatePicker("Race Date", selection: $raceDate, displayedComponents: .date)
+                        TextField("Describe your goal", text: $goalDescription, axis: .vertical).lineLimit(2...4)
                     }
-                    TextField("Describe your goal", text: $goalDescription, axis: .vertical).lineLimit(2...4)
-                }
-                Section("Schedule") {
-                    DatePicker("Start Date", selection: $startDate, displayedComponents: .date)
-                    if hasRace {
-                        HStack {
-                            Text("Duration"); Spacer()
-                            let weeks = Calendar.current.dateComponents([.weekOfYear], from: startDate, to: raceDate).weekOfYear ?? 12
-                            Text("\(weeks) weeks").foregroundStyle(.secondary)
+                    Section("Schedule") {
+                        DatePicker("Start Date", selection: $startDate, displayedComponents: .date)
+                        if hasRace {
+                            HStack {
+                                Text("Duration"); Spacer()
+                                let weeks = Calendar.current.dateComponents([.weekOfYear], from: startDate, to: raceDate).weekOfYear ?? 12
+                                Text("\(weeks) weeks").foregroundStyle(.secondary)
+                            }
+                        } else {
+                            Stepper("Duration: \(planWeeks) weeks", value: $planWeeks, in: 4...52)
                         }
-                    } else {
-                        Stepper("Duration: \(planWeeks) weeks", value: $planWeeks, in: 4...52)
+                    }
+                    Section("AI Coach") {
+                        HStack { Text("Provider"); Spacer(); Text(settings.provider.displayName).foregroundStyle(.secondary) }
+                        HStack { Text("Model"); Spacer(); Text(settings.selectedModel).foregroundStyle(.secondary) }
+                    }
+                    if isGenerating {
+                        Section("Generating...") { GenerationProgressView(status: appState.aiService.generationStatus) }
+                        if case .waitingForInput(let question) = appState.aiService.generationStatus {
+                            Section("AI Question") {
+                                Text(question)
+                                TextField("Your response", text: $userResponse, axis: .vertical)
+                                    .lineLimit(2...4)
+                                Button("Send") {
+                                    appState.aiService.submitUserResponse(userResponse)
+                                    userResponse = ""
+                                }
+                                .disabled(userResponse.isEmpty)
+                            }
+                            .id("aiQuestion")
+                        }
+                    }
+                    if let error = errorMessage {
+                        Section { Text(error).foregroundStyle(.red).font(.caption) }
                     }
                 }
-                Section("AI Coach") {
-                    HStack { Text("Provider"); Spacer(); Text(settings.provider.displayName).foregroundStyle(.secondary) }
-                    HStack { Text("Model"); Spacer(); Text(settings.selectedModel).foregroundStyle(.secondary) }
-                }
-                if isGenerating {
-                    Section("Generating...") { GenerationProgressView(status: appState.aiService.generationStatus) }
-                }
-                if let error = errorMessage {
-                    Section { Text(error).foregroundStyle(.red).font(.caption) }
+                .onChange(of: isWaitingForInput) {
+                    if isWaitingForInput {
+                        withAnimation {
+                            scrollProxy.scrollTo("aiQuestion", anchor: .bottom)
+                        }
+                    }
                 }
             }
             .navigationTitle("New Plan")
@@ -63,6 +91,7 @@ struct GeneratePlanView: View {
                 if isGenerating {
                     ToolbarItem(placement: .cancellationAction) {
                         Button("Cancel", role: .cancel) {
+                            appState.aiService.cancelPendingInput()
                             generationTask?.cancel()
                             generationTask = nil
                             isGenerating = false
@@ -77,6 +106,7 @@ struct GeneratePlanView: View {
                 }
             }
         .onDisappear {
+            appState.aiService.cancelPendingInput()
             generationTask?.cancel()
             generationTask = nil
         }
@@ -115,7 +145,7 @@ struct GenerationProgressView: View {
     private var isInProgress: Bool {
         switch status {
         case .starting, .sendingToAI, .executingTool, .parsingResponse: return true
-        case .complete, .failed: return false
+        case .waitingForInput, .complete, .failed: return false
         }
     }
 
@@ -129,6 +159,7 @@ struct GenerationProgressView: View {
             case .sendingToAI: Text("Thinking...")
             case .executingTool(let name): Text("Running \(toolDisplayName(name))...")
             case .parsingResponse: Text("Building plan...")
+            case .waitingForInput: Text("Waiting for your response...")
             case .complete: Text("Done!")
             case .failed(let msg): Text("Error: \(msg)").foregroundStyle(.red)
             }

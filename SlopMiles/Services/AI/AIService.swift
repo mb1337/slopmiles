@@ -8,6 +8,7 @@ enum GenerationStatus: Sendable {
     case sendingToAI
     case executingTool(String)
     case parsingResponse
+    case waitingForInput(String)
     case complete
     case failed(String)
 }
@@ -23,6 +24,7 @@ final class AIService {
 
     var generationStatus: GenerationStatus = .complete
     var totalTokensUsed: Int = 0
+    private var pendingInputContinuation: CheckedContinuation<String, Never>?
 
     init(keychainService: KeychainService) {
         self.keychainService = keychainService
@@ -115,10 +117,21 @@ final class AIService {
                 let content = accumulatedContent + response.message.content
 
                 // If the AI responded with text that isn't JSON (e.g. asking
-                // follow-up questions), nudge it to proceed with the plan.
+                // follow-up questions), surface the question to the user.
                 if !looksLikeJSON(content) {
-                    logger.info("AI returned non-JSON text (\(content.count) chars), nudging to produce plan")
-                    messages.append(.user("Do not ask follow-up questions. Use the available tools with your best judgment for any missing data, then respond with the final JSON training plan."))
+                    logger.info("AI returned non-JSON text (\(content.count) chars), surfacing as question")
+                    generationStatus = .waitingForInput(content)
+                    let userResponse = await withCheckedContinuation { continuation in
+                        self.pendingInputContinuation = continuation
+                    }
+                    self.pendingInputContinuation = nil
+                    try Task.checkCancellation()
+
+                    if userResponse.isEmpty {
+                        messages.append(.user("Do not ask follow-up questions. Use the available tools with your best judgment for any missing data, then respond with the final JSON training plan."))
+                    } else {
+                        messages.append(.user(userResponse))
+                    }
                     continue
                 }
 
@@ -145,6 +158,16 @@ final class AIService {
         case .openRouter: OpenAICompatibleProvider.openRouter(apiKeyProvider: { key })
         }
         return try await aiProvider.validateAPIKey(key)
+    }
+
+    func submitUserResponse(_ text: String) {
+        pendingInputContinuation?.resume(returning: text)
+        pendingInputContinuation = nil
+    }
+
+    func cancelPendingInput() {
+        pendingInputContinuation?.resume(returning: "")
+        pendingInputContinuation = nil
     }
 
     private func looksLikeJSON(_ text: String) -> Bool {

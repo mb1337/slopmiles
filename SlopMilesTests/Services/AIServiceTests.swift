@@ -548,4 +548,143 @@ struct AIServiceTests {
         let result = try await callGeneratePlan(on: service)
         #expect(result == "{}")
     }
+
+    // MARK: - Follow-up question flow
+
+    @Test("AI follow-up question pauses and resumes with user response")
+    func followUpQuestionFlow() async throws {
+        let mock = MockAIProvider()
+        mock.responses = [
+            // Round 1: AI asks a follow-up question (non-JSON text)
+            AIResponse(
+                message: AIMessage(role: .assistant, content: "What is your injury history?"),
+                stopReason: .endTurn,
+                usage: AIResponse.TokenUsage(inputTokens: 100, outputTokens: 20)
+            ),
+            // Round 2: AI returns final plan after user responds
+            AIResponse(
+                message: AIMessage(role: .assistant, content: stubPlanJSON),
+                stopReason: .endTurn,
+                usage: AIResponse.TokenUsage(inputTokens: 200, outputTokens: 50)
+            ),
+        ]
+
+        let service = makeService(mock: mock)
+
+        // Start generation in a separate task
+        let resultTask = Task<String, Error> {
+            try await callGeneratePlan(on: service)
+        }
+
+        // Wait for the service to enter .waitingForInput state
+        while true {
+            if case .waitingForInput = service.generationStatus { break }
+            await Task.yield()
+        }
+
+        // Verify question is surfaced
+        if case .waitingForInput(let question) = service.generationStatus {
+            #expect(question == "What is your injury history?")
+        } else {
+            Issue.record("Expected .waitingForInput status")
+        }
+
+        // Submit user response
+        service.submitUserResponse("I had a knee injury last year")
+
+        // Await the result
+        let result = try await resultTask.value
+        #expect(result == stubPlanJSON)
+
+        // Verify the user's response appears in the message history
+        // Round 2 messages should include the user's response
+        let round2Messages = mock.receivedMessages[1]
+        let userMessages = round2Messages.filter { $0.role == .user }
+        let hasUserResponse = userMessages.contains { $0.content.contains("I had a knee injury last year") }
+        #expect(hasUserResponse)
+    }
+
+    @Test("AI follow-up question with empty response sends nudge")
+    func followUpQuestionCancelledWithNudge() async throws {
+        let mock = MockAIProvider()
+        mock.responses = [
+            // Round 1: AI asks a follow-up question
+            AIResponse(
+                message: AIMessage(role: .assistant, content: "How many days per week can you run?"),
+                stopReason: .endTurn,
+                usage: nil
+            ),
+            // Round 2: AI returns plan after nudge
+            AIResponse(
+                message: AIMessage(role: .assistant, content: stubPlanJSON),
+                stopReason: .endTurn,
+                usage: nil
+            ),
+        ]
+
+        let service = makeService(mock: mock)
+
+        let resultTask = Task<String, Error> {
+            try await callGeneratePlan(on: service)
+        }
+
+        // Wait for .waitingForInput
+        while true {
+            if case .waitingForInput = service.generationStatus { break }
+            await Task.yield()
+        }
+
+        // Cancel pending input (resumes with empty string → nudge message)
+        service.cancelPendingInput()
+
+        let result = try await resultTask.value
+        #expect(result == stubPlanJSON)
+
+        // Verify the nudge message was sent instead of user content
+        let round2Messages = mock.receivedMessages[1]
+        let userMessages = round2Messages.filter { $0.role == .user }
+        let hasNudge = userMessages.contains { $0.content.contains("Do not ask follow-up questions") }
+        #expect(hasNudge)
+    }
+
+    @Test("Status transitions through .waitingForInput during follow-up question")
+    func statusTransitionsWithFollowUpQuestion() async throws {
+        let mock = MockAIProvider()
+        mock.responses = [
+            AIResponse(
+                message: AIMessage(role: .assistant, content: "Tell me about your running experience"),
+                stopReason: .endTurn,
+                usage: nil
+            ),
+            AIResponse(
+                message: AIMessage(role: .assistant, content: stubPlanJSON),
+                stopReason: .endTurn,
+                usage: nil
+            ),
+        ]
+
+        let service = makeService(mock: mock)
+
+        let resultTask = Task<String, Error> {
+            try await callGeneratePlan(on: service)
+        }
+
+        // Wait for .waitingForInput
+        while true {
+            if case .waitingForInput = service.generationStatus { break }
+            await Task.yield()
+        }
+
+        // Resume the loop
+        service.submitUserResponse("5 years of running")
+
+        _ = try await resultTask.value
+
+        // After completion, status should be .complete
+        if case .complete = service.generationStatus {
+            // expected
+        } else {
+            Issue.record("Expected .complete but got \(service.generationStatus)")
+        }
+    }
 }
