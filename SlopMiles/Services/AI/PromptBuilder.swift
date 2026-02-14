@@ -1,12 +1,24 @@
 import Foundation
 
 struct PromptBuilder {
-    static func systemPrompt() -> String {
-        """
+    static func systemPrompt(volumeType: VolumeType = .distance) -> String {
+        let volumePhilosophy: String
+        let volumeFormat: String
+
+        switch volumeType {
+        case .distance:
+            volumePhilosophy = "- Gradual mileage increases: ALWAYS use the check_mileage_progression tool to validate your plan's weekly volumes"
+            volumeFormat = "Important: All paces must come from tool results. All distances in km. All durations in minutes. All paces in min/km."
+        case .time:
+            volumePhilosophy = "- Gradual volume increases: ALWAYS use the check_mileage_progression tool with weekly_durations_minutes to validate your plan's weekly volumes"
+            volumeFormat = "Important: All paces must come from tool results. Express weekly totals in total_duration_minutes and workout volumes in duration_minutes. Interval work segments may still use distance (meters). All paces in min/km."
+        }
+
+        return """
         You are an expert running coach creating personalized training plans. Follow these principles:
 
         ## Coaching Philosophy
-        - Gradual mileage increases: ALWAYS use the check_mileage_progression tool to validate your plan's weekly volumes
+        \(volumePhilosophy)
         - Include workout variety: easy runs, tempo runs, intervals, long runs, and recovery runs
         - Schedule recovery weeks every 3-4 weeks (30-40% volume reduction)
         - Taper appropriately before races (2-3 weeks, progressive volume reduction)
@@ -30,9 +42,9 @@ struct PromptBuilder {
         ## Output Format
         Your final response must be ONLY valid JSON matching this schema (no markdown, no explanation outside the JSON):
 
-        \(outputSchema())
+        \(outputSchema(volumeType: volumeType))
 
-        Important: All paces must come from tool results. All distances in km. All durations in minutes. All paces in min/km.
+        \(volumeFormat)
 
         ## Batching
         For long plans, you may be asked to generate only a specific range of weeks per request. When batch instructions are present:
@@ -80,9 +92,16 @@ struct PromptBuilder {
 
         ## Runner Profile
         - Experience: \(profile.experienceLevel.rawValue)
-        - Current weekly mileage: \(profile.currentWeeklyMileageKm) km
-        - Units preference: \(profile.unitPreference.rawValue)
         """
+
+        if profile.volumeType == .time {
+            prompt += "\n- Current weekly running volume: \(Int(profile.currentWeeklyVolumeMinutes)) minutes"
+            prompt += "\n- Volume type: time-based"
+        } else {
+            prompt += "\n- Current weekly mileage: \(profile.currentWeeklyMileageKm) km"
+        }
+
+        prompt += "\n- Units preference: \(profile.unitPreference.rawValue)"
 
         if !profile.injuryNotes.isEmpty {
             prompt += "\n- Injury notes: \(profile.injuryNotes)"
@@ -107,6 +126,9 @@ struct PromptBuilder {
         if let statsJSON = try? JSONSerialization.data(withJSONObject: stats.dictionaryForPrompt().mapValues(\.anyValue), options: .prettyPrinted),
            let statsStr = String(data: statsJSON, encoding: .utf8) {
             prompt += "\n\n## Recent Running Data\n\(statsStr)"
+            if profile.volumeType == .time {
+                prompt += "\nNote: HealthKit data is distance-based for VDOT/pace context. Plan volumes should be in minutes."
+            }
         }
 
         if let lat = profile.homeLatitude, let lon = profile.homeLongitude {
@@ -137,8 +159,26 @@ struct PromptBuilder {
         return prompt
     }
 
-    static func outputSchema() -> String {
-        """
+    static func outputSchema(volumeType: VolumeType = .distance) -> String {
+        let weekVolume: String
+        let workoutVolume: String
+
+        switch volumeType {
+        case .distance:
+            weekVolume = "\"total_distance_km\": number,"
+            workoutVolume = """
+                  "distance_km": number,
+                  "duration_minutes": number,
+            """
+        case .time:
+            weekVolume = "\"total_duration_minutes\": number,"
+            workoutVolume = """
+                  "duration_minutes": number,
+                  "distance_km": number or null,
+            """
+        }
+
+        return """
         {
           "name": "string",
           "goal_description": "string",
@@ -147,15 +187,14 @@ struct PromptBuilder {
             {
               "week_number": number,
               "theme": "string",
-              "total_distance_km": number,
+              \(weekVolume)
               "notes": "string",
               "workouts": [
                 {
                   "name": "string",
                   "type": "easy|tempo|interval|long|recovery|race|rest",
                   "day_of_week": number (1=Sunday, 7=Saturday),
-                  "distance_km": number,
-                  "duration_minutes": number,
+        \(workoutVolume)
                   "target_pace_min_per_km": number or null,
                   "location": "outdoor|treadmill|track|trail",
                   "notes": "string",
@@ -194,8 +233,22 @@ struct PromptBuilder {
         """
     }
 
-    static func adHocWorkoutSystemPrompt() -> String {
-        """
+    static func adHocWorkoutSystemPrompt(volumeType: VolumeType = .distance) -> String {
+        let volumeFields: String
+        switch volumeType {
+        case .distance:
+            volumeFields = """
+              "distance_km": number,
+              "duration_minutes": number,
+            """
+        case .time:
+            volumeFields = """
+              "duration_minutes": number,
+              "distance_km": number or null,
+            """
+        }
+
+        return """
         You are an expert running coach generating a single workout session. Follow the same principles as for training plans.
 
         ## Tool Usage (MANDATORY)
@@ -207,8 +260,7 @@ struct PromptBuilder {
         {
           "name": "string",
           "type": "easy|tempo|interval|long|recovery",
-          "distance_km": number,
-          "duration_minutes": number,
+        \(volumeFields)
           "target_pace_min_per_km": number or null,
           "location": "outdoor|treadmill|track|trail",
           "notes": "string",

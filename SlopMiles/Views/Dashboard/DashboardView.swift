@@ -65,7 +65,11 @@ private struct CurrentPlanCard: View {
                 Text(week.theme).font(.subheadline).foregroundStyle(.blue)
             }
             HStack(spacing: 20) {
-                VStack(spacing: 4) { Text(UnitConverter.formatDistance(week.totalDistanceKm, unit: unitPref)).font(.headline); Text("Distance").font(.caption2).foregroundStyle(.secondary) }
+                if plan.volumeType == .time {
+                    VStack(spacing: 4) { Text(UnitConverter.formatDuration(minutes: week.totalDurationMinutes)).font(.headline); Text("Duration").font(.caption2).foregroundStyle(.secondary) }
+                } else {
+                    VStack(spacing: 4) { Text(UnitConverter.formatDistance(week.totalDistanceKm, unit: unitPref)).font(.headline); Text("Distance").font(.caption2).foregroundStyle(.secondary) }
+                }
                 VStack(spacing: 4) { Text("\(week.sortedWorkouts.filter { $0.workoutType != .rest }.count)").font(.headline); Text("Workouts").font(.caption2).foregroundStyle(.secondary) }
                 let completed = week.sortedWorkouts.filter { $0.completionStatus == .completed }.count
                 let total = week.sortedWorkouts.filter { $0.workoutType != .rest }.count
@@ -141,7 +145,11 @@ private struct WeekOverviewCard: View {
                         Text(DateFormatters.shortDayOfWeek(from: workout.scheduledDate)).font(.caption).foregroundStyle(.secondary)
                     }
                     Spacer()
-                    if workout.distanceKm > 0 { Text(UnitConverter.formatDistance(workout.distanceKm, unit: unitPref)).font(.caption).foregroundStyle(.secondary) }
+                    if (week.plan?.volumeType ?? .distance) == .time {
+                        if workout.durationMinutes > 0 { Text(UnitConverter.formatDuration(minutes: workout.durationMinutes)).font(.caption).foregroundStyle(.secondary) }
+                    } else {
+                        if workout.distanceKm > 0 { Text(UnitConverter.formatDistance(workout.distanceKm, unit: unitPref)).font(.caption).foregroundStyle(.secondary) }
+                    }
                     switch workout.completionStatus {
                     case .completed: Image(systemName: "checkmark.circle.fill").foregroundStyle(.green).accessibilityLabel("Completed")
                     case .scheduled: Image(systemName: "applewatch").foregroundStyle(.blue).accessibilityLabel("Scheduled on Watch")

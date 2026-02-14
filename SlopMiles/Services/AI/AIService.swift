@@ -52,7 +52,7 @@ final class AIService {
         let tools = settings.provider == .anthropic
             ? ToolDefinitions.anthropicTools()
             : ToolDefinitions.openAITools()
-        let systemPrompt = PromptBuilder.systemPrompt()
+        let systemPrompt = PromptBuilder.systemPrompt(volumeType: profile.volumeType)
 
         let totalWeeks = max(1, Calendar.current.dateComponents([.weekOfYear], from: startDate, to: endDate).weekOfYear ?? 1)
         let batchCount = totalWeeks <= Self.batchSize ? 1 : Int((Double(totalWeeks) / Double(Self.batchSize)).rounded(.up))

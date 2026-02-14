@@ -11,6 +11,7 @@ struct WorkoutDetailView: View {
     @State private var showSkipConfirm = false
 
     private var unitPref: UnitPreference { profiles.first?.unitPreference ?? .metric }
+    private var volumeType: VolumeType { workout.week?.plan?.volumeType ?? .distance }
 
     var body: some View {
         List {
@@ -22,8 +23,13 @@ struct WorkoutDetailView: View {
                         Text(DateFormatters.shortDate(from: workout.scheduledDate)).font(.caption).foregroundStyle(.secondary)
                     }
                 }
-                if workout.distanceKm > 0 { LabeledContent("Distance", value: UnitConverter.formatDistance(workout.distanceKm, unit: unitPref)) }
-                if workout.durationMinutes > 0 { LabeledContent("Duration", value: UnitConverter.formatDuration(minutes: workout.durationMinutes)) }
+                if volumeType == .time {
+                    if workout.durationMinutes > 0 { LabeledContent("Duration", value: UnitConverter.formatDuration(minutes: workout.durationMinutes)) }
+                    if workout.distanceKm > 0 { LabeledContent("Distance", value: UnitConverter.formatDistance(workout.distanceKm, unit: unitPref)) }
+                } else {
+                    if workout.distanceKm > 0 { LabeledContent("Distance", value: UnitConverter.formatDistance(workout.distanceKm, unit: unitPref)) }
+                    if workout.durationMinutes > 0 { LabeledContent("Duration", value: UnitConverter.formatDuration(minutes: workout.durationMinutes)) }
+                }
                 if let pace = workout.targetPaceMinPerKm { LabeledContent("Target Pace", value: UnitConverter.formatPace(pace, unit: unitPref)) }
                 LabeledContent("Location", value: workout.location.rawValue.capitalized)
             }

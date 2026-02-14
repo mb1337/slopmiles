@@ -54,4 +54,43 @@ struct PromptBuilderTests {
         #expect(schema.contains("steps"))
         #expect(schema.contains("target_pace_min_per_km"))
     }
+
+    @Test("Time-mode system prompt references weekly_durations_minutes")
+    func timeBasedSystemPrompt() {
+        let prompt = PromptBuilder.systemPrompt(volumeType: .time)
+        #expect(prompt.contains("weekly_durations_minutes"))
+        #expect(prompt.contains("total_duration_minutes"))
+        #expect(prompt.contains("duration_minutes"))
+    }
+
+    @Test("Time-mode output schema uses total_duration_minutes")
+    func timeBasedOutputSchema() {
+        let schema = PromptBuilder.outputSchema(volumeType: .time)
+        #expect(schema.contains("total_duration_minutes"))
+        #expect(!schema.contains("total_distance_km"))
+    }
+
+    @Test("Distance-mode output schema uses total_distance_km")
+    func distanceBasedOutputSchema() {
+        let schema = PromptBuilder.outputSchema(volumeType: .distance)
+        #expect(schema.contains("total_distance_km"))
+        #expect(!schema.contains("total_duration_minutes"))
+    }
+
+    @Test("Time-mode user prompt shows volume in minutes")
+    func timeBasedUserPrompt() {
+        let profile = UserProfile()
+        profile.volumeType = .time
+        profile.currentWeeklyVolumeMinutes = 300
+
+        let prompt = PromptBuilder.userPrompt(
+            profile: profile, schedule: WeeklySchedule(), equipment: RunnerEquipment(),
+            stats: RunningStats(), goalDescription: "Build base",
+            raceDistance: nil, raceDate: nil, startDate: Date(), endDate: Date()
+        )
+
+        #expect(prompt.contains("300 minutes"))
+        #expect(prompt.contains("time-based"))
+        #expect(!prompt.contains("Current weekly mileage"))
+    }
 }

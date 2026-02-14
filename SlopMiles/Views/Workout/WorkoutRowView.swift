@@ -4,6 +4,8 @@ struct WorkoutRowView: View {
     let workout: PlannedWorkout
     let unitPref: UnitPreference
 
+    private var volumeType: VolumeType { workout.week?.plan?.volumeType ?? .distance }
+
     var body: some View {
         HStack {
             Image(systemName: workout.workoutType.iconName).foregroundStyle(.blue).frame(width: 28)
@@ -11,7 +13,11 @@ struct WorkoutRowView: View {
                 Text(workout.name).font(.subheadline)
                 HStack(spacing: 8) {
                     Text(DateFormatters.shortDayOfWeek(from: workout.scheduledDate))
-                    if workout.distanceKm > 0 { Text(UnitConverter.formatDistance(workout.distanceKm, unit: unitPref)) }
+                    if volumeType == .time {
+                        if workout.durationMinutes > 0 { Text(UnitConverter.formatDuration(minutes: workout.durationMinutes)) }
+                    } else {
+                        if workout.distanceKm > 0 { Text(UnitConverter.formatDistance(workout.distanceKm, unit: unitPref)) }
+                    }
                     if let pace = workout.targetPaceMinPerKm { Text(UnitConverter.formatPace(pace, unit: unitPref)) }
                 }
                 .font(.caption).foregroundStyle(.secondary)

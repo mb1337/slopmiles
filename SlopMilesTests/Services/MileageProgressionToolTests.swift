@@ -87,6 +87,35 @@ struct MileageProgressionToolTests {
         #expect(warnings[0].objectValue!["week"]!.intValue! == 3)
     }
 
+    // MARK: - Duration-based progression
+
+    @Test("Safe duration progression under 10%")
+    func safeDurationProgression() {
+        let durations = [150.0, 165.0, 180.0, 195.0]
+        let result = MileageProgressionTool.checkDuration(weeklyDurationsMinutes: durations)
+        #expect(result["safe"]!.boolValue! == true)
+    }
+
+    @Test("Unsafe duration jump flagged")
+    func unsafeDurationJump() {
+        let durations = [150.0, 165.0, 200.0]
+        let result = MileageProgressionTool.checkDuration(weeklyDurationsMinutes: durations)
+        #expect(result["safe"]!.boolValue! == false)
+        let warnings = result["warnings"]!.arrayValue!
+        #expect(warnings.count == 1)
+        let firstWarning = warnings[0].objectValue!
+        #expect(firstWarning["week"]!.intValue! == 3)
+        let message = firstWarning["message"]!.stringValue!
+        #expect(message.contains("min"), "Duration warning should use 'min' unit label")
+    }
+
+    @Test("Duration recovery week exception")
+    func durationRecoveryWeekException() {
+        let durations = [200.0, 120.0, 200.0]
+        let result = MileageProgressionTool.checkDuration(weeklyDurationsMinutes: durations)
+        #expect(result["safe"]!.boolValue! == true)
+    }
+
     @Test("Warning message contains useful detail")
     func warningMessageDetail() {
         let distances = [30.0, 40.0]

@@ -131,6 +131,7 @@ struct GeneratePlanView: View {
         do {
             let responseText = try await appState.aiService.generatePlan(profile: profile, schedule: schedule, equipment: equipment, stats: stats, settings: settings, goalDescription: goalDescription, raceDistance: selectedRaceDistance, raceDate: hasRace ? raceDate : nil, startDate: startDate, endDate: endDate)
             let plan = try ResponseParser.parsePlan(from: responseText, startDate: startDate, context: modelContext)
+            plan.volumeType = profile.volumeType
             plan.goalDescription = goalDescription; plan.raceDistance = selectedRaceDistance; plan.raceDate = hasRace ? raceDate : nil
             try modelContext.save(); dismiss()
         } catch is CancellationError {

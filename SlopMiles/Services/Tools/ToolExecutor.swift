@@ -56,13 +56,18 @@ actor ToolExecutor {
             result = PaceConverterTool.convert(value: value, from: fromUnit, to: toUnit)
 
         case "check_mileage_progression":
-            let distances: [Double]
-            if let arr = toolCall.arguments["weekly_distances_km"]?.arrayValue {
-                distances = arr.compactMap(\.doubleValue)
+            if let arr = toolCall.arguments["weekly_durations_minutes"]?.arrayValue {
+                let durations = arr.compactMap(\.doubleValue)
+                result = MileageProgressionTool.checkDuration(weeklyDurationsMinutes: durations)
             } else {
-                distances = []
+                let distances: [Double]
+                if let arr = toolCall.arguments["weekly_distances_km"]?.arrayValue {
+                    distances = arr.compactMap(\.doubleValue)
+                } else {
+                    distances = []
+                }
+                result = MileageProgressionTool.check(weeklyDistancesKm: distances)
             }
-            result = MileageProgressionTool.check(weeklyDistancesKm: distances)
 
         case "get_weather_forecast":
             let lat = toolCall.arguments["latitude"]?.doubleValue ?? 0

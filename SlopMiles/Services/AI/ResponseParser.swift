@@ -45,6 +45,7 @@ struct ResponseParser {
             week.weekNumber = weekDict["week_number"] as? Int ?? 1
             week.theme = weekDict["theme"] as? String ?? ""
             week.totalDistanceKm = weekDict["total_distance_km"] as? Double ?? 0
+            week.totalDurationMinutes = weekDict["total_duration_minutes"] as? Double ?? 0
             week.notes = weekDict["notes"] as? String ?? ""
             week.plan = plan
 

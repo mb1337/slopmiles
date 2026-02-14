@@ -6,8 +6,10 @@ struct ProfileStepView: View {
     @Query private var profiles: [UserProfile]
 
     @State private var experienceLevel: ExperienceLevel = .intermediate
-    @State private var weeklyMileage: Double = 20
+    @State private var weeklyMileageText: String = "20"
     @State private var unitPreference: UnitPreference = .metric
+    @State private var volumeType: VolumeType = .distance
+    @State private var weeklyVolumeMinutesText: String = "150"
     @State private var injuryNotes = ""
     @State private var maxHR = ""
 
@@ -45,9 +47,25 @@ struct ProfileStepView: View {
                     }
 
                     VStack(alignment: .leading, spacing: 8) {
-                        Text("Current Weekly Mileage: \(UnitConverter.formatDistance(weeklyMileage, unit: unitPreference))")
-                            .font(.subheadline.bold())
-                        Slider(value: $weeklyMileage, in: 0...200, step: 5)
+                        Text("Track Volume By").font(.subheadline.bold())
+                        Picker("Volume Type", selection: $volumeType) {
+                            ForEach(VolumeType.allCases, id: \.self) { Text($0.displayName).tag($0) }
+                        }
+                        .pickerStyle(.segmented)
+                    }
+
+                    if volumeType == .time {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Current Weekly Volume (minutes)").font(.subheadline.bold())
+                            TextField("e.g., 200", text: $weeklyVolumeMinutesText)
+                                .textFieldStyle(.roundedBorder).keyboardType(.numberPad)
+                        }
+                    } else {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Current Weekly Mileage (\(unitPreference.distanceLabel))").font(.subheadline.bold())
+                            TextField("e.g., 30", text: $weeklyMileageText)
+                                .textFieldStyle(.roundedBorder).keyboardType(.numberPad)
+                        }
                     }
 
                     VStack(alignment: .leading, spacing: 8) {
@@ -75,7 +93,13 @@ struct ProfileStepView: View {
     private func saveProfile() {
         guard let p = profile else { return }
         p.experienceLevel = experienceLevel
-        p.currentWeeklyMileageKm = unitPreference == .imperial ? UnitConverter.milesToKm(weeklyMileage) : weeklyMileage
+        p.volumeType = volumeType
+        if volumeType == .time {
+            p.currentWeeklyVolumeMinutes = Double(weeklyVolumeMinutesText) ?? 0
+        } else {
+            let mileage = Double(weeklyMileageText) ?? 0
+            p.currentWeeklyMileageKm = unitPreference == .imperial ? UnitConverter.milesToKm(mileage) : mileage
+        }
         p.unitPreference = unitPreference
         p.injuryNotes = injuryNotes
         if let hr = Int(maxHR) { p.maxHeartRate = hr }

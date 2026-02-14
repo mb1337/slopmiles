@@ -44,11 +44,6 @@ struct UnitConverter {
     }
 
     static func formatDuration(minutes: Double) -> String {
-        let hours = Int(minutes) / 60
-        let mins = Int(minutes) % 60
-        if hours > 0 {
-            return "\(hours)h \(mins)m"
-        }
-        return "\(mins)m"
+        "\(Int(minutes)) min"
     }
 }

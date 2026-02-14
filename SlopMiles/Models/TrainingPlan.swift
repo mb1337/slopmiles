@@ -22,12 +22,18 @@ final class TrainingPlan {
     var startDate: Date = Date()
     var endDate: Date = Date()
     var weeklyMileageTargetKm: Double = 0
+    var volumeTypeRaw: String = VolumeType.distance.rawValue
     var rawAIResponse: String = ""
     var createdAt: Date = Date()
 
     var difficulty: DifficultyLevel {
         get { DifficultyLevel(rawValue: difficultyRaw) ?? .intermediate }
         set { difficultyRaw = newValue.rawValue }
+    }
+
+    var volumeType: VolumeType {
+        get { VolumeType(rawValue: volumeTypeRaw) ?? .distance }
+        set { volumeTypeRaw = newValue.rawValue }
     }
 
     @Relationship(deleteRule: .cascade, inverse: \TrainingWeek.plan)

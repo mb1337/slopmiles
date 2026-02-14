@@ -432,6 +432,64 @@ struct ResponseParserTests {
         #expect(endComponents.day == 17)
     }
 
+    @Test("parsePlan parses total_duration_minutes from time-based plan")
+    func parsePlanTimeBased() throws {
+        let context = try Self.makeTestContext()
+        let startDate = Date()
+
+        let json = """
+        {
+            "name": "Time-Based Plan",
+            "goal_description": "Build aerobic base",
+            "weeks": [
+                {
+                    "week_number": 1,
+                    "theme": "Base Week",
+                    "total_duration_minutes": 180.0,
+                    "notes": "Easy start",
+                    "workouts": [
+                        {
+                            "name": "Easy Run",
+                            "type": "easy",
+                            "day_of_week": 2,
+                            "duration_minutes": 45.0,
+                            "distance_km": null,
+                            "location": "outdoor",
+                            "notes": "Keep it easy"
+                        }
+                    ]
+                },
+                {
+                    "week_number": 2,
+                    "theme": "Build Week",
+                    "total_distance_km": 40.0,
+                    "total_duration_minutes": 210.0,
+                    "notes": "More volume",
+                    "workouts": []
+                }
+            ]
+        }
+        """
+
+        let plan = try ResponseParser.parsePlan(from: json, startDate: startDate, context: context)
+        let weeks = plan.sortedWeeks
+        #expect(weeks.count == 2)
+
+        // Week 1: time-based only
+        #expect(weeks[0].totalDurationMinutes == 180.0)
+        #expect(weeks[0].totalDistanceKm == 0)
+
+        // Week 2: has both fields
+        #expect(weeks[1].totalDurationMinutes == 210.0)
+        #expect(weeks[1].totalDistanceKm == 40.0)
+
+        // Workout with null distance
+        let workouts = weeks[0].sortedWorkouts
+        #expect(workouts.count == 1)
+        #expect(workouts[0].durationMinutes == 45.0)
+        #expect(workouts[0].distanceKm == 0)
+    }
+
     @Test("parsePlan extracts JSON from markdown code block wrapper")
     func parsePlanFromCodeBlock() throws {
         let context = try Self.makeTestContext()

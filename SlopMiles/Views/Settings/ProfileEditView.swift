@@ -16,7 +16,8 @@ struct ProfileEditView: View {
 private struct ProfileEditForm: View {
     @Bindable var profile: UserProfile
 
-    @State private var weeklyMileage: Double
+    @State private var weeklyMileageText: String
+    @State private var weeklyVolumeMinutesText: String
     @State private var maxHRText: String
     @State private var restingHRText: String
     @State private var ltHRText: String
@@ -26,7 +27,8 @@ private struct ProfileEditForm: View {
         let displayMileage = profile.unitPreference == .imperial
             ? UnitConverter.kmToMiles(profile.currentWeeklyMileageKm)
             : profile.currentWeeklyMileageKm
-        _weeklyMileage = State(initialValue: displayMileage)
+        _weeklyMileageText = State(initialValue: displayMileage > 0 ? "\(Int(displayMileage))" : "")
+        _weeklyVolumeMinutesText = State(initialValue: profile.currentWeeklyVolumeMinutes > 0 ? "\(Int(profile.currentWeeklyVolumeMinutes))" : "")
         _maxHRText = State(initialValue: profile.maxHeartRate.map(String.init) ?? "")
         _restingHRText = State(initialValue: profile.restingHeartRate.map(String.init) ?? "")
         _ltHRText = State(initialValue: profile.lactateThresholdHR.map(String.init) ?? "")
@@ -50,11 +52,17 @@ private struct ProfileEditForm: View {
                     set: { newUnit in
                         let oldUnit = profile.unitPreference
                         profile.unitPreference = newUnit
-                        // Convert the slider value to the new unit
-                        if oldUnit == .metric && newUnit == .imperial {
-                            weeklyMileage = UnitConverter.kmToMiles(weeklyMileage)
-                        } else if oldUnit == .imperial && newUnit == .metric {
-                            weeklyMileage = UnitConverter.milesToKm(weeklyMileage)
+                        // Convert the displayed value to the new unit
+                        if let current = Double(weeklyMileageText) {
+                            let converted: Double
+                            if oldUnit == .metric && newUnit == .imperial {
+                                converted = UnitConverter.kmToMiles(current)
+                            } else if oldUnit == .imperial && newUnit == .metric {
+                                converted = UnitConverter.milesToKm(current)
+                            } else {
+                                converted = current
+                            }
+                            weeklyMileageText = "\(Int(converted.rounded()))"
                         }
                     }
                 )) {
@@ -64,13 +72,47 @@ private struct ProfileEditForm: View {
                 .pickerStyle(.segmented)
             }
 
-            Section("Weekly Mileage: \(UnitConverter.formatDistance(profile.currentWeeklyMileageKm, unit: profile.unitPreference))") {
-                Slider(value: $weeklyMileage, in: 0...200, step: 5)
-                    .onChange(of: weeklyMileage) {
-                        profile.currentWeeklyMileageKm = profile.unitPreference == .imperial
-                            ? UnitConverter.milesToKm(weeklyMileage)
-                            : weeklyMileage
+            Section("Volume Tracking") {
+                Picker("Track Volume By", selection: Binding(
+                    get: { profile.volumeType },
+                    set: { profile.volumeType = $0 }
+                )) {
+                    ForEach(VolumeType.allCases, id: \.self) { Text($0.displayName).tag($0) }
+                }
+                .pickerStyle(.segmented)
+            }
+
+            if profile.volumeType == .time {
+                Section("Weekly Volume (minutes)") {
+                    HStack {
+                        Text("Minutes per week")
+                        Spacer()
+                        TextField("e.g., 200", text: $weeklyVolumeMinutesText)
+                            .keyboardType(.numberPad)
+                            .multilineTextAlignment(.trailing)
+                            .frame(width: 80)
+                            .onChange(of: weeklyVolumeMinutesText) {
+                                profile.currentWeeklyVolumeMinutes = Double(weeklyVolumeMinutesText) ?? 0
+                            }
                     }
+                }
+            } else {
+                Section("Weekly Mileage (\(profile.unitPreference.distanceLabel))") {
+                    HStack {
+                        Text("\(profile.unitPreference == .metric ? "Kilometers" : "Miles") per week")
+                        Spacer()
+                        TextField("e.g., 30", text: $weeklyMileageText)
+                            .keyboardType(.numberPad)
+                            .multilineTextAlignment(.trailing)
+                            .frame(width: 80)
+                            .onChange(of: weeklyMileageText) {
+                                let value = Double(weeklyMileageText) ?? 0
+                                profile.currentWeeklyMileageKm = profile.unitPreference == .imperial
+                                    ? UnitConverter.milesToKm(value)
+                                    : value
+                            }
+                    }
+                }
             }
 
             Section("Heart Rate") {

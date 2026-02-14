@@ -93,17 +93,22 @@ struct ToolDefinitions {
         ),
         ToolDef(
             name: "check_mileage_progression",
-            description: "Validate weekly mileage progression for safety. Flags any week-to-week increase greater than 10%, with exceptions for recovery weeks.",
+            description: "Validate weekly volume progression for safety. Flags any week-to-week increase greater than 10%, with exceptions for recovery weeks. Use weekly_distances_km for distance-based plans or weekly_durations_minutes for time-based plans.",
             inputSchema: [
                 "type": "object",
                 "properties": .object([
                     "weekly_distances_km": .object([
                         "type": "array",
                         "items": .object(["type": "number"]),
-                        "description": "Array of weekly distances in km, in chronological order",
+                        "description": "Array of weekly distances in km, in chronological order. Use for distance-based plans.",
+                    ]),
+                    "weekly_durations_minutes": .object([
+                        "type": "array",
+                        "items": .object(["type": "number"]),
+                        "description": "Array of weekly durations in minutes, in chronological order. Use for time-based plans.",
                     ]),
                 ]),
-                "required": .array([.string("weekly_distances_km")]),
+                "required": .array([]),
             ]
         ),
         ToolDef(

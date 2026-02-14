@@ -7,6 +7,7 @@ final class TrainingWeek {
     var weekNumber: Int = 1
     var theme: String = ""
     var totalDistanceKm: Double = 0
+    var totalDurationMinutes: Double = 0
     var notes: String = ""
 
     var plan: TrainingPlan?
@@ -20,10 +21,11 @@ final class TrainingWeek {
 
     init() {}
 
-    init(weekNumber: Int, theme: String = "", totalDistanceKm: Double = 0, notes: String = "") {
+    init(weekNumber: Int, theme: String = "", totalDistanceKm: Double = 0, totalDurationMinutes: Double = 0, notes: String = "") {
         self.weekNumber = weekNumber
         self.theme = theme
         self.totalDistanceKm = totalDistanceKm
+        self.totalDurationMinutes = totalDurationMinutes
         self.notes = notes
     }
 }

@@ -29,7 +29,15 @@ struct PlanDetailView: View {
                     ForEach(week.sortedWorkouts) { workout in
                         NavigationLink(value: workout) { WorkoutRowView(workout: workout, unitPref: unitPref) }
                     }
-                    HStack { Text("Total").foregroundStyle(.secondary); Spacer(); Text(UnitConverter.formatDistance(week.totalDistanceKm, unit: unitPref)).foregroundStyle(.secondary) }.font(.caption)
+                    HStack {
+                        Text("Total").foregroundStyle(.secondary)
+                        Spacer()
+                        if plan.volumeType == .time {
+                            Text(UnitConverter.formatDuration(minutes: week.totalDurationMinutes)).foregroundStyle(.secondary)
+                        } else {
+                            Text(UnitConverter.formatDistance(week.totalDistanceKm, unit: unitPref)).foregroundStyle(.secondary)
+                        }
+                    }.font(.caption)
                 }
             }
         }
