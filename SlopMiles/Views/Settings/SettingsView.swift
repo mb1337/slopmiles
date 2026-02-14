@@ -5,6 +5,7 @@ struct SettingsView: View {
     @Environment(AppState.self) private var appState
     @Query private var aiSettings: [AISettings]
     @Query private var profiles: [UserProfile]
+    @Query private var schedules: [WeeklySchedule]
 
     var body: some View {
         NavigationStack {
@@ -33,9 +34,21 @@ struct SettingsView: View {
                     }
 
                     Section("Profile") {
-                        LabeledContent("Experience", value: profile.experienceLevel.displayName)
-                        LabeledContent("Weekly Mileage", value: UnitConverter.formatDistance(profile.currentWeeklyMileageKm, unit: profile.unitPreference))
-                        LabeledContent("Units", value: profile.unitPreference == .metric ? "Metric" : "Imperial")
+                        NavigationLink {
+                            ProfileEditView()
+                        } label: {
+                            LabeledContent("Runner Profile", value: profile.experienceLevel.displayName)
+                        }
+                        NavigationLink {
+                            ScheduleEditView()
+                        } label: {
+                            LabeledContent("Weekly Schedule", value: "\(schedules.first?.availableDays.count ?? 0) days")
+                        }
+                        NavigationLink {
+                            EquipmentEditView()
+                        } label: {
+                            Text("Equipment & Facilities")
+                        }
                     }
 
                     Section("Health & Watch") {
