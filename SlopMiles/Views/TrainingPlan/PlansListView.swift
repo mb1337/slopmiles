@@ -3,6 +3,7 @@ import SwiftData
 
 struct PlansListView: View {
     @Query(sort: \TrainingPlan.createdAt, order: .reverse) private var plans: [TrainingPlan]
+    @Environment(\.modelContext) private var modelContext
 
     var body: some View {
         NavigationStack {
@@ -26,6 +27,12 @@ struct PlansListView: View {
                                     .font(.caption).foregroundStyle(.secondary)
                                 }
                                 .padding(.vertical, 4)
+                            }
+                            .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                                Button(role: .destructive) {
+                                    modelContext.delete(plan)
+                                    try? modelContext.save()
+                                } label: { Label("Delete", systemImage: "trash") }
                             }
                         }
                     }

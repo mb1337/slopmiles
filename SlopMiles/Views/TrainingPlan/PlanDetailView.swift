@@ -4,6 +4,8 @@ import SwiftData
 struct PlanDetailView: View {
     let plan: TrainingPlan
     @Environment(AppState.self) private var appState
+    @Environment(\.modelContext) private var modelContext
+    @Environment(\.dismiss) private var dismiss
     @Query private var profiles: [UserProfile]
     @State private var errorMessage: String?
     @State private var showError = false
@@ -47,6 +49,12 @@ struct PlanDetailView: View {
                                 }
                             }
                         }
+                    }
+                    Divider()
+                    Button("Delete Plan", systemImage: "trash", role: .destructive) {
+                        modelContext.delete(plan)
+                        try? modelContext.save()
+                        dismiss()
                     }
                 } label: { Image(systemName: "ellipsis.circle") }
             }
