@@ -15,6 +15,7 @@ struct GeneratePlanView: View {
     @State private var raceDate = Calendar.current.date(byAdding: .month, value: 3, to: Date()) ?? Date()
     @State private var startDate = Date()
     @State private var hasRace = true
+    @State private var planWeeks = 12
     @State private var isGenerating = false
     @State private var errorMessage: String?
     @State private var generationTask: Task<Void, Never>?
@@ -36,10 +37,14 @@ struct GeneratePlanView: View {
                 }
                 Section("Schedule") {
                     DatePicker("Start Date", selection: $startDate, displayedComponents: .date)
-                    HStack {
-                        Text("Duration"); Spacer()
-                        let weeks = Calendar.current.dateComponents([.weekOfYear], from: startDate, to: hasRace ? raceDate : Calendar.current.date(byAdding: .month, value: 3, to: startDate)!).weekOfYear ?? 12
-                        Text("\(weeks) weeks").foregroundStyle(.secondary)
+                    if hasRace {
+                        HStack {
+                            Text("Duration"); Spacer()
+                            let weeks = Calendar.current.dateComponents([.weekOfYear], from: startDate, to: raceDate).weekOfYear ?? 12
+                            Text("\(weeks) weeks").foregroundStyle(.secondary)
+                        }
+                    } else {
+                        Stepper("Duration: \(planWeeks) weeks", value: $planWeeks, in: 4...52)
                     }
                 }
                 Section("AI Coach") {
@@ -91,7 +96,7 @@ struct GeneratePlanView: View {
 
     private func generate(profile: UserProfile, schedule: WeeklySchedule, equipment: RunnerEquipment, settings: AISettings) async {
         isGenerating = true; errorMessage = nil
-        let endDate = hasRace ? raceDate : Calendar.current.date(byAdding: .month, value: 3, to: startDate)!
+        let endDate = hasRace ? raceDate : Calendar.current.date(byAdding: .weekOfYear, value: planWeeks, to: startDate)!
         let stats: RunningStats = appState.healthKitService.isAuthorized ? await appState.healthKitService.fetchRunningStats() : RunningStats()
         do {
             let responseText = try await appState.aiService.generatePlan(profile: profile, schedule: schedule, equipment: equipment, stats: stats, settings: settings, goalDescription: goalDescription, raceDistance: selectedRaceDistance, raceDate: hasRace ? raceDate : nil, startDate: startDate, endDate: endDate)

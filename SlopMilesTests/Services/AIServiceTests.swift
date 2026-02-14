@@ -2,6 +2,12 @@ import Testing
 import Foundation
 @testable import SlopMiles
 
+/// Minimal JSON that passes the `looksLikeJSON` check in AIService, matching what the AI
+/// actually returns (a JSON training plan object).
+private let stubPlanJSON = """
+{"name":"Test Plan","weeks":[]}
+"""
+
 @Suite("AIService Tool-Use Loop Tests")
 @MainActor
 struct AIServiceTests {
@@ -37,7 +43,7 @@ struct AIServiceTests {
         let mock = MockAIProvider()
         mock.responses = [
             AIResponse(
-                message: AIMessage(role: .assistant, content: "Here is your training plan."),
+                message: AIMessage(role: .assistant, content: stubPlanJSON),
                 stopReason: .endTurn,
                 usage: AIResponse.TokenUsage(inputTokens: 100, outputTokens: 50)
             ),
@@ -46,7 +52,7 @@ struct AIServiceTests {
         let service = makeService(mock: mock)
         let result = try await callGeneratePlan(on: service)
 
-        #expect(result == "Here is your training plan.")
+        #expect(result == stubPlanJSON)
         #expect(mock.receivedMessages.count == 1)
         #expect(service.totalTokensUsed == 150)
     }
@@ -56,7 +62,7 @@ struct AIServiceTests {
         let mock = MockAIProvider()
         mock.responses = [
             AIResponse(
-                message: AIMessage(role: .assistant, content: "Done"),
+                message: AIMessage(role: .assistant, content: stubPlanJSON),
                 stopReason: .endTurn,
                 usage: nil
             ),
@@ -99,7 +105,7 @@ struct AIServiceTests {
             ),
             // Round 2: AI returns final text
             AIResponse(
-                message: AIMessage(role: .assistant, content: "Your VDOT is 43."),
+                message: AIMessage(role: .assistant, content: stubPlanJSON),
                 stopReason: .endTurn,
                 usage: AIResponse.TokenUsage(inputTokens: 250, outputTokens: 60)
             ),
@@ -108,7 +114,7 @@ struct AIServiceTests {
         let service = makeService(mock: mock)
         let result = try await callGeneratePlan(on: service)
 
-        #expect(result == "Your VDOT is 43.")
+        #expect(result == stubPlanJSON)
         // Provider should have been called twice (two rounds)
         #expect(mock.receivedMessages.count == 2)
         // Total tokens: (200+30) + (250+60) = 540
@@ -148,7 +154,7 @@ struct AIServiceTests {
             ),
             // Round 2: final response
             AIResponse(
-                message: AIMessage(role: .assistant, content: "Plan with paces."),
+                message: AIMessage(role: .assistant, content: stubPlanJSON),
                 stopReason: .endTurn,
                 usage: nil
             ),
@@ -157,7 +163,7 @@ struct AIServiceTests {
         let service = makeService(mock: mock)
         let result = try await callGeneratePlan(on: service)
 
-        #expect(result == "Plan with paces.")
+        #expect(result == stubPlanJSON)
         // The second call should include: user, assistant, tool_a, tool_b = 4 messages
         let secondCallMessages = mock.receivedMessages[1]
         #expect(secondCallMessages.count == 4)
@@ -205,30 +211,35 @@ struct AIServiceTests {
         }
     }
 
-    // MARK: - Truncated response (maxTokens)
+    // MARK: - Truncated response (maxTokens) triggers continuation
 
-    @Test("maxTokens stop reason throws truncation error")
-    func truncatedResponse() async throws {
+    @Test("maxTokens triggers continuation and concatenates content")
+    func truncatedResponseContinuation() async throws {
         let mock = MockAIProvider()
         mock.responses = [
+            // Round 1: partial JSON, truncated
             AIResponse(
-                message: AIMessage(role: .assistant, content: "Partial plan..."),
+                message: AIMessage(role: .assistant, content: "{\"name\":\"Plan\",\"wee"),
                 stopReason: .maxTokens,
                 usage: AIResponse.TokenUsage(inputTokens: 500, outputTokens: 4096)
+            ),
+            // Round 2: continuation completes the JSON
+            AIResponse(
+                message: AIMessage(role: .assistant, content: "ks\":[]}"),
+                stopReason: .endTurn,
+                usage: AIResponse.TokenUsage(inputTokens: 600, outputTokens: 50)
             ),
         ]
 
         let service = makeService(mock: mock)
+        let result = try await callGeneratePlan(on: service)
 
-        await #expect(throws: AIProviderError.self) {
-            try await callGeneratePlan(on: service)
-        }
-
-        if case .failed(let message) = service.generationStatus {
-            #expect(message.contains("truncated"))
-        } else {
-            Issue.record("Expected .failed status but got \(service.generationStatus)")
-        }
+        // Content from both rounds should be concatenated
+        #expect(result == "{\"name\":\"Plan\",\"weeks\":[]}")
+        // Two rounds of calls to the provider
+        #expect(mock.receivedMessages.count == 2)
+        // Tokens accumulated from both rounds
+        #expect(service.totalTokensUsed == 500 + 4096 + 600 + 50)
     }
 
     // MARK: - Generation status transitions
@@ -238,7 +249,7 @@ struct AIServiceTests {
         let mock = MockAIProvider()
         mock.responses = [
             AIResponse(
-                message: AIMessage(role: .assistant, content: "Plan done."),
+                message: AIMessage(role: .assistant, content: stubPlanJSON),
                 stopReason: .endTurn,
                 usage: nil
             ),
@@ -284,7 +295,7 @@ struct AIServiceTests {
                 usage: nil
             ),
             AIResponse(
-                message: AIMessage(role: .assistant, content: "Done with tools."),
+                message: AIMessage(role: .assistant, content: stubPlanJSON),
                 stopReason: .endTurn,
                 usage: nil
             ),
@@ -297,7 +308,7 @@ struct AIServiceTests {
         // the final state and rely on the multi-round test to verify
         // intermediate logic is exercised
         let result = try await callGeneratePlan(on: service)
-        #expect(result == "Done with tools.")
+        #expect(result == stubPlanJSON)
 
         if case .complete = service.generationStatus {
             // expected
@@ -366,7 +377,7 @@ struct AIServiceTests {
                 usage: AIResponse.TokenUsage(inputTokens: 100, outputTokens: 20)
             ),
             AIResponse(
-                message: AIMessage(role: .assistant, content: "Final"),
+                message: AIMessage(role: .assistant, content: stubPlanJSON),
                 stopReason: .endTurn,
                 usage: AIResponse.TokenUsage(inputTokens: 150, outputTokens: 80)
             ),
@@ -384,7 +395,7 @@ struct AIServiceTests {
         let mock = MockAIProvider()
         mock.responses = [
             AIResponse(
-                message: AIMessage(role: .assistant, content: "No usage"),
+                message: AIMessage(role: .assistant, content: stubPlanJSON),
                 stopReason: .endTurn,
                 usage: nil
             ),
@@ -433,7 +444,7 @@ struct AIServiceTests {
             ),
             // Round 3: final text
             AIResponse(
-                message: AIMessage(role: .assistant, content: "Final plan."),
+                message: AIMessage(role: .assistant, content: stubPlanJSON),
                 stopReason: .endTurn,
                 usage: nil
             ),
@@ -441,7 +452,7 @@ struct AIServiceTests {
 
         let service = makeService(mock: mock)
         let result = try await callGeneratePlan(on: service)
-        #expect(result == "Final plan.")
+        #expect(result == stubPlanJSON)
 
         // 3 rounds of calls to provider
         #expect(mock.receivedMessages.count == 3)
@@ -481,7 +492,7 @@ struct AIServiceTests {
                 usage: nil
             ),
             AIResponse(
-                message: AIMessage(role: .assistant, content: "Got it."),
+                message: AIMessage(role: .assistant, content: stubPlanJSON),
                 stopReason: .endTurn,
                 usage: nil
             ),
@@ -504,7 +515,7 @@ struct AIServiceTests {
         let mock = MockAIProvider()
         mock.responses = [
             AIResponse(
-                message: AIMessage(role: .assistant, content: "First"),
+                message: AIMessage(role: .assistant, content: stubPlanJSON),
                 stopReason: .endTurn,
                 usage: AIResponse.TokenUsage(inputTokens: 100, outputTokens: 50)
             ),
@@ -518,7 +529,7 @@ struct AIServiceTests {
         mock.reset()
         mock.responses = [
             AIResponse(
-                message: AIMessage(role: .assistant, content: "Second"),
+                message: AIMessage(role: .assistant, content: stubPlanJSON),
                 stopReason: .endTurn,
                 usage: AIResponse.TokenUsage(inputTokens: 200, outputTokens: 100)
             ),

@@ -1,4 +1,7 @@
 import Foundation
+import os
+
+private let logger = Logger(subsystem: "com.slopmiles", category: "ai")
 
 struct ToolCall: Sendable {
     let id: String
@@ -22,6 +25,8 @@ struct ToolResult: Sendable {
 
 actor ToolExecutor {
     func execute(_ toolCall: ToolCall) async -> ToolResult {
+        let argsDescription = toolCall.arguments.keys.sorted().joined(separator: ", ")
+        logger.info("Tool execute: \(toolCall.name, privacy: .public)(\(argsDescription, privacy: .public))")
         let result: [String: JSONValue]
 
         switch toolCall.name {
@@ -69,6 +74,8 @@ actor ToolExecutor {
             result = ["error": .string("Unknown tool: \(toolCall.name)")]
         }
 
+        let resultKeys = result.keys.sorted().joined(separator: ", ")
+        logger.info("Tool result: \(toolCall.name, privacy: .public) -> keys=[\(resultKeys, privacy: .public)]")
         return ToolResult(toolCallId: toolCall.id, result: result)
     }
 

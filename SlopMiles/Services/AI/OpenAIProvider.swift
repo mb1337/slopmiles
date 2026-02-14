@@ -1,4 +1,7 @@
 import Foundation
+import os
+
+private let logger = Logger(subsystem: "com.slopmiles", category: "ai")
 
 struct OpenAICompatibleConfig: Sendable {
     let chatCompletionsURL: URL
@@ -79,6 +82,8 @@ final class OpenAICompatibleProvider: AIProvider, @unchecked Sendable {
 
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
+        logger.info("OpenAI-compat request: url=\(self.config.chatCompletionsURL.absoluteString, privacy: .public), model=\(model, privacy: .public), messages=\(allMessages.count), tools=\(tools.count)")
+
         let (data, response) = try await session.data(for: request)
 
         guard let httpResponse = response as? HTTPURLResponse else {
@@ -88,13 +93,18 @@ final class OpenAICompatibleProvider: AIProvider, @unchecked Sendable {
         if httpResponse.statusCode == 401 { throw AIProviderError.invalidAPIKey }
         if httpResponse.statusCode == 429 {
             let retry = httpResponse.value(forHTTPHeaderField: "retry-after").flatMap(Int.init)
+            logger.error("OpenAI-compat rate limited, retry-after=\(retry ?? -1)")
             throw AIProviderError.rateLimited(retryAfter: retry)
         }
 
         guard httpResponse.statusCode == 200 else {
             let errorBody = String(data: data, encoding: .utf8) ?? "Unknown error"
+            logger.error("OpenAI-compat HTTP \(httpResponse.statusCode): \(errorBody, privacy: .public)")
             throw AIProviderError.modelError("HTTP \(httpResponse.statusCode): \(errorBody)")
         }
+
+        let rawBody = (String(data: data.prefix(2048), encoding: .utf8) ?? "<non-utf8>").trimmingCharacters(in: .whitespacesAndNewlines)
+        logger.debug("OpenAI-compat raw response: \(rawBody, privacy: .public)")
 
         return try parseResponse(data)
     }
@@ -190,6 +200,8 @@ final class OpenAICompatibleProvider: AIProvider, @unchecked Sendable {
             content: textContent,
             toolCalls: toolCalls.isEmpty ? nil : toolCalls
         )
+
+        logger.info("OpenAI-compat response: finishReason=\(finishReason, privacy: .public), content=\(textContent.count) chars, toolCalls=\(toolCalls.count), inputTokens=\(usage?.inputTokens ?? 0), outputTokens=\(usage?.outputTokens ?? 0)")
 
         return AIResponse(message: message, stopReason: stopReason, usage: usage)
     }

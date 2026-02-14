@@ -1,4 +1,7 @@
 import Foundation
+import os
+
+private let logger = Logger(subsystem: "com.slopmiles", category: "ai")
 
 final class AnthropicProvider: AIProvider, @unchecked Sendable {
     private let session: URLSession
@@ -35,6 +38,8 @@ final class AnthropicProvider: AIProvider, @unchecked Sendable {
 
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
+        logger.info("Anthropic request: model=\(model, privacy: .public), messages=\(messages.count), tools=\(tools.count), systemPrompt=\(systemPrompt.count) chars")
+
         let (data, response) = try await session.data(for: request)
 
         guard let httpResponse = response as? HTTPURLResponse else {
@@ -44,13 +49,18 @@ final class AnthropicProvider: AIProvider, @unchecked Sendable {
         if httpResponse.statusCode == 401 { throw AIProviderError.invalidAPIKey }
         if httpResponse.statusCode == 429 {
             let retry = httpResponse.value(forHTTPHeaderField: "retry-after").flatMap(Int.init)
+            logger.error("Anthropic rate limited, retry-after=\(retry ?? -1)")
             throw AIProviderError.rateLimited(retryAfter: retry)
         }
 
         guard httpResponse.statusCode == 200 else {
             let errorBody = String(data: data, encoding: .utf8) ?? "Unknown error"
+            logger.error("Anthropic HTTP \(httpResponse.statusCode): \(errorBody, privacy: .public)")
             throw AIProviderError.modelError("HTTP \(httpResponse.statusCode): \(errorBody)")
         }
+
+        let rawBody = (String(data: data.prefix(2048), encoding: .utf8) ?? "<non-utf8>").trimmingCharacters(in: .whitespacesAndNewlines)
+        logger.debug("Anthropic raw response: \(rawBody, privacy: .public)")
 
         return try parseResponse(data)
     }
@@ -191,6 +201,8 @@ final class AnthropicProvider: AIProvider, @unchecked Sendable {
             content: textContent,
             toolCalls: toolCalls.isEmpty ? nil : toolCalls
         )
+
+        logger.info("Anthropic response: stopReason=\(stopReasonStr, privacy: .public), content=\(textContent.count) chars, toolCalls=\(toolCalls.count), inputTokens=\(usage?.inputTokens ?? 0), outputTokens=\(usage?.outputTokens ?? 0)")
 
         return AIResponse(message: message, stopReason: stopReason, usage: usage)
     }

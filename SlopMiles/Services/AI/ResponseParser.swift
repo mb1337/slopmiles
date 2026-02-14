@@ -3,13 +3,13 @@ import SwiftData
 
 struct ResponseParser {
     enum ParseError: Error, LocalizedError {
-        case noJSON
+        case noJSON(responsePreview: String)
         case invalidJSON(String)
         case missingField(String)
 
         var errorDescription: String? {
             switch self {
-            case .noJSON: return "No JSON found in AI response"
+            case .noJSON(let preview): return "No JSON found in AI response: \(preview)"
             case .invalidJSON(let msg): return "Invalid JSON: \(msg)"
             case .missingField(let field): return "Missing required field: \(field)"
             }
@@ -150,6 +150,7 @@ struct ResponseParser {
             }
         }
 
-        throw ParseError.noJSON
+        let preview = String(text.prefix(200))
+        throw ParseError.noJSON(responsePreview: preview)
     }
 }

@@ -1,4 +1,7 @@
 import Foundation
+import os
+
+private let logger = Logger(subsystem: "com.slopmiles", category: "ai")
 
 enum GenerationStatus: Sendable {
     case starting
@@ -58,12 +61,14 @@ final class AIService {
         )
 
         var messages: [AIMessage] = [.user(userPrompt)]
+        var accumulatedContent = ""
         let maxRounds = 10
 
         do {
-            for _ in 0..<maxRounds {
+            for round in 0..<maxRounds {
                 try Task.checkCancellation()
                 generationStatus = .sendingToAI
+                logger.info("AI loop round \(round + 1)/\(maxRounds)")
 
                 let response = try await provider.sendMessages(
                     messages,
@@ -78,7 +83,9 @@ final class AIService {
 
                 messages.append(response.message)
 
-                if response.stopReason == .toolUse, let toolCalls = response.message.toolCalls {
+                if let toolCalls = response.message.toolCalls, !toolCalls.isEmpty {
+                    let toolNames = toolCalls.map(\.name).joined(separator: ", ")
+                    logger.info("Executing tools: \(toolNames, privacy: .public)")
                     for toolCall in toolCalls {
                         generationStatus = .executingTool(toolCall.name)
                     }
@@ -98,11 +105,25 @@ final class AIService {
                 }
 
                 if response.stopReason == .maxTokens {
-                    throw AIProviderError.modelError("Response was truncated — try a shorter plan")
+                    // Truncated — accumulate the partial content and ask AI to continue
+                    accumulatedContent += response.message.content
+                    logger.info("Response truncated at \(response.message.content.count) chars (accumulated \(accumulatedContent.count)), requesting continuation")
+                    messages.append(.user("Continue the JSON output from exactly where you stopped. Do not repeat any content already produced."))
+                    continue
+                }
+
+                let content = accumulatedContent + response.message.content
+
+                // If the AI responded with text that isn't JSON (e.g. asking
+                // follow-up questions), nudge it to proceed with the plan.
+                if !looksLikeJSON(content) {
+                    logger.info("AI returned non-JSON text (\(content.count) chars), nudging to produce plan")
+                    messages.append(.user("Do not ask follow-up questions. Use the available tools with your best judgment for any missing data, then respond with the final JSON training plan."))
+                    continue
                 }
 
                 generationStatus = .parsingResponse
-                let content = response.message.content
+                logger.info("AI complete: content=\(content.count) chars, totalTokens=\(self.totalTokensUsed)")
                 generationStatus = .complete
                 return content
             }
@@ -124,6 +145,10 @@ final class AIService {
         case .openRouter: OpenAICompatibleProvider.openRouter(apiKeyProvider: { key })
         }
         return try await aiProvider.validateAPIKey(key)
+    }
+
+    private func looksLikeJSON(_ text: String) -> Bool {
+        text.contains("{") && text.contains("}")
     }
 
     private func makeProvider(for settings: AISettings) -> AIProvider {
