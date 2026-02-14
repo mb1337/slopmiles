@@ -78,6 +78,10 @@ struct KeychainService: Sendable {
         read(key: "openai_api_key")
     }
 
+    var openRouterAPIKey: String? {
+        read(key: "openrouter_api_key")
+    }
+
     @discardableResult
     func setAnthropicAPIKey(_ value: String) -> Bool {
         save(key: "anthropic_api_key", value: value)
@@ -86,5 +90,10 @@ struct KeychainService: Sendable {
     @discardableResult
     func setOpenAIAPIKey(_ value: String) -> Bool {
         save(key: "openai_api_key", value: value)
+    }
+
+    @discardableResult
+    func setOpenRouterAPIKey(_ value: String) -> Bool {
+        save(key: "openrouter_api_key", value: value)
     }
 }

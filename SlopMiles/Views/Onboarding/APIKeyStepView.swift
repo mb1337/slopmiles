@@ -53,9 +53,7 @@ struct APIKeyStepView: View {
                 if let settings {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("Model").font(.subheadline.bold())
-                        Picker("Model", selection: selectedProvider == .anthropic ?
-                               Binding(get: { settings.anthropicModel }, set: { settings.anthropicModel = $0 }) :
-                               Binding(get: { settings.openAIModel }, set: { settings.openAIModel = $0 })) {
+                        Picker("Model", selection: modelBinding(for: settings)) {
                             ForEach(selectedProvider.availableModels, id: \.self) { model in
                                 Text(model).tag(model)
                             }
@@ -86,16 +84,21 @@ struct APIKeyStepView: View {
         }
     }
 
+    private func modelBinding(for settings: AISettings) -> Binding<String> {
+        switch selectedProvider {
+        case .anthropic: Binding(get: { settings.anthropicModel }, set: { settings.anthropicModel = $0 })
+        case .openai: Binding(get: { settings.openAIModel }, set: { settings.openAIModel = $0 })
+        case .openRouter: Binding(get: { settings.openRouterModel }, set: { settings.openRouterModel = $0 })
+        }
+    }
+
     private func validateAndSave() async {
         isValidating = true
         validationError = nil
         do {
             let valid = try await appState.aiService.validateKey(provider: selectedProvider, key: apiKey)
             if valid {
-                let saved: Bool = switch selectedProvider {
-                case .anthropic: appState.keychainService.setAnthropicAPIKey(apiKey)
-                case .openai: appState.keychainService.setOpenAIAPIKey(apiKey)
-                }
+                let saved = appState.keychainService.save(key: selectedProvider.keychainKey, value: apiKey)
                 if saved { settings?.provider = selectedProvider; isValid = true }
                 else { validationError = "Failed to save API key to Keychain." }
             } else { validationError = "API key validation failed." }

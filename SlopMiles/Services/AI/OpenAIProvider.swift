@@ -1,14 +1,50 @@
 import Foundation
 
-final class OpenAIProvider: AIProvider, @unchecked Sendable {
+struct OpenAICompatibleConfig: Sendable {
+    let chatCompletionsURL: URL
+    let validationURL: URL
+    let validationMethod: String
+    let extraHeaders: [String: String]
+}
+
+final class OpenAICompatibleProvider: AIProvider, @unchecked Sendable {
     private let session: URLSession
     private let apiKey: @Sendable () -> String?
+    private let config: OpenAICompatibleConfig
 
-    init(apiKeyProvider: @escaping @Sendable () -> String?) {
-        let config = URLSessionConfiguration.default
-        config.timeoutIntervalForRequest = 120
-        self.session = URLSession(configuration: config)
+    init(config: OpenAICompatibleConfig, apiKeyProvider: @escaping @Sendable () -> String?) {
+        let sessionConfig = URLSessionConfiguration.default
+        sessionConfig.timeoutIntervalForRequest = 120
+        self.session = URLSession(configuration: sessionConfig)
         self.apiKey = apiKeyProvider
+        self.config = config
+    }
+
+    static func openAI(apiKeyProvider: @escaping @Sendable () -> String?) -> OpenAICompatibleProvider {
+        OpenAICompatibleProvider(
+            config: OpenAICompatibleConfig(
+                chatCompletionsURL: URL(string: "https://api.openai.com/v1/chat/completions")!,
+                validationURL: URL(string: "https://api.openai.com/v1/models")!,
+                validationMethod: "GET",
+                extraHeaders: [:]
+            ),
+            apiKeyProvider: apiKeyProvider
+        )
+    }
+
+    static func openRouter(apiKeyProvider: @escaping @Sendable () -> String?) -> OpenAICompatibleProvider {
+        OpenAICompatibleProvider(
+            config: OpenAICompatibleConfig(
+                chatCompletionsURL: URL(string: "https://openrouter.ai/api/v1/chat/completions")!,
+                validationURL: URL(string: "https://openrouter.ai/api/v1/auth/key")!,
+                validationMethod: "GET",
+                extraHeaders: [
+                    "HTTP-Referer": "https://slopmiles.com",
+                    "X-Title": "Slop Miles",
+                ]
+            ),
+            apiKeyProvider: apiKeyProvider
+        )
     }
 
     func sendMessages(
@@ -19,10 +55,13 @@ final class OpenAIProvider: AIProvider, @unchecked Sendable {
     ) async throws -> AIResponse {
         guard let key = apiKey() else { throw AIProviderError.invalidAPIKey }
 
-        var request = URLRequest(url: URL(string: "https://api.openai.com/v1/chat/completions")!)
+        var request = URLRequest(url: config.chatCompletionsURL)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
+        for (header, value) in config.extraHeaders {
+            request.setValue(value, forHTTPHeaderField: header)
+        }
 
         var allMessages: [[String: Any]] = [
             ["role": "system", "content": systemPrompt],
@@ -61,9 +100,12 @@ final class OpenAIProvider: AIProvider, @unchecked Sendable {
     }
 
     func validateAPIKey(_ key: String) async throws -> Bool {
-        var request = URLRequest(url: URL(string: "https://api.openai.com/v1/models")!)
-        request.httpMethod = "GET"
+        var request = URLRequest(url: config.validationURL)
+        request.httpMethod = config.validationMethod
         request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
+        for (header, value) in config.extraHeaders {
+            request.setValue(value, forHTTPHeaderField: header)
+        }
 
         let (_, response) = try await session.data(for: request)
         guard let httpResponse = response as? HTTPURLResponse else { return false }

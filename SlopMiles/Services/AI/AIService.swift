@@ -120,20 +120,26 @@ final class AIService {
     func validateKey(provider: AIProviderType, key: String) async throws -> Bool {
         let aiProvider: AIProvider = switch provider {
         case .anthropic: AnthropicProvider(apiKeyProvider: { key })
-        case .openai: OpenAIProvider(apiKeyProvider: { key })
+        case .openai: OpenAICompatibleProvider.openAI(apiKeyProvider: { key })
+        case .openRouter: OpenAICompatibleProvider.openRouter(apiKeyProvider: { key })
         }
         return try await aiProvider.validateAPIKey(key)
     }
 
     private func makeProvider(for settings: AISettings) -> AIProvider {
+        let keychainKey = settings.provider.keychainKey
         switch settings.provider {
         case .anthropic:
             return AnthropicProvider(apiKeyProvider: { [keychainService] in
-                keychainService.read(key: "anthropic_api_key")
+                keychainService.read(key: keychainKey)
             })
         case .openai:
-            return OpenAIProvider(apiKeyProvider: { [keychainService] in
-                keychainService.read(key: "openai_api_key")
+            return OpenAICompatibleProvider.openAI(apiKeyProvider: { [keychainService] in
+                keychainService.read(key: keychainKey)
+            })
+        case .openRouter:
+            return OpenAICompatibleProvider.openRouter(apiKeyProvider: { [keychainService] in
+                keychainService.read(key: keychainKey)
             })
         }
     }

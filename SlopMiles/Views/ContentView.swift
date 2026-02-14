@@ -16,10 +16,7 @@ struct ContentView: View {
               settings.hasCompletedOnboarding else {
             return false
         }
-        switch settings.provider {
-        case .anthropic: return keychain.anthropicAPIKey != nil
-        case .openai:    return keychain.openAIAPIKey != nil
-        }
+        return keychain.hasKey(settings.provider.keychainKey)
     }
 
     var body: some View {

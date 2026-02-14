@@ -18,9 +18,7 @@ struct SettingsView: View {
                             ForEach(AIProviderType.allCases, id: \.self) { Text($0.displayName).tag($0) }
                         }
 
-                        Picker("Model", selection: settings.provider == .anthropic ?
-                               Binding(get: { settings.anthropicModel }, set: { settings.anthropicModel = $0 }) :
-                               Binding(get: { settings.openAIModel }, set: { settings.openAIModel = $0 })) {
+                        Picker("Model", selection: modelBinding(for: settings)) {
                             ForEach(settings.provider.availableModels, id: \.self) { Text($0).tag($0) }
                         }
 
@@ -28,9 +26,7 @@ struct SettingsView: View {
 
                         HStack {
                             Text("API Key"); Spacer()
-                            let hasKey = settings.provider == .anthropic
-                                ? appState.keychainService.hasKey("anthropic_api_key")
-                                : appState.keychainService.hasKey("openai_api_key")
+                            let hasKey = appState.keychainService.hasKey(settings.provider.keychainKey)
                             Text(hasKey ? "Configured" : "Not Set")
                                 .foregroundStyle(hasKey ? .green : .red)
                         }
@@ -66,6 +62,14 @@ struct SettingsView: View {
                 ProgressView("Loading settings...")
                     .navigationTitle("Settings")
             }
+        }
+    }
+
+    private func modelBinding(for settings: AISettings) -> Binding<String> {
+        switch settings.provider {
+        case .anthropic: Binding(get: { settings.anthropicModel }, set: { settings.anthropicModel = $0 })
+        case .openai: Binding(get: { settings.openAIModel }, set: { settings.openAIModel = $0 })
+        case .openRouter: Binding(get: { settings.openRouterModel }, set: { settings.openRouterModel = $0 })
         }
     }
 }
@@ -106,10 +110,7 @@ struct APIKeySettingsView: View {
         do {
             let valid = try await appState.aiService.validateKey(provider: settings.provider, key: apiKey)
             if valid {
-                let saved: Bool = switch settings.provider {
-                case .anthropic: appState.keychainService.setAnthropicAPIKey(apiKey)
-                case .openai: appState.keychainService.setOpenAIAPIKey(apiKey)
-                }
+                let saved = appState.keychainService.save(key: settings.provider.keychainKey, value: apiKey)
                 message = saved ? "API key saved successfully." : "Failed to save to Keychain."
                 isError = !saved
             } else { message = "Invalid API key."; isError = true }

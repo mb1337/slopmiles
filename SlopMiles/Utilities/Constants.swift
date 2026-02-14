@@ -18,6 +18,7 @@ enum Constants {
     enum Keychain {
         static let anthropicAPIKey = "anthropic_api_key"
         static let openAIAPIKey = "openai_api_key"
+        static let openRouterAPIKey = "openrouter_api_key"
     }
 
     static let kmPerMile = 1.60934
