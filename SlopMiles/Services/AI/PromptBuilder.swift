@@ -33,6 +33,14 @@ struct PromptBuilder {
         \(outputSchema())
 
         Important: All paces must come from tool results. All distances in km. All durations in minutes. All paces in min/km.
+
+        ## Batching
+        For long plans, you may be asked to generate only a specific range of weeks per request. When batch instructions are present:
+        - Generate ONLY the requested weeks (e.g. weeks 5-8 of 12)
+        - Maintain logical progression from previous weeks (the conversation history contains all prior tool results and context)
+        - Do NOT re-call tools that were already called in earlier batches — reuse those results
+        - Output the same JSON schema but include only the requested weeks in the "weeks" array
+        - Number weeks according to the requested range (e.g. week_number 5, 6, 7, 8)
         """
     }
 
@@ -45,7 +53,8 @@ struct PromptBuilder {
         raceDistance: Double?,
         raceDate: Date?,
         startDate: Date,
-        endDate: Date
+        endDate: Date,
+        batchRange: (start: Int, end: Int, total: Int)? = nil
     ) -> String {
         let dateFormatter = ISO8601DateFormatter()
         dateFormatter.formatOptions = [.withFullDate]
@@ -116,6 +125,15 @@ struct PromptBuilder {
         7. Output the final plan as JSON
         """
 
+        if let batch = batchRange {
+            prompt += """
+
+            \n## Batch Instructions
+            Generate ONLY weeks \(batch.start) through \(batch.end) of this \(batch.total)-week plan.
+            Number these weeks \(batch.start) to \(batch.end) in the output JSON.
+            """
+        }
+
         return prompt
     }
 
@@ -158,6 +176,21 @@ struct PromptBuilder {
             }
           ]
         }
+        """
+    }
+
+    static func batchContinuationPrompt(
+        batchStart: Int,
+        batchEnd: Int,
+        totalWeeks: Int
+    ) -> String {
+        """
+        Continue the training plan. Generate weeks \(batchStart) through \(batchEnd) of \(totalWeeks).
+
+        - Maintain logical progression from the previous weeks
+        - Reuse all tool results from earlier in this conversation (do NOT re-call tools)
+        - Output the same JSON schema with only weeks \(batchStart)-\(batchEnd) in the "weeks" array
+        - Number these weeks \(batchStart) to \(batchEnd)
         """
     }
 

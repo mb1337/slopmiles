@@ -20,9 +20,11 @@ struct AIServiceTests {
         return service
     }
 
-    /// Minimal parameters for calling `generatePlan`.
-    private func callGeneratePlan(on service: AIService) async throws -> String {
-        try await service.generatePlan(
+    /// Minimal parameters for calling `generatePlan`. Defaults to 4-week plan (single-batch).
+    private func callGeneratePlan(on service: AIService, weeks: Int = 4) async throws -> String {
+        let start = Date()
+        let end = Calendar.current.date(byAdding: .weekOfYear, value: weeks, to: start)!
+        return try await service.generatePlan(
             profile: UserProfile(),
             schedule: WeeklySchedule(),
             equipment: RunnerEquipment(),
@@ -30,9 +32,9 @@ struct AIServiceTests {
             settings: AISettings(),
             goalDescription: "Run a 5K",
             raceDistance: 5000,
-            raceDate: Date().addingTimeInterval(60 * 60 * 24 * 90),
-            startDate: Date(),
-            endDate: Date().addingTimeInterval(60 * 60 * 24 * 90)
+            raceDate: end,
+            startDate: start,
+            endDate: end
         )
     }
 
@@ -683,6 +685,148 @@ struct AIServiceTests {
         // After completion, status should be .complete
         if case .complete = service.generationStatus {
             // expected
+        } else {
+            Issue.record("Expected .complete but got \(service.generationStatus)")
+        }
+    }
+
+    // MARK: - Batch generation
+
+    @Test("Multi-batch generation merges weeks from 3 batches into 12 sequential weeks")
+    func multiBatchGeneration() async throws {
+        let mock = MockAIProvider()
+
+        // Each batch returns 4 weeks of JSON
+        func batchJSON(weekStart: Int, weekEnd: Int) -> String {
+            let weeks = (weekStart...weekEnd).map { n in
+                "{\"week_number\":\(n),\"theme\":\"Week \(n)\",\"total_distance_km\":40,\"notes\":\"\",\"workouts\":[]}"
+            }.joined(separator: ",")
+            return "{\"name\":\"Test Plan\",\"goal_description\":\"Run a 5K\",\"vdot\":45,\"weeks\":[\(weeks)]}"
+        }
+
+        mock.responses = [
+            // Batch 1: weeks 1-4
+            AIResponse(
+                message: AIMessage(role: .assistant, content: batchJSON(weekStart: 1, weekEnd: 4)),
+                stopReason: .endTurn,
+                usage: AIResponse.TokenUsage(inputTokens: 500, outputTokens: 200)
+            ),
+            // Batch 2: weeks 5-8
+            AIResponse(
+                message: AIMessage(role: .assistant, content: batchJSON(weekStart: 5, weekEnd: 8)),
+                stopReason: .endTurn,
+                usage: AIResponse.TokenUsage(inputTokens: 600, outputTokens: 200)
+            ),
+            // Batch 3: weeks 9-12
+            AIResponse(
+                message: AIMessage(role: .assistant, content: batchJSON(weekStart: 9, weekEnd: 12)),
+                stopReason: .endTurn,
+                usage: AIResponse.TokenUsage(inputTokens: 700, outputTokens: 200)
+            ),
+        ]
+
+        let service = makeService(mock: mock)
+        let result = try await callGeneratePlan(on: service, weeks: 12)
+
+        // Parse the merged result
+        let data = result.data(using: .utf8)!
+        let dict = try JSONSerialization.jsonObject(with: data) as! [String: Any]
+        let weeks = dict["weeks"] as! [[String: Any]]
+
+        // Should have all 12 weeks
+        #expect(weeks.count == 12)
+
+        // Week numbers should be sequential 1-12
+        for i in 0..<12 {
+            #expect(weeks[i]["week_number"] as? Int == i + 1)
+        }
+
+        // Top-level fields from first batch
+        #expect(dict["name"] as? String == "Test Plan")
+        #expect(dict["vdot"] as? Int == 45)
+
+        // Provider should have been called 3 times (one per batch)
+        #expect(mock.receivedMessages.count == 3)
+
+        // Tokens accumulated across all batches
+        #expect(service.totalTokensUsed == 500 + 200 + 600 + 200 + 700 + 200)
+    }
+
+    @Test("Multi-batch preserves conversation context across batches")
+    func multiBatchConversationContext() async throws {
+        let mock = MockAIProvider()
+
+        func batchJSON(weekStart: Int, weekEnd: Int) -> String {
+            let weeks = (weekStart...weekEnd).map { n in
+                "{\"week_number\":\(n),\"theme\":\"W\(n)\",\"total_distance_km\":30,\"notes\":\"\",\"workouts\":[]}"
+            }.joined(separator: ",")
+            return "{\"name\":\"Plan\",\"goal_description\":\"5K\",\"vdot\":40,\"weeks\":[\(weeks)]}"
+        }
+
+        mock.responses = [
+            // Batch 1: tool call then JSON
+            AIResponse(
+                message: AIMessage(
+                    role: .assistant, content: "",
+                    toolCalls: [ToolCall(id: "v1", name: "calculate_vdot", arguments: [
+                        "race_distance_meters": .number(5000),
+                        "race_time_seconds": .number(1200),
+                    ])]
+                ),
+                stopReason: .toolUse,
+                usage: nil
+            ),
+            AIResponse(
+                message: AIMessage(role: .assistant, content: batchJSON(weekStart: 1, weekEnd: 4)),
+                stopReason: .endTurn,
+                usage: nil
+            ),
+            // Batch 2: direct JSON (reuses tool results from batch 1)
+            AIResponse(
+                message: AIMessage(role: .assistant, content: batchJSON(weekStart: 5, weekEnd: 8)),
+                stopReason: .endTurn,
+                usage: nil
+            ),
+        ]
+
+        let service = makeService(mock: mock)
+        let result = try await callGeneratePlan(on: service, weeks: 8)
+
+        let data = result.data(using: .utf8)!
+        let dict = try JSONSerialization.jsonObject(with: data) as! [String: Any]
+        let weeks = dict["weeks"] as! [[String: Any]]
+        #expect(weeks.count == 8)
+
+        // Batch 2 call (3rd provider call) should include all prior messages
+        // (user prompt, assistant tool call, tool result, assistant batch 1 JSON, user continuation)
+        let batch2Messages = mock.receivedMessages[2]
+        let hasToolResult = batch2Messages.contains { $0.role == .tool }
+        #expect(hasToolResult, "Batch 2 should see tool results from batch 1")
+
+        let hasContinuation = batch2Messages.contains { $0.role == .user && $0.content.contains("Continue the training plan") }
+        #expect(hasContinuation, "Batch 2 should include continuation prompt")
+    }
+
+    @Test("Single-batch plan (<=4 weeks) has no batch status transitions")
+    func singleBatchNoBatchStatus() async throws {
+        let mock = MockAIProvider()
+        mock.responses = [
+            AIResponse(
+                message: AIMessage(role: .assistant, content: stubPlanJSON),
+                stopReason: .endTurn,
+                usage: nil
+            ),
+        ]
+
+        let service = makeService(mock: mock)
+        let result = try await callGeneratePlan(on: service, weeks: 4)
+
+        #expect(result == stubPlanJSON)
+        // Only one call to provider (no batching)
+        #expect(mock.receivedMessages.count == 1)
+
+        if case .complete = service.generationStatus {
+            // expected — no .generatingBatch transitions for single-batch
         } else {
             Issue.record("Expected .complete but got \(service.generationStatus)")
         }

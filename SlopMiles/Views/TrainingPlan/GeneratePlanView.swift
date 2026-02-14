@@ -144,7 +144,7 @@ struct GenerationProgressView: View {
     let status: GenerationStatus
     private var isInProgress: Bool {
         switch status {
-        case .starting, .sendingToAI, .executingTool, .parsingResponse: return true
+        case .starting, .sendingToAI, .executingTool, .generatingBatch, .parsingResponse: return true
         case .waitingForInput, .complete, .failed: return false
         }
     }
@@ -158,6 +158,7 @@ struct GenerationProgressView: View {
             case .starting: Text("Starting...")
             case .sendingToAI: Text("Thinking...")
             case .executingTool(let name): Text("Running \(toolDisplayName(name))...")
+            case .generatingBatch(let current, let total): Text("Generating weeks (batch \(current) of \(total))...")
             case .parsingResponse: Text("Building plan...")
             case .waitingForInput: Text("Waiting for your response...")
             case .complete: Text("Done!")
