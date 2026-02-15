@@ -17,7 +17,17 @@ struct PlansListView: View {
                         ForEach(plans) { plan in
                             NavigationLink(value: plan) {
                                 VStack(alignment: .leading, spacing: 4) {
-                                    Text(plan.name).font(.headline)
+                                    HStack {
+                                        Text(plan.name).font(.headline)
+                                        if plan.isActive {
+                                            Text("Active")
+                                                .font(.caption2.bold())
+                                                .padding(.horizontal, 8)
+                                                .padding(.vertical, 2)
+                                                .background(.blue, in: Capsule())
+                                                .foregroundStyle(.white)
+                                        }
+                                    }
                                     Text(plan.goalDescription).font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
                                     HStack {
                                         Text("\(plan.totalWeeks) weeks")
@@ -27,6 +37,15 @@ struct PlansListView: View {
                                     .font(.caption).foregroundStyle(.secondary)
                                 }
                                 .padding(.vertical, 4)
+                            }
+                            .swipeActions(edge: .leading) {
+                                if !plan.isActive {
+                                    Button {
+                                        TrainingPlan.setActivePlan(plan, in: modelContext)
+                                        try? modelContext.save()
+                                    } label: { Label("Set Active", systemImage: "checkmark.circle") }
+                                        .tint(.blue)
+                                }
                             }
                             .swipeActions(edge: .trailing, allowsFullSwipe: true) {
                                 Button(role: .destructive) {

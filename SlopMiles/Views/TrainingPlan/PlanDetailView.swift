@@ -10,8 +10,11 @@ struct PlanDetailView: View {
     @Query private var schedules: [WeeklySchedule]
     @Query private var equipmentList: [RunnerEquipment]
     @Query private var aiSettings: [AISettings]
+    @Query(sort: \TrainingPlan.createdAt, order: .reverse) private var allPlans: [TrainingPlan]
     @State private var errorMessage: String?
     @State private var showError = false
+    @State private var showStartDateSheet = false
+    @State private var newStartDate = Date()
 
     private var unitPref: UnitPreference { profiles.first?.unitPreference ?? .metric }
 
@@ -79,14 +82,23 @@ struct PlanDetailView: View {
                             }
                         }
                     }
+                    if !plan.isActive {
+                        Button("Set as Active Plan", systemImage: "checkmark.circle") {
+                            TrainingPlan.setActivePlan(plan, in: modelContext)
+                            try? modelContext.save()
+                        }
+                    }
+                    Button("Change Start Date", systemImage: "calendar") {
+                        newStartDate = plan.startDate
+                        showStartDateSheet = true
+                    }
                     Divider()
                     Button("Delete Plan", systemImage: "trash", role: .destructive) {
                         modelContext.delete(plan)
                         try? modelContext.save()
                         // Cancel notification if no other active plans
-                        let descriptor = FetchDescriptor<TrainingPlan>()
-                        let remaining = (try? modelContext.fetch(descriptor)) ?? []
-                        if !remaining.contains(where: { $0.endDate >= Date() }) {
+                        let remaining = allPlans.filter { $0.id != plan.id }
+                        if !remaining.contains(where: { $0.isActive }) {
                             NotificationService.cancelWeeklyReminder()
                         }
                         dismiss()
@@ -98,6 +110,9 @@ struct PlanDetailView: View {
             Button("OK") {}
         } message: {
             Text(errorMessage ?? "")
+        }
+        .sheet(isPresented: $showStartDateSheet) {
+            ChangeStartDateSheet(plan: plan, newStartDate: $newStartDate)
         }
     }
 
@@ -112,5 +127,61 @@ struct PlanDetailView: View {
             profile: profile, schedule: schedule, equipment: equipment,
             settings: settings, aiService: appState.aiService, context: modelContext
         )
+    }
+}
+
+private struct ChangeStartDateSheet: View {
+    let plan: TrainingPlan
+    @Binding var newStartDate: Date
+    @Environment(\.modelContext) private var modelContext
+    @Environment(\.dismiss) private var dismiss
+
+    private var dayDelta: Int {
+        Calendar.current.dateComponents([.day], from: Calendar.current.startOfDay(for: plan.startDate), to: Calendar.current.startOfDay(for: newStartDate)).day ?? 0
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    DatePicker("New Start Date", selection: $newStartDate, displayedComponents: .date)
+                }
+                Section {
+                    if dayDelta != 0 {
+                        let direction = dayDelta > 0 ? "later" : "earlier"
+                        Text("All workouts will shift \(abs(dayDelta)) day\(abs(dayDelta) == 1 ? "" : "s") \(direction).")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        Text("No change from current start date.")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+                    if let raceDate = plan.raceDate {
+                        let newEnd = Calendar.current.date(byAdding: .day, value: dayDelta, to: plan.endDate)!
+                        let weeksToRace = Calendar.current.dateComponents([.weekOfYear], from: newEnd, to: raceDate).weekOfYear ?? 0
+                        Text("Race date: \(DateFormatters.shortDate(from: raceDate)) (\(weeksToRace) weeks after plan ends)")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+            .navigationTitle("Change Start Date")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Apply") {
+                        plan.shiftStartDate(to: newStartDate)
+                        try? modelContext.save()
+                        dismiss()
+                    }
+                    .disabled(dayDelta == 0)
+                }
+            }
+        }
+        .presentationDetents([.medium])
     }
 }

@@ -11,7 +11,7 @@ struct DashboardView: View {
     @Query private var aiSettings: [AISettings]
 
     private var activePlan: TrainingPlan? {
-        plans.first { $0.endDate >= Date() }
+        plans.first { $0.isActive }
     }
 
     private var currentWeek: TrainingWeek? {

@@ -25,6 +25,7 @@ final class TrainingPlan {
     var volumeTypeRaw: String = VolumeType.distance.rawValue
     var rawAIResponse: String = ""
     var outlineRawAIResponse: String = ""
+    var isActive: Bool = false
     var cachedVDOT: Double?
     var createdAt: Date = Date()
 
@@ -51,7 +52,7 @@ final class TrainingPlan {
 
     init() {}
 
-    init(name: String, goalDescription: String, raceDistance: Double? = nil, raceDate: Date? = nil, difficulty: DifficultyLevel = .intermediate, startDate: Date, endDate: Date, weeklyMileageTargetKm: Double = 0) {
+    init(name: String, goalDescription: String, raceDistance: Double? = nil, raceDate: Date? = nil, difficulty: DifficultyLevel = .intermediate, startDate: Date, endDate: Date, weeklyMileageTargetKm: Double = 0, isActive: Bool = false) {
         self.name = name
         self.goalDescription = goalDescription
         self.raceDistance = raceDistance
@@ -60,5 +61,31 @@ final class TrainingPlan {
         self.startDate = startDate
         self.endDate = endDate
         self.weeklyMileageTargetKm = weeklyMileageTargetKm
+        self.isActive = isActive
+    }
+
+    static func setActivePlan(_ plan: TrainingPlan, in context: ModelContext) {
+        let descriptor = FetchDescriptor<TrainingPlan>()
+        let allPlans = (try? context.fetch(descriptor)) ?? []
+        for p in allPlans {
+            p.isActive = false
+        }
+        plan.isActive = true
+    }
+
+    func shiftStartDate(to newStart: Date) {
+        let calendar = Calendar.current
+        let dayDelta = calendar.dateComponents([.day], from: calendar.startOfDay(for: startDate), to: calendar.startOfDay(for: newStart)).day ?? 0
+        guard dayDelta != 0 else { return }
+
+        startDate = calendar.date(byAdding: .day, value: dayDelta, to: startDate)!
+        endDate = calendar.date(byAdding: .day, value: dayDelta, to: endDate)!
+
+        for week in (weeks ?? []) {
+            for workout in (week.workouts ?? []) {
+                workout.scheduledDate = calendar.date(byAdding: .day, value: dayDelta, to: workout.scheduledDate)!
+            }
+        }
+        // raceDate is intentionally left unchanged — it's a real-world constraint
     }
 }

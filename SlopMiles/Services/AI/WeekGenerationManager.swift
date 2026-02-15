@@ -28,7 +28,7 @@ final class WeekGenerationManager {
         guard case .idle = status else { return }
 
         let now = Date()
-        guard let plan = plans.first(where: { $0.endDate >= now }) else { return }
+        guard let plan = plans.first(where: { $0.isActive }) else { return }
 
         let firstDayOfWeek = profile.firstDayOfWeek
         guard let currentWeek = findCurrentWeek(in: plan, now: now, firstDayOfWeek: firstDayOfWeek) else { return }

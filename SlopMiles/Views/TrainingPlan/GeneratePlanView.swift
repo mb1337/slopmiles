@@ -162,6 +162,7 @@ struct GeneratePlanView: View {
                 try ResponseParser.parseWeekWorkouts(from: weekText, week: week1, planStartDate: startDate, context: modelContext)
             }
 
+            TrainingPlan.setActivePlan(plan, in: modelContext)
             try modelContext.save()
 
             // Schedule weekly notification

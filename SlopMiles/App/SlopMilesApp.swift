@@ -1,13 +1,14 @@
 import SwiftUI
 import SwiftData
 
-// MARK: - Schema Versioning
+// MARK: - App
 
-enum SchemaV1: VersionedSchema {
-    static let versionIdentifier = Schema.Version(1, 0, 0)
+@main
+struct SlopMilesApp: App {
+    @State private var appState = AppState()
 
-    static var models: [any PersistentModel.Type] {
-        [
+    var sharedModelContainer: ModelContainer = {
+        let schema = Schema([
             TrainingPlan.self,
             TrainingWeek.self,
             PlannedWorkout.self,
@@ -16,39 +17,14 @@ enum SchemaV1: VersionedSchema {
             WeeklySchedule.self,
             RunnerEquipment.self,
             AISettings.self,
-        ]
-    }
-}
-
-enum SlopMilesMigrationPlan: SchemaMigrationPlan {
-    static var schemas: [any VersionedSchema.Type] {
-        [SchemaV1.self]
-    }
-
-    static var stages: [MigrationStage] {
-        []
-    }
-}
-
-// MARK: - App
-
-@main
-struct SlopMilesApp: App {
-    @State private var appState = AppState()
-
-    var sharedModelContainer: ModelContainer = {
-        let schema = Schema(versionedSchema: SchemaV1.self)
+        ])
         let modelConfiguration = ModelConfiguration(
             schema: schema,
             isStoredInMemoryOnly: false,
             cloudKitDatabase: .automatic
         )
         do {
-            return try ModelContainer(
-                for: schema,
-                migrationPlan: SlopMilesMigrationPlan.self,
-                configurations: [modelConfiguration]
-            )
+            return try ModelContainer(for: schema, configurations: [modelConfiguration])
         } catch {
             fatalError("Could not create ModelContainer: \(error)")
         }
@@ -98,6 +74,24 @@ struct SlopMilesApp: App {
             for week in allWeeks {
                 if !week.workoutsGenerated && !(week.workouts ?? []).isEmpty {
                     week.workoutsGenerated = true
+                }
+            }
+        }
+
+        // Backfill: ensure exactly one plan is active
+        let planDescriptor = FetchDescriptor<TrainingPlan>()
+        if let allPlans = try? context.fetch(planDescriptor) {
+            let activePlans = allPlans.filter { $0.isActive }
+            if activePlans.isEmpty {
+                // Activate the first non-expired plan (matches old heuristic)
+                let now = Date()
+                if let firstActive = allPlans.first(where: { $0.endDate >= now }) {
+                    firstActive.isActive = true
+                }
+            } else if activePlans.count > 1 {
+                // CloudKit sync may create duplicates — keep only the first
+                for plan in activePlans.dropFirst() {
+                    plan.isActive = false
                 }
             }
         }
