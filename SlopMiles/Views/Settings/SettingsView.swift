@@ -49,6 +49,18 @@ struct SettingsView: View {
                         } label: {
                             Text("Equipment & Facilities")
                         }
+                        Picker("First Day of Week", selection: Binding(
+                            get: { profile.firstDayOfWeekRaw },
+                            set: { newValue in
+                                profile.firstDayOfWeekRaw = newValue
+                                NotificationService.scheduleWeeklyReminder(firstDayOfWeek: profile.firstDayOfWeek)
+                            }
+                        )) {
+                            Text("System Default").tag(0)
+                            Text("Sunday").tag(1)
+                            Text("Monday").tag(2)
+                            Text("Saturday").tag(7)
+                        }
                     }
 
                     Section("Health & Watch") {

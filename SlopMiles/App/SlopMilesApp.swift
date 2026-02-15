@@ -26,7 +26,6 @@ enum SlopMilesMigrationPlan: SchemaMigrationPlan {
     }
 
     static var stages: [MigrationStage] {
-        // No migrations yet — add stages here when SchemaV2 is introduced.
         []
     }
 }
@@ -92,5 +91,15 @@ struct SlopMilesApp: App {
         deduplicateAndEnsure(UserProfile.self) { UserProfile() }
         deduplicateAndEnsure(WeeklySchedule.self) { WeeklySchedule() }
         deduplicateAndEnsure(RunnerEquipment.self) { RunnerEquipment() }
+
+        // Backfill: mark existing weeks that already have workouts as generated
+        let weekDescriptor = FetchDescriptor<TrainingWeek>()
+        if let allWeeks = try? context.fetch(weekDescriptor) {
+            for week in allWeeks {
+                if !week.workoutsGenerated && !(week.workouts ?? []).isEmpty {
+                    week.workoutsGenerated = true
+                }
+            }
+        }
     }
 }

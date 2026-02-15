@@ -7,6 +7,9 @@ struct PlanDetailView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
     @Query private var profiles: [UserProfile]
+    @Query private var schedules: [WeeklySchedule]
+    @Query private var equipmentList: [RunnerEquipment]
+    @Query private var aiSettings: [AISettings]
     @State private var errorMessage: String?
     @State private var showError = false
 
@@ -26,11 +29,21 @@ struct PlanDetailView: View {
             }
             ForEach(plan.sortedWeeks) { week in
                 Section("Week \(week.weekNumber) \u{2014} \(week.theme)") {
-                    ForEach(week.sortedWorkouts) { workout in
-                        NavigationLink(value: workout) { WorkoutRowView(workout: workout, unitPref: unitPref) }
+                    if week.workoutsGenerated {
+                        ForEach(week.sortedWorkouts) { workout in
+                            NavigationLink(value: workout) { WorkoutRowView(workout: workout, unitPref: unitPref) }
+                        }
+                    } else {
+                        HStack {
+                            Image(systemName: "sparkles")
+                                .foregroundStyle(.secondary)
+                            Text("Workouts not yet generated")
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                        }
                     }
                     HStack {
-                        Text("Total").foregroundStyle(.secondary)
+                        Text(week.workoutsGenerated ? "Total" : "Target").foregroundStyle(.secondary)
                         Spacer()
                         if plan.volumeType == .time {
                             Text(UnitConverter.formatDuration(minutes: week.totalDurationMinutes)).foregroundStyle(.secondary)
@@ -38,6 +51,14 @@ struct PlanDetailView: View {
                             Text(UnitConverter.formatDistance(week.totalDistanceKm, unit: unitPref)).foregroundStyle(.secondary)
                         }
                     }.font(.caption)
+                }
+                .swipeActions(edge: .trailing) {
+                    if week.workoutsGenerated {
+                        Button("Regenerate") {
+                            regenerateWeek(week)
+                        }
+                        .tint(.orange)
+                    }
                 }
             }
         }
@@ -47,7 +68,7 @@ struct PlanDetailView: View {
             ToolbarItem(placement: .primaryAction) {
                 Menu {
                     Button("Schedule Next Week to Watch") {
-                        if let week = plan.sortedWeeks.first(where: { $0.sortedWorkouts.contains { $0.completionStatus == .planned } }) {
+                        if let week = plan.sortedWeeks.first(where: { $0.workoutsGenerated && $0.sortedWorkouts.contains { $0.completionStatus == .planned } }) {
                             Task {
                                 do {
                                     try await appState.workoutKitService.scheduleWeek(week)
@@ -62,6 +83,12 @@ struct PlanDetailView: View {
                     Button("Delete Plan", systemImage: "trash", role: .destructive) {
                         modelContext.delete(plan)
                         try? modelContext.save()
+                        // Cancel notification if no other active plans
+                        let descriptor = FetchDescriptor<TrainingPlan>()
+                        let remaining = (try? modelContext.fetch(descriptor)) ?? []
+                        if !remaining.contains(where: { $0.endDate >= Date() }) {
+                            NotificationService.cancelWeeklyReminder()
+                        }
                         dismiss()
                     }
                 } label: { Image(systemName: "ellipsis.circle") }
@@ -72,5 +99,18 @@ struct PlanDetailView: View {
         } message: {
             Text(errorMessage ?? "")
         }
+    }
+
+    private func regenerateWeek(_ week: TrainingWeek) {
+        guard let profile = profiles.first,
+              let schedule = schedules.first,
+              let equipment = equipmentList.first,
+              let settings = aiSettings.first else { return }
+
+        appState.weekGenerationManager.regenerateWeek(
+            week: week, plan: plan,
+            profile: profile, schedule: schedule, equipment: equipment,
+            settings: settings, aiService: appState.aiService, context: modelContext
+        )
     }
 }

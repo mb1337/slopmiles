@@ -57,6 +57,11 @@ final class UserProfile {
     var maxHeartRate: Int?
     var restingHeartRate: Int?
     var lactateThresholdHR: Int?
+    var firstDayOfWeekRaw: Int = 0
+
+    var firstDayOfWeek: Int {
+        firstDayOfWeekRaw == 0 ? Calendar.current.firstWeekday : firstDayOfWeekRaw
+    }
 
     var experienceLevel: ExperienceLevel {
         get { ExperienceLevel(rawValue: experienceLevelRaw) ?? .intermediate }

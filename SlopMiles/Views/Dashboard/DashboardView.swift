@@ -3,27 +3,27 @@ import SwiftData
 
 struct DashboardView: View {
     @Environment(AppState.self) private var appState
+    @Environment(\.modelContext) private var modelContext
     @Query(sort: \TrainingPlan.createdAt, order: .reverse) private var plans: [TrainingPlan]
     @Query private var profiles: [UserProfile]
+    @Query private var schedules: [WeeklySchedule]
+    @Query private var equipmentList: [RunnerEquipment]
+    @Query private var aiSettings: [AISettings]
 
     private var activePlan: TrainingPlan? {
         plans.first { $0.endDate >= Date() }
     }
 
     private var currentWeek: TrainingWeek? {
-        guard let plan = activePlan else { return nil }
-        let now = Date()
-        let calendar = Calendar.current
-        return plan.sortedWeeks.first { week in
-            guard let first = week.sortedWorkouts.first, let last = week.sortedWorkouts.last else { return false }
-            let start = calendar.startOfDay(for: first.scheduledDate)
-            let end = calendar.date(byAdding: .day, value: 1, to: last.scheduledDate) ?? last.scheduledDate
-            return now >= start && now < end
-        }
+        guard let plan = activePlan, let profile = profiles.first else { return nil }
+        return appState.weekGenerationManager.findCurrentWeek(
+            in: plan, now: Date(), firstDayOfWeek: profile.firstDayOfWeek
+        )
     }
 
     private var nextWorkout: PlannedWorkout? {
-        currentWeek?.sortedWorkouts.first { $0.completionStatus == .planned || $0.completionStatus == .scheduled }
+        guard let week = currentWeek, week.workoutsGenerated else { return nil }
+        return week.sortedWorkouts.first { $0.completionStatus == .planned || $0.completionStatus == .scheduled }
     }
 
     private var unitPref: UnitPreference { profiles.first?.unitPreference ?? .metric }
@@ -34,10 +34,19 @@ struct DashboardView: View {
                 VStack(spacing: 20) {
                     if let plan = activePlan, let week = currentWeek {
                         CurrentPlanCard(plan: plan, week: week, unitPref: unitPref)
-                        if let workout = nextWorkout {
-                            NextWorkoutCard(workout: workout, unitPref: unitPref)
+
+                        if !week.workoutsGenerated {
+                            WeekGeneratingCard(
+                                status: appState.weekGenerationManager.status,
+                                weekNumber: week.weekNumber,
+                                onRetry: { triggerAutoGeneration() }
+                            )
+                        } else {
+                            if let workout = nextWorkout {
+                                NextWorkoutCard(workout: workout, unitPref: unitPref)
+                            }
+                            WeekOverviewCard(week: week, unitPref: unitPref)
                         }
-                        WeekOverviewCard(week: week, unitPref: unitPref)
                     } else {
                         EmptyDashboardView()
                     }
@@ -45,7 +54,71 @@ struct DashboardView: View {
                 .padding()
             }
             .navigationTitle("Dashboard")
+            .task {
+                triggerAutoGeneration()
+            }
         }
+    }
+
+    private func triggerAutoGeneration() {
+        guard let profile = profiles.first,
+              let schedule = schedules.first,
+              let equipment = equipmentList.first,
+              let settings = aiSettings.first else { return }
+
+        appState.weekGenerationManager.checkAndGenerateIfNeeded(
+            plans: plans,
+            profile: profile,
+            schedule: schedule,
+            equipment: equipment,
+            settings: settings,
+            aiService: appState.aiService,
+            context: modelContext
+        )
+    }
+}
+
+private struct WeekGeneratingCard: View {
+    let status: WeekGenerationManager.Status
+    let weekNumber: Int
+    let onRetry: () -> Void
+
+    var body: some View {
+        VStack(spacing: 12) {
+            switch status {
+            case .generating(let n):
+                HStack(spacing: 12) {
+                    ProgressView()
+                    Text("Generating week \(n) workouts...")
+                        .font(.subheadline)
+                }
+            case .failed(let message):
+                VStack(spacing: 8) {
+                    Label("Generation failed", systemImage: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.orange)
+                        .font(.subheadline.bold())
+                    Text(message)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                    Button("Retry") { onRetry() }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.small)
+                }
+            case .idle:
+                VStack(spacing: 8) {
+                    Label("Week \(weekNumber) workouts not yet generated", systemImage: "sparkles")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                    Button("Generate Now") { onRetry() }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.small)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .padding()
+        .background(.fill.quaternary, in: RoundedRectangle(cornerRadius: 16))
     }
 }
 
@@ -66,14 +139,16 @@ private struct CurrentPlanCard: View {
             }
             HStack(spacing: 20) {
                 if plan.volumeType == .time {
-                    VStack(spacing: 4) { Text(UnitConverter.formatDuration(minutes: week.totalDurationMinutes)).font(.headline); Text("Duration").font(.caption2).foregroundStyle(.secondary) }
+                    VStack(spacing: 4) { Text(UnitConverter.formatDuration(minutes: week.totalDurationMinutes)).font(.headline); Text(week.workoutsGenerated ? "Duration" : "Target").font(.caption2).foregroundStyle(.secondary) }
                 } else {
-                    VStack(spacing: 4) { Text(UnitConverter.formatDistance(week.totalDistanceKm, unit: unitPref)).font(.headline); Text("Distance").font(.caption2).foregroundStyle(.secondary) }
+                    VStack(spacing: 4) { Text(UnitConverter.formatDistance(week.totalDistanceKm, unit: unitPref)).font(.headline); Text(week.workoutsGenerated ? "Distance" : "Target").font(.caption2).foregroundStyle(.secondary) }
                 }
-                VStack(spacing: 4) { Text("\(week.sortedWorkouts.filter { $0.workoutType != .rest }.count)").font(.headline); Text("Workouts").font(.caption2).foregroundStyle(.secondary) }
-                let completed = week.sortedWorkouts.filter { $0.completionStatus == .completed }.count
-                let total = week.sortedWorkouts.filter { $0.workoutType != .rest }.count
-                VStack(spacing: 4) { Text("\(completed)/\(total)").font(.headline); Text("Done").font(.caption2).foregroundStyle(.secondary) }
+                if week.workoutsGenerated {
+                    VStack(spacing: 4) { Text("\(week.sortedWorkouts.filter { $0.workoutType != .rest }.count)").font(.headline); Text("Workouts").font(.caption2).foregroundStyle(.secondary) }
+                    let completed = week.sortedWorkouts.filter { $0.completionStatus == .completed }.count
+                    let total = week.sortedWorkouts.filter { $0.workoutType != .rest }.count
+                    VStack(spacing: 4) { Text("\(completed)/\(total)").font(.headline); Text("Done").font(.caption2).foregroundStyle(.secondary) }
+                }
             }
         }
         .padding()

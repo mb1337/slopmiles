@@ -490,6 +490,153 @@ struct ResponseParserTests {
         #expect(workouts[0].distanceKm == 0)
     }
 
+    // MARK: - parseOutline tests
+
+    @Test("parseOutline creates plan with weeks but no workouts")
+    func parseOutlineStructure() throws {
+        let context = try Self.makeTestContext()
+
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "UTC")!
+        let startDate = calendar.date(from: DateComponents(year: 2025, month: 3, day: 1))!
+        let endDate = calendar.date(from: DateComponents(year: 2025, month: 5, day: 24))!
+
+        let json = """
+        {
+            "name": "10K Training Plan",
+            "goal_description": "Sub-50 10K",
+            "vdot": 42.5,
+            "training_paces": {
+                "easy_min_per_km": 6.2,
+                "marathon_min_per_km": 5.5,
+                "threshold_min_per_km": 5.0,
+                "interval_min_per_km": 4.5,
+                "repetition_min_per_km": 4.0
+            },
+            "weeks": [
+                {
+                    "week_number": 1,
+                    "theme": "Base Building",
+                    "target_distance_km": 35.0,
+                    "focus": "Aerobic development",
+                    "workout_types": ["easy", "long"],
+                    "notes": "Easy start"
+                },
+                {
+                    "week_number": 2,
+                    "theme": "Build Phase",
+                    "target_distance_km": 40.0,
+                    "focus": "Increasing volume",
+                    "notes": "Add tempo work"
+                }
+            ]
+        }
+        """
+
+        let plan = try ResponseParser.parseOutline(from: json, startDate: startDate, endDate: endDate, context: context)
+
+        #expect(plan.name == "10K Training Plan")
+        #expect(plan.goalDescription == "Sub-50 10K")
+        #expect(plan.cachedVDOT == 42.5)
+        #expect(plan.outlineRawAIResponse == json)
+        #expect(plan.startDate == startDate)
+        #expect(plan.endDate == endDate)
+
+        let weeks = plan.sortedWeeks
+        #expect(weeks.count == 2)
+
+        #expect(weeks[0].weekNumber == 1)
+        #expect(weeks[0].theme == "Base Building")
+        #expect(weeks[0].totalDistanceKm == 35.0)
+        #expect(weeks[0].workoutsGenerated == false)
+        #expect(weeks[0].sortedWorkouts.isEmpty)
+
+        #expect(weeks[1].weekNumber == 2)
+        #expect(weeks[1].theme == "Build Phase")
+        #expect(weeks[1].totalDistanceKm == 40.0)
+        #expect(weeks[1].workoutsGenerated == false)
+    }
+
+    @Test("parseOutline stores integer vdot correctly")
+    func parseOutlineIntegerVdot() throws {
+        let context = try Self.makeTestContext()
+        let json = """
+        {"name":"Plan","vdot":45,"weeks":[{"week_number":1,"theme":"W1","target_distance_km":30,"notes":""}]}
+        """
+        let plan = try ResponseParser.parseOutline(from: json, startDate: Date(), endDate: Date(), context: context)
+        #expect(plan.cachedVDOT == 45.0)
+    }
+
+    // MARK: - parseWeekWorkouts tests
+
+    @Test("parseWeekWorkouts attaches workouts to existing week")
+    func parseWeekWorkoutsAttachesWorkouts() throws {
+        let context = try Self.makeTestContext()
+
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "UTC")!
+        let startDate = calendar.date(from: DateComponents(year: 2025, month: 1, day: 6))!
+
+        let week = TrainingWeek(weekNumber: 1, theme: "Base", totalDistanceKm: 30)
+        week.workoutsGenerated = false
+        context.insert(week)
+
+        let json = """
+        {
+            "week_number": 1,
+            "theme": "Base Building",
+            "total_distance_km": 32.0,
+            "notes": "Updated notes",
+            "workouts": [
+                {
+                    "name": "Easy Run",
+                    "type": "easy",
+                    "day_of_week": 2,
+                    "distance_km": 8.0,
+                    "duration_minutes": 48.0,
+                    "location": "outdoor",
+                    "notes": "Relaxed pace",
+                    "steps": [
+                        {"type": "warmup", "name": "Warmup", "goal_type": "time", "goal_value": 300},
+                        {"type": "work", "name": "Main", "goal_type": "distance", "goal_value": 6000}
+                    ]
+                },
+                {
+                    "name": "Long Run",
+                    "type": "long",
+                    "day_of_week": 7,
+                    "distance_km": 16.0,
+                    "duration_minutes": 96.0,
+                    "location": "trail",
+                    "notes": ""
+                }
+            ]
+        }
+        """
+
+        try ResponseParser.parseWeekWorkouts(from: json, week: week, planStartDate: startDate, context: context)
+
+        #expect(week.workoutsGenerated == true)
+        #expect(week.theme == "Base Building")
+        #expect(week.totalDistanceKm == 32.0)
+        #expect(week.notes == "Updated notes")
+
+        let workouts = week.sortedWorkouts
+        #expect(workouts.count == 2)
+        #expect(workouts[0].name == "Easy Run")
+        #expect(workouts[0].workoutType == .easy)
+        #expect(workouts[0].distanceKm == 8.0)
+
+        let steps = workouts[0].sortedSteps
+        #expect(steps.count == 2)
+        #expect(steps[0].stepType == .warmup)
+        #expect(steps[1].goalValue == 6000)
+
+        #expect(workouts[1].name == "Long Run")
+        #expect(workouts[1].workoutType == .long)
+        #expect(workouts[1].location == .trail)
+    }
+
     @Test("parsePlan extracts JSON from markdown code block wrapper")
     func parsePlanFromCodeBlock() throws {
         let context = try Self.makeTestContext()

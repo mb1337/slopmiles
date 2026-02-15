@@ -129,11 +129,36 @@ struct GeneratePlanView: View {
         let endDate = hasRace ? raceDate : Calendar.current.date(byAdding: .weekOfYear, value: planWeeks, to: startDate)!
         let stats: RunningStats = appState.healthKitService.isAuthorized ? await appState.healthKitService.fetchRunningStats() : RunningStats()
         do {
-            let responseText = try await appState.aiService.generatePlan(profile: profile, schedule: schedule, equipment: equipment, stats: stats, settings: settings, goalDescription: goalDescription, raceDistance: selectedRaceDistance, raceDate: hasRace ? raceDate : nil, startDate: startDate, endDate: endDate)
-            let plan = try ResponseParser.parsePlan(from: responseText, startDate: startDate, context: modelContext)
+            // Phase 1: Generate outline
+            let outlineText = try await appState.aiService.generatePlanOutline(
+                profile: profile, schedule: schedule, equipment: equipment,
+                stats: stats, settings: settings, goalDescription: goalDescription,
+                raceDistance: selectedRaceDistance, raceDate: hasRace ? raceDate : nil,
+                startDate: startDate, endDate: endDate
+            )
+            let plan = try ResponseParser.parseOutline(from: outlineText, startDate: startDate, endDate: endDate, context: modelContext)
             plan.volumeType = profile.volumeType
-            plan.goalDescription = goalDescription; plan.raceDistance = selectedRaceDistance; plan.raceDate = hasRace ? raceDate : nil
-            try modelContext.save(); dismiss()
+            plan.goalDescription = goalDescription
+            plan.raceDistance = selectedRaceDistance
+            plan.raceDate = hasRace ? raceDate : nil
+
+            // Phase 2: Generate week 1 workouts immediately
+            if let week1 = plan.sortedWeeks.first {
+                let weekText = try await appState.aiService.generateWeekWorkouts(
+                    plan: plan, week: week1,
+                    profile: profile, schedule: schedule, equipment: equipment,
+                    settings: settings, performanceData: WeeklyPerformanceData()
+                )
+                try ResponseParser.parseWeekWorkouts(from: weekText, week: week1, planStartDate: startDate, context: modelContext)
+            }
+
+            try modelContext.save()
+
+            // Schedule weekly notification
+            NotificationService.scheduleWeeklyReminder(firstDayOfWeek: profile.firstDayOfWeek)
+            _ = await NotificationService.requestAuthorization()
+
+            dismiss()
         } catch is CancellationError {
             // Task was cancelled (e.g. user navigated away), no error to show
         } catch { errorMessage = error.localizedDescription }
@@ -145,7 +170,7 @@ struct GenerationProgressView: View {
     let status: GenerationStatus
     private var isInProgress: Bool {
         switch status {
-        case .starting, .sendingToAI, .executingTool, .generatingBatch, .parsingResponse: return true
+        case .starting, .sendingToAI, .executingTool, .generatingOutline, .generatingWeek, .parsingResponse: return true
         case .waitingForInput, .complete, .failed: return false
         }
     }
@@ -159,7 +184,8 @@ struct GenerationProgressView: View {
             case .starting: Text("Starting...")
             case .sendingToAI: Text("Thinking...")
             case .executingTool(let name): Text("Running \(toolDisplayName(name))...")
-            case .generatingBatch(let current, let total): Text("Generating weeks (batch \(current) of \(total))...")
+            case .generatingOutline: Text("Generating plan outline...")
+            case .generatingWeek(let n): Text("Generating week \(n) workouts...")
             case .parsingResponse: Text("Building plan...")
             case .waitingForInput: Text("Waiting for your response...")
             case .complete: Text("Done!")

@@ -7,7 +7,8 @@ enum GenerationStatus: Sendable {
     case starting
     case sendingToAI
     case executingTool(String)
-    case generatingBatch(current: Int, total: Int)
+    case generatingOutline
+    case generatingWeek(Int)
     case parsingResponse
     case waitingForInput(String)
     case complete
@@ -20,7 +21,7 @@ final class AIService {
     private let toolExecutor = ToolExecutor()
     private var keychainService: KeychainService
 
-    /// Override for testing — when set, `generatePlan` uses this instead of building a real provider.
+    /// Override for testing — when set, generation methods use this instead of building a real provider.
     var providerOverride: AIProvider?
 
     var generationStatus: GenerationStatus = .complete
@@ -31,7 +32,95 @@ final class AIService {
         self.keychainService = keychainService
     }
 
-    private static let batchSize = 4
+    // MARK: - Outline Generation
+
+    func generatePlanOutline(
+        profile: UserProfile,
+        schedule: WeeklySchedule,
+        equipment: RunnerEquipment,
+        stats: RunningStats,
+        settings: AISettings,
+        goalDescription: String,
+        raceDistance: Double?,
+        raceDate: Date?,
+        startDate: Date,
+        endDate: Date
+    ) async throws -> String {
+        generationStatus = .generatingOutline
+        totalTokensUsed = 0
+
+        let provider = providerOverride ?? makeProvider(for: settings)
+        let tools = settings.provider == .anthropic
+            ? ToolDefinitions.anthropicTools()
+            : ToolDefinitions.openAITools()
+        let systemPrompt = PromptBuilder.outlineSystemPrompt(volumeType: profile.volumeType)
+        let userPrompt = PromptBuilder.outlineUserPrompt(
+            profile: profile, schedule: schedule, equipment: equipment,
+            stats: stats, goalDescription: goalDescription,
+            raceDistance: raceDistance, raceDate: raceDate,
+            startDate: startDate, endDate: endDate
+        )
+
+        var messages: [AIMessage] = [.user(userPrompt)]
+        do {
+            let content = try await runConversationLoop(
+                messages: &messages, provider: provider,
+                systemPrompt: systemPrompt, tools: tools,
+                model: settings.selectedModel
+            )
+            generationStatus = .complete
+            return content
+        } catch {
+            if case .complete = generationStatus { } else {
+                generationStatus = .failed(error.localizedDescription)
+            }
+            throw error
+        }
+    }
+
+    // MARK: - Weekly Workout Generation
+
+    func generateWeekWorkouts(
+        plan: TrainingPlan,
+        week: TrainingWeek,
+        profile: UserProfile,
+        schedule: WeeklySchedule,
+        equipment: RunnerEquipment,
+        settings: AISettings,
+        performanceData: WeeklyPerformanceData
+    ) async throws -> String {
+        generationStatus = .generatingWeek(week.weekNumber)
+        totalTokensUsed = 0
+
+        let provider = providerOverride ?? makeProvider(for: settings)
+        let tools = settings.provider == .anthropic
+            ? ToolDefinitions.anthropicTools()
+            : ToolDefinitions.openAITools()
+        let systemPrompt = PromptBuilder.weeklySystemPrompt(volumeType: profile.volumeType)
+        let userPrompt = PromptBuilder.weeklyUserPrompt(
+            plan: plan, week: week,
+            profile: profile, schedule: schedule, equipment: equipment,
+            performanceData: performanceData
+        )
+
+        var messages: [AIMessage] = [.user(userPrompt)]
+        do {
+            let content = try await runConversationLoop(
+                messages: &messages, provider: provider,
+                systemPrompt: systemPrompt, tools: tools,
+                model: settings.selectedModel
+            )
+            generationStatus = .complete
+            return content
+        } catch {
+            if case .complete = generationStatus { } else {
+                generationStatus = .failed(error.localizedDescription)
+            }
+            throw error
+        }
+    }
+
+    // MARK: - Legacy Full Plan Generation (kept for existing callers)
 
     func generatePlan(
         profile: UserProfile,
@@ -54,80 +143,21 @@ final class AIService {
             : ToolDefinitions.openAITools()
         let systemPrompt = PromptBuilder.systemPrompt(volumeType: profile.volumeType)
 
-        let totalWeeks = max(1, Calendar.current.dateComponents([.weekOfYear], from: startDate, to: endDate).weekOfYear ?? 1)
-        let batchCount = totalWeeks <= Self.batchSize ? 1 : Int((Double(totalWeeks) / Double(Self.batchSize)).rounded(.up))
-
-        // Single-batch: no batching overhead
-        if batchCount == 1 {
-            let userPrompt = PromptBuilder.userPrompt(
-                profile: profile, schedule: schedule, equipment: equipment,
-                stats: stats, goalDescription: goalDescription,
-                raceDistance: raceDistance, raceDate: raceDate,
-                startDate: startDate, endDate: endDate
-            )
-            var messages: [AIMessage] = [.user(userPrompt)]
-            do {
-                let content = try await runConversationLoop(
-                    messages: &messages, provider: provider,
-                    systemPrompt: systemPrompt, tools: tools,
-                    model: settings.selectedModel
-                )
-                generationStatus = .complete
-                return content
-            } catch {
-                if case .complete = generationStatus { } else {
-                    generationStatus = .failed(error.localizedDescription)
-                }
-                throw error
-            }
-        }
-
-        // Multi-batch
-        var messages: [AIMessage] = []
-        var batchResults: [[String: Any]] = []
-
+        let userPrompt = PromptBuilder.userPrompt(
+            profile: profile, schedule: schedule, equipment: equipment,
+            stats: stats, goalDescription: goalDescription,
+            raceDistance: raceDistance, raceDate: raceDate,
+            startDate: startDate, endDate: endDate
+        )
+        var messages: [AIMessage] = [.user(userPrompt)]
         do {
-            for batchIndex in 0..<batchCount {
-                let batchStart = batchIndex * Self.batchSize + 1
-                let batchEnd = min(batchStart + Self.batchSize - 1, totalWeeks)
-
-                if batchIndex == 0 {
-                    let userPrompt = PromptBuilder.userPrompt(
-                        profile: profile, schedule: schedule, equipment: equipment,
-                        stats: stats, goalDescription: goalDescription,
-                        raceDistance: raceDistance, raceDate: raceDate,
-                        startDate: startDate, endDate: endDate,
-                        batchRange: (start: batchStart, end: batchEnd, total: totalWeeks)
-                    )
-                    messages = [.user(userPrompt)]
-                } else {
-                    generationStatus = .generatingBatch(current: batchIndex + 1, total: batchCount)
-                    let continuation = PromptBuilder.batchContinuationPrompt(
-                        batchStart: batchStart, batchEnd: batchEnd, totalWeeks: totalWeeks
-                    )
-                    messages.append(.user(continuation))
-                }
-
-                let content = try await runConversationLoop(
-                    messages: &messages, provider: provider,
-                    systemPrompt: systemPrompt, tools: tools,
-                    model: settings.selectedModel
-                )
-
-                guard let dict = try ResponseParser.extractJSON(from: content) as? [String: Any] else {
-                    throw AIProviderError.modelError("Batch \(batchIndex + 1) returned invalid JSON")
-                }
-                batchResults.append(dict)
-            }
-
-            let merged = mergeBatchResults(batchResults)
-            let mergedData = try JSONSerialization.data(withJSONObject: merged, options: [.sortedKeys])
-            guard let mergedString = String(data: mergedData, encoding: .utf8) else {
-                throw AIProviderError.modelError("Failed to serialize merged batch results")
-            }
-
+            let content = try await runConversationLoop(
+                messages: &messages, provider: provider,
+                systemPrompt: systemPrompt, tools: tools,
+                model: settings.selectedModel
+            )
             generationStatus = .complete
-            return mergedString
+            return content
         } catch {
             if case .complete = generationStatus { } else {
                 generationStatus = .failed(error.localizedDescription)
@@ -135,6 +165,8 @@ final class AIService {
             throw error
         }
     }
+
+    // MARK: - Conversation Loop
 
     /// Runs the inner conversation loop (tool calls, truncation, follow-ups) until the AI returns a final JSON response.
     private func runConversationLoop(
@@ -220,24 +252,7 @@ final class AIService {
         throw AIProviderError.modelError("AI conversation exceeded maximum rounds")
     }
 
-    private func mergeBatchResults(_ batches: [[String: Any]]) -> [String: Any] {
-        guard var merged = batches.first else { return [:] }
-
-        var allWeeks: [[String: Any]] = []
-        for batch in batches {
-            if let weeks = batch["weeks"] as? [[String: Any]] {
-                allWeeks.append(contentsOf: weeks)
-            }
-        }
-
-        // Renumber weeks sequentially
-        for i in allWeeks.indices {
-            allWeeks[i]["week_number"] = i + 1
-        }
-
-        merged["weeks"] = allWeeks
-        return merged
-    }
+    // MARK: - Utilities
 
     func validateKey(provider: AIProviderType, key: String) async throws -> Bool {
         let aiProvider: AIProvider = switch provider {

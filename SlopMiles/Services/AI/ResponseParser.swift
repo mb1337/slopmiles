@@ -125,6 +125,94 @@ struct ResponseParser {
         return step
     }
 
+    // MARK: - Outline Parsing
+
+    static func parseOutline(from responseText: String, startDate: Date, endDate: Date, context: ModelContext) throws -> TrainingPlan {
+        let json = try extractJSON(from: responseText)
+
+        guard let dict = json as? [String: Any] else {
+            throw ParseError.invalidJSON("Root is not an object")
+        }
+
+        let plan = TrainingPlan()
+        plan.name = dict["name"] as? String ?? "Training Plan"
+        plan.goalDescription = dict["goal_description"] as? String ?? ""
+        plan.outlineRawAIResponse = responseText
+        plan.startDate = startDate
+        plan.endDate = endDate
+
+        if let vdot = dict["vdot"] as? Double {
+            plan.cachedVDOT = vdot
+        } else if let vdot = dict["vdot"] as? Int {
+            plan.cachedVDOT = Double(vdot)
+        }
+
+        guard let weeksArray = dict["weeks"] as? [[String: Any]] else {
+            throw ParseError.missingField("weeks")
+        }
+
+        for weekDict in weeksArray {
+            let week = TrainingWeek()
+            week.weekNumber = weekDict["week_number"] as? Int ?? 1
+            week.theme = weekDict["theme"] as? String ?? ""
+            week.totalDistanceKm = weekDict["target_distance_km"] as? Double ?? weekDict["total_distance_km"] as? Double ?? 0
+            week.totalDurationMinutes = weekDict["target_duration_minutes"] as? Double ?? weekDict["total_duration_minutes"] as? Double ?? 0
+            week.notes = weekDict["notes"] as? String ?? ""
+            week.workoutsGenerated = false
+            week.plan = plan
+            context.insert(week)
+        }
+
+        context.insert(plan)
+        return plan
+    }
+
+    // MARK: - Weekly Workout Parsing
+
+    static func parseWeekWorkouts(from responseText: String, week: TrainingWeek, planStartDate: Date, context: ModelContext) throws {
+        let json = try extractJSON(from: responseText)
+
+        guard let dict = json as? [String: Any] else {
+            throw ParseError.invalidJSON("Root is not an object")
+        }
+
+        let calendar = Calendar.current
+
+        // Update week metadata if AI adjusted them
+        if let theme = dict["theme"] as? String, !theme.isEmpty {
+            week.theme = theme
+        }
+        if let notes = dict["notes"] as? String {
+            week.notes = notes
+        }
+        if let dist = dict["total_distance_km"] as? Double {
+            week.totalDistanceKm = dist
+        }
+        if let dur = dict["total_duration_minutes"] as? Double {
+            week.totalDurationMinutes = dur
+        }
+
+        if let workoutsArray = dict["workouts"] as? [[String: Any]] {
+            for workoutDict in workoutsArray {
+                let workout = parseWorkout(from: workoutDict, weekNumber: week.weekNumber, planStartDate: planStartDate, calendar: calendar)
+                workout.week = week
+                context.insert(workout)
+
+                if let stepsArray = workoutDict["steps"] as? [[String: Any]] {
+                    for (index, stepDict) in stepsArray.enumerated() {
+                        let step = parseStep(from: stepDict, order: index)
+                        step.workout = workout
+                        context.insert(step)
+                    }
+                }
+            }
+        }
+
+        week.workoutsGenerated = true
+    }
+
+    // MARK: - JSON Extraction
+
     static func extractJSON(from text: String) throws -> Any {
         if let data = text.data(using: .utf8),
            let json = try? JSONSerialization.jsonObject(with: data) {

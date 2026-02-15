@@ -24,6 +24,8 @@ final class TrainingPlan {
     var weeklyMileageTargetKm: Double = 0
     var volumeTypeRaw: String = VolumeType.distance.rawValue
     var rawAIResponse: String = ""
+    var outlineRawAIResponse: String = ""
+    var cachedVDOT: Double?
     var createdAt: Date = Date()
 
     var difficulty: DifficultyLevel {

@@ -93,4 +93,72 @@ struct PromptBuilderTests {
         #expect(prompt.contains("time-based"))
         #expect(!prompt.contains("Current weekly mileage"))
     }
+
+    // MARK: - Outline prompts
+
+    @Test("Outline system prompt instructs plan skeleton only")
+    func outlineSystemPromptContent() {
+        let prompt = PromptBuilder.outlineSystemPrompt()
+        #expect(prompt.contains("plan outline"))
+        #expect(prompt.contains("Do NOT generate individual workouts"))
+        #expect(prompt.contains("target_distance_km"))
+        #expect(prompt.contains("training_paces"))
+    }
+
+    @Test("Outline user prompt appends outline instruction")
+    func outlineUserPromptContent() {
+        let prompt = PromptBuilder.outlineUserPrompt(
+            profile: UserProfile(), schedule: WeeklySchedule(), equipment: RunnerEquipment(),
+            stats: RunningStats(), goalDescription: "Run a 5K",
+            raceDistance: 5000, raceDate: Date(), startDate: Date(), endDate: Date()
+        )
+
+        #expect(prompt.contains("ONLY the plan outline"))
+        #expect(prompt.contains("Do NOT generate individual workouts"))
+    }
+
+    // MARK: - Weekly prompts
+
+    @Test("Weekly system prompt contains performance adaptation rules")
+    func weeklySystemPromptContent() {
+        let prompt = PromptBuilder.weeklySystemPrompt()
+        #expect(prompt.contains("Performance Adaptation Rules"))
+        #expect(prompt.contains("75%"))
+        #expect(prompt.contains("Scheduling Rules"))
+    }
+
+    @Test("Weekly user prompt includes plan context and performance data")
+    func weeklyUserPromptContent() {
+        let plan = TrainingPlan(name: "Test Plan", goalDescription: "Run a 5K", startDate: Date(), endDate: Date())
+        plan.cachedVDOT = 45.0
+        let week = TrainingWeek(weekNumber: 3, theme: "Build Phase", totalDistanceKm: 40)
+
+        var perfData = WeeklyPerformanceData()
+        perfData.priorWeekSummaries = [
+            .init(weekNumber: 1, theme: "Base", plannedDistanceKm: 30, plannedDurationMinutes: 0, completedWorkouts: 4, totalWorkouts: 5, skippedWorkouts: 1),
+            .init(weekNumber: 2, theme: "Build", plannedDistanceKm: 35, plannedDurationMinutes: 0, completedWorkouts: 5, totalWorkouts: 5, skippedWorkouts: 0),
+        ]
+
+        let prompt = PromptBuilder.weeklyUserPrompt(
+            plan: plan, week: week,
+            profile: UserProfile(), schedule: WeeklySchedule(), equipment: RunnerEquipment(),
+            performanceData: perfData
+        )
+
+        #expect(prompt.contains("Week 3"))
+        #expect(prompt.contains("Build Phase"))
+        #expect(prompt.contains("VDOT: 45.0"))
+        #expect(prompt.contains("Prior Weeks Performance"))
+        #expect(prompt.contains("4/5 workouts completed"))
+        #expect(prompt.contains("1 skipped"))
+    }
+
+    @Test("Weekly output schema contains workout and step fields")
+    func weeklyOutputSchemaContent() {
+        let schema = PromptBuilder.weeklyOutputSchema()
+        #expect(schema.contains("workouts"))
+        #expect(schema.contains("steps"))
+        #expect(schema.contains("day_of_week"))
+        #expect(schema.contains("total_distance_km"))
+    }
 }

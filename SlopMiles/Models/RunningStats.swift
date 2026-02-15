@@ -1,5 +1,20 @@
 import Foundation
 
+struct WeeklyPerformanceData: Sendable {
+    var priorWeekSummaries: [WeekSummary] = []
+    var currentStats: RunningStats = RunningStats()
+
+    struct WeekSummary: Sendable {
+        var weekNumber: Int
+        var theme: String
+        var plannedDistanceKm: Double
+        var plannedDurationMinutes: Double
+        var completedWorkouts: Int
+        var totalWorkouts: Int
+        var skippedWorkouts: Int
+    }
+}
+
 struct RunningStats: Sendable {
     var averageWeeklyDistanceKm: Double = 0
     var averagePaceMinPerKm: Double = 0
