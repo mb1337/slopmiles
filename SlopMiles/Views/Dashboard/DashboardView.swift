@@ -55,6 +55,9 @@ struct DashboardView: View {
             }
             .navigationTitle("Dashboard")
             .task {
+                if appState.locationService.isAuthorized, let profile = profiles.first {
+                    await appState.locationService.updateProfileLocation(profile)
+                }
                 triggerAutoGeneration()
             }
         }

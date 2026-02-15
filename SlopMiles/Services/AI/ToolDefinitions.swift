@@ -111,18 +111,5 @@ struct ToolDefinitions {
                 "required": .array([]),
             ]
         ),
-        ToolDef(
-            name: "get_weather_forecast",
-            description: "Get weather forecast for a location. Use to schedule indoor vs outdoor workouts and adjust paces for conditions.",
-            inputSchema: [
-                "type": "object",
-                "properties": .object([
-                    "latitude": .object(["type": "number", "description": "Latitude of the location"]),
-                    "longitude": .object(["type": "number", "description": "Longitude of the location"]),
-                    "days": .object(["type": "integer", "description": "Number of forecast days (1-14)", "minimum": 1, "maximum": 14]),
-                ]),
-                "required": .array([.string("latitude"), .string("longitude"), .string("days")]),
-            ]
-        ),
     ]
 }

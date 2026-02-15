@@ -128,13 +128,22 @@ struct GeneratePlanView: View {
         isGenerating = true; errorMessage = nil
         let endDate = hasRace ? raceDate : Calendar.current.date(byAdding: .weekOfYear, value: planWeeks, to: startDate)!
         let stats: RunningStats = appState.healthKitService.isAuthorized ? await appState.healthKitService.fetchRunningStats() : RunningStats()
+
+        // Pre-fetch weather
+        var weatherData: [String: JSONValue]?
+        if let lat = profile.homeLatitude, let lon = profile.homeLongitude {
+            let forecast = await WeatherTool.getForecast(latitude: lat, longitude: lon, days: 7)
+            if forecast["error"] == nil { weatherData = forecast }
+        }
+
         do {
             // Phase 1: Generate outline
             let outlineText = try await appState.aiService.generatePlanOutline(
                 profile: profile, schedule: schedule, equipment: equipment,
                 stats: stats, settings: settings, goalDescription: goalDescription,
                 raceDistance: selectedRaceDistance, raceDate: hasRace ? raceDate : nil,
-                startDate: startDate, endDate: endDate
+                startDate: startDate, endDate: endDate,
+                weatherData: weatherData
             )
             let plan = try ResponseParser.parseOutline(from: outlineText, startDate: startDate, endDate: endDate, context: modelContext)
             plan.volumeType = profile.volumeType
@@ -147,7 +156,8 @@ struct GeneratePlanView: View {
                 let weekText = try await appState.aiService.generateWeekWorkouts(
                     plan: plan, week: week1,
                     profile: profile, schedule: schedule, equipment: equipment,
-                    settings: settings, performanceData: WeeklyPerformanceData()
+                    settings: settings, performanceData: WeeklyPerformanceData(),
+                    weatherData: weatherData
                 )
                 try ResponseParser.parseWeekWorkouts(from: weekText, week: week1, planStartDate: startDate, context: modelContext)
             }
@@ -201,7 +211,6 @@ struct GenerationProgressView: View {
         case "project_race_time": return "Race Predictor"
         case "calculate_hr_zones": return "HR Zone Calculator"
         case "check_mileage_progression": return "Mileage Checker"
-        case "get_weather_forecast": return "Weather Forecast"
         default: return name
         }
     }

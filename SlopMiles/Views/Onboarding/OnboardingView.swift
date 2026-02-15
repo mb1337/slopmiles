@@ -7,7 +7,7 @@ struct OnboardingView: View {
     @Query private var aiSettings: [AISettings]
     @State private var currentStep = 0
 
-    private let totalSteps = 7
+    private let totalSteps = 8
 
     var body: some View {
         VStack(spacing: 0) {
@@ -37,14 +37,16 @@ struct OnboardingView: View {
                     .tag(1)
                 HealthKitStepView(onContinue: nextStep)
                     .tag(2)
-                ProfileStepView(onContinue: nextStep)
+                LocationStepView(onContinue: nextStep)
                     .tag(3)
-                ScheduleStepView(onContinue: nextStep)
+                ProfileStepView(onContinue: nextStep)
                     .tag(4)
-                EquipmentStepView(onContinue: nextStep)
+                ScheduleStepView(onContinue: nextStep)
                     .tag(5)
-                WorkoutKitStepView(onComplete: completeOnboarding)
+                EquipmentStepView(onContinue: nextStep)
                     .tag(6)
+                WorkoutKitStepView(onComplete: completeOnboarding)
+                    .tag(7)
             }
             .tabViewStyle(.page(indexDisplayMode: .never))
             .animation(.easeInOut, value: currentStep)

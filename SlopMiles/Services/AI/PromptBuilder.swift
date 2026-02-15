@@ -29,7 +29,6 @@ struct PromptBuilder {
         - Use project_race_time to set realistic goal times
         - Use calculate_hr_zones if heart rate data is available
         - Use check_mileage_progression to validate your weekly volume plan before finalizing
-        - Use get_weather_forecast if the runner has a home location, to adjust indoor/outdoor scheduling
 
         ## Scheduling Rules
         - Each workout MUST fit within the runner's available time window for that day
@@ -57,7 +56,8 @@ struct PromptBuilder {
         raceDistance: Double?,
         raceDate: Date?,
         startDate: Date,
-        endDate: Date
+        endDate: Date,
+        weatherData: [String: JSONValue]? = nil
     ) -> String {
         let dateFormatter = ISO8601DateFormatter()
         dateFormatter.formatOptions = [.withFullDate]
@@ -122,8 +122,8 @@ struct PromptBuilder {
             }
         }
 
-        if let lat = profile.homeLatitude, let lon = profile.homeLongitude {
-            prompt += "\n\n## Location\nHome coordinates: \(lat), \(lon) (use get_weather_forecast to check conditions)"
+        if let weatherData {
+            prompt += formatWeatherSection(weatherData)
         }
 
         prompt += """
@@ -132,7 +132,7 @@ struct PromptBuilder {
         1. First, calculate the runner's VDOT from their recent race data or estimate from their current fitness
         2. Get training paces using the VDOT
         3. If heart rate data is available, calculate HR zones
-        4. If location is available, check weather forecast
+        4. Consider the weather forecast when deciding indoor vs outdoor workouts
         5. Design the training plan with appropriate progression
         6. Validate weekly mileage progression with the check_mileage_progression tool
         7. Output the final plan as JSON
@@ -209,13 +209,15 @@ struct PromptBuilder {
         raceDistance: Double?,
         raceDate: Date?,
         startDate: Date,
-        endDate: Date
+        endDate: Date,
+        weatherData: [String: JSONValue]? = nil
     ) -> String {
         var prompt = userPrompt(
             profile: profile, schedule: schedule, equipment: equipment,
             stats: stats, goalDescription: goalDescription,
             raceDistance: raceDistance, raceDate: raceDate,
-            startDate: startDate, endDate: endDate
+            startDate: startDate, endDate: endDate,
+            weatherData: weatherData
         )
 
         prompt += "\n\nGenerate ONLY the plan outline with weekly themes and volume targets. Do NOT generate individual workouts."
@@ -318,7 +320,8 @@ struct PromptBuilder {
         profile: UserProfile,
         schedule: WeeklySchedule,
         equipment: RunnerEquipment,
-        performanceData: WeeklyPerformanceData
+        performanceData: WeeklyPerformanceData,
+        weatherData: [String: JSONValue]? = nil
     ) -> String {
         let dateFormatter = ISO8601DateFormatter()
         dateFormatter.formatOptions = [.withFullDate]
@@ -408,8 +411,8 @@ struct PromptBuilder {
             }
         }
 
-        if let lat = profile.homeLatitude, let lon = profile.homeLongitude {
-            prompt += "\n\n## Location\nHome coordinates: \(lat), \(lon) (use get_weather_forecast to check conditions)"
+        if let weatherData {
+            prompt += formatWeatherSection(weatherData)
         }
 
         prompt += """
@@ -417,7 +420,7 @@ struct PromptBuilder {
         \n## Instructions
         1. Use get_training_paces with the VDOT to get accurate paces
         2. If heart rate data is available, calculate HR zones
-        3. If location is available, check weather forecast
+        3. Consider the weather forecast when deciding indoor vs outdoor workouts
         4. Generate workouts that match this week's theme and volume target
         5. Adapt based on prior weeks' performance data
         6. Output the week as JSON
@@ -485,6 +488,24 @@ struct PromptBuilder {
           ]
         }
         """
+    }
+
+    // MARK: - Weather Formatting
+
+    static func formatWeatherSection(_ weatherData: [String: JSONValue]) -> String {
+        guard case .array(let days) = weatherData["daily"] else { return "" }
+        var section = "\n\n## Weather Forecast (7-day)"
+        for day in days {
+            guard case .object(let d) = day,
+                  let date = d["date"]?.stringValue,
+                  let condition = d["condition"]?.stringValue else { continue }
+            let high = d["temp_high_c"]?.doubleValue.map { String(format: "%.0f", $0) } ?? "?"
+            let low = d["temp_low_c"]?.doubleValue.map { String(format: "%.0f", $0) } ?? "?"
+            let precip = d["precipitation_probability_pct"]?.intValue.map { "\($0)" } ?? "?"
+            let wind = d["wind_speed_kmh"]?.doubleValue.map { String(format: "%.0f", $0) } ?? "?"
+            section += "\n- \(date): \(condition), \(low)-\(high) C, precip \(precip)%, wind \(wind) km/h"
+        }
+        return section
     }
 
     // MARK: - Ad-Hoc Workout

@@ -39,10 +39,12 @@ final class WeekGenerationManager {
         status = .generating(weekNumber: currentWeek.weekNumber)
         generationTask = Task {
             do {
+                let weatherData = await Self.fetchWeatherIfAvailable(profile: profile)
                 let responseText = try await aiService.generateWeekWorkouts(
                     plan: plan, week: currentWeek,
                     profile: profile, schedule: schedule, equipment: equipment,
-                    settings: settings, performanceData: performanceData
+                    settings: settings, performanceData: performanceData,
+                    weatherData: weatherData
                 )
                 try ResponseParser.parseWeekWorkouts(
                     from: responseText, week: currentWeek,
@@ -85,10 +87,12 @@ final class WeekGenerationManager {
         status = .generating(weekNumber: week.weekNumber)
         generationTask = Task {
             do {
+                let weatherData = await Self.fetchWeatherIfAvailable(profile: profile)
                 let responseText = try await aiService.generateWeekWorkouts(
                     plan: plan, week: week,
                     profile: profile, schedule: schedule, equipment: equipment,
-                    settings: settings, performanceData: performanceData
+                    settings: settings, performanceData: performanceData,
+                    weatherData: weatherData
                 )
                 try ResponseParser.parseWeekWorkouts(
                     from: responseText, week: week,
@@ -129,6 +133,15 @@ final class WeekGenerationManager {
         generationTask?.cancel()
         generationTask = nil
         status = .idle
+    }
+
+    // MARK: - Weather Pre-fetch
+
+    private static func fetchWeatherIfAvailable(profile: UserProfile) async -> [String: JSONValue]? {
+        guard let lat = profile.homeLatitude, let lon = profile.homeLongitude else { return nil }
+        let forecast = await WeatherTool.getForecast(latitude: lat, longitude: lon, days: 7)
+        guard forecast["error"] == nil else { return nil }
+        return forecast
     }
 
     // MARK: - Week Boundary Calculation

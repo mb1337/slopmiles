@@ -44,7 +44,8 @@ final class AIService {
         raceDistance: Double?,
         raceDate: Date?,
         startDate: Date,
-        endDate: Date
+        endDate: Date,
+        weatherData: [String: JSONValue]? = nil
     ) async throws -> String {
         generationStatus = .generatingOutline
         totalTokensUsed = 0
@@ -58,7 +59,8 @@ final class AIService {
             profile: profile, schedule: schedule, equipment: equipment,
             stats: stats, goalDescription: goalDescription,
             raceDistance: raceDistance, raceDate: raceDate,
-            startDate: startDate, endDate: endDate
+            startDate: startDate, endDate: endDate,
+            weatherData: weatherData
         )
 
         var messages: [AIMessage] = [.user(userPrompt)]
@@ -87,7 +89,8 @@ final class AIService {
         schedule: WeeklySchedule,
         equipment: RunnerEquipment,
         settings: AISettings,
-        performanceData: WeeklyPerformanceData
+        performanceData: WeeklyPerformanceData,
+        weatherData: [String: JSONValue]? = nil
     ) async throws -> String {
         generationStatus = .generatingWeek(week.weekNumber)
         totalTokensUsed = 0
@@ -100,7 +103,8 @@ final class AIService {
         let userPrompt = PromptBuilder.weeklyUserPrompt(
             plan: plan, week: week,
             profile: profile, schedule: schedule, equipment: equipment,
-            performanceData: performanceData
+            performanceData: performanceData,
+            weatherData: weatherData
         )
 
         var messages: [AIMessage] = [.user(userPrompt)]

@@ -7,6 +7,7 @@ final class AppState {
     let keychainService: KeychainService
     let aiService: AIService
     let healthKitService = HealthKitService()
+    let locationService = LocationService()
     let workoutKitService = WorkoutKitService()
     let weekGenerationManager = WeekGenerationManager()
 

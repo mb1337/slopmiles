@@ -63,6 +63,26 @@ struct SettingsView: View {
                         }
                     }
 
+                    Section("Location") {
+                        HStack {
+                            Text("Location"); Spacer()
+                            Text(appState.locationService.isAuthorized ? "Connected" : "Not Connected")
+                                .foregroundStyle(appState.locationService.isAuthorized ? .green : .secondary)
+                        }
+                        if appState.locationService.isAuthorized {
+                            if let lat = profile.homeLatitude, let lon = profile.homeLongitude {
+                                LabeledContent("Coordinates", value: String(format: "%.2f, %.2f", lat, lon))
+                            }
+                            Button("Update Location") {
+                                Task { await appState.locationService.updateProfileLocation(profile) }
+                            }
+                        } else {
+                            Button("Enable Location") {
+                                Task { await appState.locationService.requestLocationPermission() }
+                            }
+                        }
+                    }
+
                     Section("Health & Watch") {
                         HStack {
                             Text("HealthKit"); Spacer()

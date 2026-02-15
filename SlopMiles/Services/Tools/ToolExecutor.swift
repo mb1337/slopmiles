@@ -69,12 +69,6 @@ actor ToolExecutor {
                 result = MileageProgressionTool.check(weeklyDistancesKm: distances)
             }
 
-        case "get_weather_forecast":
-            let lat = toolCall.arguments["latitude"]?.doubleValue ?? 0
-            let lon = toolCall.arguments["longitude"]?.doubleValue ?? 0
-            let days = toolCall.arguments["days"]?.intValue ?? 7
-            result = await WeatherTool.getForecast(latitude: lat, longitude: lon, days: days)
-
         default:
             result = ["error": .string("Unknown tool: \(toolCall.name)")]
         }
