@@ -49,6 +49,12 @@ enum WorkoutLocation: String, Codable {
     case trail
 }
 
+struct LinkedWorkoutEntry: Codable, Sendable, Equatable {
+    let healthKitWorkoutID: String
+    let distanceKm: Double
+    let durationMinutes: Double
+}
+
 @Model
 final class PlannedWorkout {
     var id: UUID = UUID()
@@ -62,6 +68,7 @@ final class PlannedWorkout {
     var watchScheduleID: String?
     var locationRaw: String = WorkoutLocation.outdoor.rawValue
     var notes: String = ""
+    var linkedWorkoutsJSON: String = "[]"
 
     var week: TrainingWeek?
 
@@ -85,6 +92,39 @@ final class PlannedWorkout {
 
     var sortedSteps: [PlannedWorkoutStep] {
         (steps ?? []).sorted { $0.order < $1.order }
+    }
+
+    var linkedWorkouts: [LinkedWorkoutEntry] {
+        get {
+            guard let data = linkedWorkoutsJSON.data(using: .utf8),
+                  let entries = try? JSONDecoder().decode([LinkedWorkoutEntry].self, from: data) else {
+                return []
+            }
+            return entries
+        }
+        set {
+            if let data = try? JSONEncoder().encode(newValue) {
+                linkedWorkoutsJSON = String(data: data, encoding: .utf8) ?? "[]"
+            }
+        }
+    }
+
+    var isLinkedToHealthKit: Bool {
+        !linkedWorkouts.isEmpty
+    }
+
+    var actualDistanceKm: Double {
+        linkedWorkouts.reduce(0) { $0 + $1.distanceKm }
+    }
+
+    var actualDurationMinutes: Double {
+        linkedWorkouts.reduce(0) { $0 + $1.durationMinutes }
+    }
+
+    var actualPaceMinPerKm: Double? {
+        let dist = actualDistanceKm
+        guard dist > 0 else { return nil }
+        return actualDurationMinutes / dist
     }
 
     init() {}

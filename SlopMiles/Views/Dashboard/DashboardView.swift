@@ -4,6 +4,7 @@ import SwiftData
 struct DashboardView: View {
     @Environment(AppState.self) private var appState
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.scenePhase) private var scenePhase
     @Query(sort: \TrainingPlan.createdAt, order: .reverse) private var plans: [TrainingPlan]
     @Query private var profiles: [UserProfile]
     @Query private var schedules: [WeeklySchedule]
@@ -63,8 +64,43 @@ struct DashboardView: View {
                     await appState.locationService.updateProfileLocation(profile)
                 }
                 triggerAutoGeneration()
+                await autoLinkHealthKitWorkouts()
+            }
+            .onChange(of: scenePhase) { _, newPhase in
+                if newPhase == .active {
+                    triggerAutoGeneration()
+                    Task { await autoLinkHealthKitWorkouts() }
+                }
             }
         }
+    }
+
+    private func autoLinkHealthKitWorkouts() async {
+        guard appState.healthKitService.isAuthorized,
+              let week = currentWeek,
+              week.workoutsGenerated else { return }
+
+        let workouts = week.sortedWorkouts
+        guard !workouts.isEmpty else { return }
+
+        // Determine date range for the week's workouts
+        let dates = workouts.map(\.scheduledDate)
+        guard let earliest = dates.min(), let latest = dates.max() else { return }
+
+        let calendar = Calendar.current
+        let startOfEarliest = calendar.startOfDay(for: earliest)
+        let endOfLatest = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: latest))!
+
+        let hkWorkouts = await appState.healthKitService.fetchRunningWorkouts(
+            from: startOfEarliest, to: endOfLatest
+        )
+
+        WorkoutMatcher.removeStaleLinks(plannedWorkouts: workouts, hkWorkouts: hkWorkouts)
+
+        let matches = WorkoutMatcher.findMatches(
+            plannedWorkouts: workouts, hkWorkouts: hkWorkouts
+        )
+        WorkoutMatcher.applyMatches(matches)
     }
 
     private func triggerAutoGeneration() {

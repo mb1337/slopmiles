@@ -9,6 +9,7 @@ struct WorkoutDetailView: View {
     @State private var showError = false
     @State private var showCompletionConfirm = false
     @State private var showSkipConfirm = false
+    @State private var showUnlinkAllConfirm = false
 
     private var unitPref: UnitPreference { profiles.first?.unitPreference ?? .metric }
     private var volumeType: VolumeType { workout.week?.plan?.volumeType ?? .distance }
@@ -65,6 +66,40 @@ struct WorkoutDetailView: View {
                     }
                 }
             }
+            if workout.isLinkedToHealthKit {
+                Section("Actual Run") {
+                    LabeledContent("Distance", value: UnitConverter.formatDistance(workout.actualDistanceKm, unit: unitPref))
+                    LabeledContent("Duration", value: UnitConverter.formatDuration(minutes: workout.actualDurationMinutes))
+                    if let pace = workout.actualPaceMinPerKm {
+                        LabeledContent("Pace", value: UnitConverter.formatPace(pace, unit: unitPref))
+                    }
+                    if workout.distanceKm > 0 {
+                        let pctDiff = ((workout.actualDistanceKm - workout.distanceKm) / workout.distanceKm) * 100
+                        LabeledContent("vs Planned", value: String(format: "%+.0f%%", pctDiff))
+                    }
+                    if workout.linkedWorkouts.count > 1 {
+                        DisclosureGroup("\(workout.linkedWorkouts.count) linked runs") {
+                            ForEach(workout.linkedWorkouts, id: \.healthKitWorkoutID) { entry in
+                                HStack {
+                                    VStack(alignment: .leading) {
+                                        Text(UnitConverter.formatDistance(entry.distanceKm, unit: unitPref))
+                                            .font(.subheadline)
+                                        Text(UnitConverter.formatDuration(minutes: entry.durationMinutes))
+                                            .font(.caption).foregroundStyle(.secondary)
+                                    }
+                                    Spacer()
+                                    Button("Unlink", role: .destructive) {
+                                        WorkoutMatcher.unlinkSingleRun(entry.healthKitWorkoutID, from: workout)
+                                    }
+                                    .font(.caption)
+                                    .buttonStyle(.borderless)
+                                }
+                            }
+                        }
+                    }
+                    Button("Unlink All", role: .destructive) { showUnlinkAllConfirm = true }
+                }
+            }
             if !workout.notes.isEmpty { Section("Notes") { Text(workout.notes).font(.subheadline) } }
             Section {
                 if workout.completionStatus == .planned {
@@ -102,6 +137,12 @@ struct WorkoutDetailView: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("Are you sure you want to skip this workout? This action cannot be undone.")
+        }
+        .confirmationDialog("Unlink All Runs", isPresented: $showUnlinkAllConfirm, titleVisibility: .visible) {
+            Button("Unlink All", role: .destructive) { WorkoutMatcher.unlinkWorkout(workout) }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This will remove the link between this workout and all HealthKit runs. The workout will be marked as planned again.")
         }
     }
 }
