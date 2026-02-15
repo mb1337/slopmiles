@@ -37,6 +37,7 @@ struct SlopMilesApp: App {
                 .modelContainer(sharedModelContainer)
                 .task {
                     ensureSingletonModelsExist()
+                    await appState.healthKitService.restoreAuthorizationStatus()
                 }
         }
     }
@@ -95,5 +96,7 @@ struct SlopMilesApp: App {
                 }
             }
         }
+
+        try? context.save()
     }
 }

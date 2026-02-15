@@ -8,17 +8,8 @@ final class HealthKitService {
     var isAuthorized = false
     var authorizationError: String?
 
-    var isHealthKitAvailable: Bool {
-        HKHealthStore.isHealthDataAvailable()
-    }
-
-    func requestAuthorization() async {
-        guard isHealthKitAvailable else {
-            authorizationError = "HealthKit is not available on this device."
-            return
-        }
-
-        let readTypes: Set<HKObjectType> = [
+    private var readTypes: Set<HKObjectType> {
+        [
             HKObjectType.workoutType(),
             HKObjectType.quantityType(forIdentifier: .distanceWalkingRunning)!,
             HKObjectType.quantityType(forIdentifier: .heartRate)!,
@@ -26,6 +17,28 @@ final class HealthKitService {
             HKObjectType.quantityType(forIdentifier: .runningSpeed)!,
             HKObjectType.quantityType(forIdentifier: .restingHeartRate)!,
         ]
+    }
+
+    var isHealthKitAvailable: Bool {
+        HKHealthStore.isHealthDataAvailable()
+    }
+
+    /// Restore authorization status on app launch without prompting the user.
+    func restoreAuthorizationStatus() async {
+        guard isHealthKitAvailable else { return }
+        do {
+            let status = try await healthStore.statusForAuthorizationRequest(toShare: [], read: readTypes)
+            if status == .unnecessary {
+                isAuthorized = true
+            }
+        } catch {}
+    }
+
+    func requestAuthorization() async {
+        guard isHealthKitAvailable else {
+            authorizationError = "HealthKit is not available on this device."
+            return
+        }
 
         do {
             try await healthStore.requestAuthorization(toShare: [], read: readTypes)

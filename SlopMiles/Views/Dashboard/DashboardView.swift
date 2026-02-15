@@ -32,20 +32,24 @@ struct DashboardView: View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 20) {
-                    if let plan = activePlan, let week = currentWeek {
-                        CurrentPlanCard(plan: plan, week: week, unitPref: unitPref)
+                    if let plan = activePlan {
+                        if let week = currentWeek {
+                            CurrentPlanCard(plan: plan, week: week, unitPref: unitPref)
 
-                        if !week.workoutsGenerated {
-                            WeekGeneratingCard(
-                                status: appState.weekGenerationManager.status,
-                                weekNumber: week.weekNumber,
-                                onRetry: { triggerAutoGeneration() }
-                            )
-                        } else {
-                            if let workout = nextWorkout {
-                                NextWorkoutCard(workout: workout, unitPref: unitPref)
+                            if !week.workoutsGenerated {
+                                WeekGeneratingCard(
+                                    status: appState.weekGenerationManager.status,
+                                    weekNumber: week.weekNumber,
+                                    onRetry: { triggerAutoGeneration() }
+                                )
+                            } else {
+                                if let workout = nextWorkout {
+                                    NextWorkoutCard(workout: workout, unitPref: unitPref)
+                                }
+                                WeekOverviewCard(week: week, unitPref: unitPref)
                             }
-                            WeekOverviewCard(week: week, unitPref: unitPref)
+                        } else {
+                            ActivePlanNoWeekCard(plan: plan)
                         }
                     } else {
                         EmptyDashboardView()
@@ -237,6 +241,27 @@ private struct WeekOverviewCard: View {
                 }
             }
         }
+        .padding()
+        .background(.fill.quaternary, in: RoundedRectangle(cornerRadius: 16))
+    }
+}
+
+private struct ActivePlanNoWeekCard: View {
+    let plan: TrainingPlan
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(plan.name).font(.headline)
+            let now = Date()
+            if now < plan.startDate {
+                Text("Plan starts \(DateFormatters.shortDate(from: plan.startDate))")
+                    .font(.subheadline).foregroundStyle(.secondary)
+            } else if now > plan.endDate {
+                Text("Plan ended \(DateFormatters.shortDate(from: plan.endDate))")
+                    .font(.subheadline).foregroundStyle(.secondary)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding()
         .background(.fill.quaternary, in: RoundedRectangle(cornerRadius: 16))
     }
