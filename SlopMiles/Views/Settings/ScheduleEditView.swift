@@ -19,11 +19,14 @@ private struct ScheduleEditForm: View {
 
     init(schedule: WeeklySchedule) {
         self.schedule = schedule
+        schedule.migrateIfNeeded()
         _dayWindows = State(initialValue: (1...7).map { day in
-            if let window = schedule.timeWindow(for: day) {
-                DayWindow(dayOfWeek: day, isAvailable: true, startMinutes: window.startMinutes, endMinutes: window.endMinutes)
+            let windows = schedule.timeWindows(for: day)
+            if windows.isEmpty {
+                return DayWindow(dayOfWeek: day, isAvailable: false, slots: [])
             } else {
-                DayWindow(dayOfWeek: day, isAvailable: false, startMinutes: 360, endMinutes: 420)
+                let slots = windows.map { SlotWindow(startMinutes: $0.startMinutes, endMinutes: $0.endMinutes) }
+                return DayWindow(dayOfWeek: day, isAvailable: true, slots: slots)
             }
         })
     }
@@ -43,58 +46,11 @@ private struct ScheduleEditForm: View {
     private func saveSchedule() {
         for day in dayWindows {
             if day.isAvailable {
-                schedule.setTimeWindow(for: day.dayOfWeek, start: day.startMinutes, end: day.endMinutes)
+                let windows = day.slots.map { WeeklySchedule.TimeWindow(startMinutes: $0.startMinutes, endMinutes: $0.endMinutes) }
+                schedule.setTimeWindows(for: day.dayOfWeek, windows: windows)
             } else {
-                schedule.setTimeWindow(for: day.dayOfWeek, start: nil, end: nil)
+                schedule.setTimeWindows(for: day.dayOfWeek, windows: [])
             }
         }
-    }
-}
-
-private struct DayWindow: Identifiable, Equatable {
-    let dayOfWeek: Int
-    var isAvailable: Bool
-    var startMinutes: Int
-    var endMinutes: Int
-    var id: Int { dayOfWeek }
-
-    var startDate: Date {
-        Calendar.current.date(from: DateComponents(hour: startMinutes / 60, minute: startMinutes % 60)) ?? Date()
-    }
-    var endDate: Date {
-        Calendar.current.date(from: DateComponents(hour: endMinutes / 60, minute: endMinutes % 60)) ?? Date()
-    }
-}
-
-private struct DayScheduleRow: View {
-    @Binding var day: DayWindow
-
-    var body: some View {
-        VStack(spacing: 8) {
-            HStack {
-                Text(DateFormatters.dayName(for: day.dayOfWeek)).font(.subheadline.bold())
-                Spacer()
-                Toggle("", isOn: $day.isAvailable).labelsHidden()
-            }
-            if day.isAvailable {
-                HStack {
-                    DatePicker("Start", selection: Binding(
-                        get: { day.startDate },
-                        set: { let c = Calendar.current.dateComponents([.hour, .minute], from: $0); day.startMinutes = (c.hour ?? 0) * 60 + (c.minute ?? 0) }
-                    ), displayedComponents: .hourAndMinute).labelsHidden()
-                    Text("to").foregroundStyle(.secondary)
-                    DatePicker("End", selection: Binding(
-                        get: { day.endDate },
-                        set: { let c = Calendar.current.dateComponents([.hour, .minute], from: $0); day.endMinutes = (c.hour ?? 0) * 60 + (c.minute ?? 0) }
-                    ), displayedComponents: .hourAndMinute).labelsHidden()
-                    Spacer()
-                    Text("\(day.endMinutes - day.startMinutes) min").font(.caption).foregroundStyle(.secondary)
-                }
-            } else {
-                Text("Rest Day").font(.caption).foregroundStyle(.secondary)
-            }
-        }
-        .padding()
-        .background(.fill.quaternary, in: RoundedRectangle(cornerRadius: 12))
     }
 }

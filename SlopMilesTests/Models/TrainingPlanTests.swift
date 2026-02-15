@@ -57,11 +57,79 @@ struct TrainingPlanTests {
         #expect(sunday == nil)
     }
 
+    @Test("Weekly schedule multiple time slots")
+    func weeklyScheduleMultipleSlots() {
+        let schedule = WeeklySchedule()
+        // Set two slots for Monday (day 2)
+        schedule.setTimeWindows(for: 2, windows: [
+            WeeklySchedule.TimeWindow(startMinutes: 360, endMinutes: 420),
+            WeeklySchedule.TimeWindow(startMinutes: 1080, endMinutes: 1200)
+        ])
+        let windows = schedule.timeWindows(for: 2)
+        #expect(windows.count == 2)
+        #expect(windows[0].startMinutes == 360)
+        #expect(windows[0].endMinutes == 420)
+        #expect(windows[1].startMinutes == 1080)
+        #expect(windows[1].endMinutes == 1200)
+        #expect(schedule.totalDuration(for: 2) == 180)
+
+        // timeWindow(for:) should return the longest slot
+        let single = schedule.timeWindow(for: 2)
+        #expect(single?.durationMinutes == 120)
+    }
+
     @Test("Weekly schedule available days")
     func weeklyScheduleAvailableDays() {
         let schedule = WeeklySchedule()
         #expect(schedule.availableDays.count == 6)
         #expect(schedule.restDays.count == 1)
+    }
+
+    @Test("Weekly schedule dictionaryForPrompt with multiple slots")
+    func weeklyScheduleDictionaryForPromptMultiSlots() {
+        let schedule = WeeklySchedule()
+        schedule.setTimeWindows(for: 2, windows: [
+            WeeklySchedule.TimeWindow(startMinutes: 360, endMinutes: 420),
+            WeeklySchedule.TimeWindow(startMinutes: 1080, endMinutes: 1200)
+        ])
+        let prompt = schedule.dictionaryForPrompt()
+
+        // Monday is index 1 (Sunday=0, Monday=1)
+        guard case .object(let mondayDict) = prompt[1] else {
+            Issue.record("Expected object for Monday"); return
+        }
+        #expect(mondayDict["available"]?.boolValue == true)
+        #expect(mondayDict["total_duration_minutes"]?.intValue == 180)
+        guard case .array(let slots) = mondayDict["time_slots"] else {
+            Issue.record("Expected time_slots array"); return
+        }
+        #expect(slots.count == 2)
+
+        // Sunday should be unavailable
+        guard case .object(let sundayDict) = prompt[0] else {
+            Issue.record("Expected object for Sunday"); return
+        }
+        #expect(sundayDict["available"]?.boolValue == false)
+    }
+
+    @Test("Weekly schedule migration from legacy single-slot format")
+    func weeklyScheduleMigration() {
+        let schedule = WeeklySchedule()
+        // Simulate a legacy record: slotsJSON is empty, but legacy properties have data
+        schedule.slotsJSON = "{}"
+        // Legacy properties are already set from init(), so migrateIfNeeded should populate slotsJSON
+        schedule.migrateIfNeeded()
+
+        let monday = schedule.timeWindows(for: 2)
+        #expect(monday.count == 1)
+        #expect(monday[0].durationMinutes == 60)
+
+        let saturday = schedule.timeWindows(for: 7)
+        #expect(saturday.count == 1)
+        #expect(saturday[0].durationMinutes == 180)
+
+        let sunday = schedule.timeWindows(for: 1)
+        #expect(sunday.isEmpty)
     }
 
     @Test("Runner equipment dictionary for prompt")
