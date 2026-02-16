@@ -60,7 +60,8 @@ final class PlanGenerationManager {
                 let parseContext = PlanParseContext(
                     peakVolume: profile.volumeType == .time ? profile.peakWeeklyVolumeMinutes : profile.peakWeeklyMileageKm,
                     volumeType: profile.volumeType,
-                    vdot: profile.vdot
+                    vdot: profile.vdot,
+                    schedule: schedule
                 )
                 let plan = try ResponseParser.parseOutline(
                     from: outlineText, startDate: startDate,

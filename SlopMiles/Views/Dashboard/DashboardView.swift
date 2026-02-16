@@ -232,6 +232,18 @@ private struct WeekOverviewCard: View {
     @State private var errorMessage: String?
     @State private var showError = false
 
+    private func dayLabel(for workout: PlannedWorkout) -> String {
+        let day = DateFormatters.shortDayOfWeek(from: workout.scheduledDate)
+        let calendar = Calendar.current
+        let hasDouble = week.sortedWorkouts.contains { other in
+            other.id != workout.id && calendar.isDate(other.scheduledDate, inSameDayAs: workout.scheduledDate)
+        }
+        if hasDouble {
+            return "\(day) \(DateFormatters.timeOnly(from: workout.scheduledDate))"
+        }
+        return day
+    }
+
     private var hasPlannedWorkouts: Bool {
         week.sortedWorkouts.contains { $0.workoutType != .rest && $0.completionStatus == .planned }
     }
@@ -249,7 +261,7 @@ private struct WeekOverviewCard: View {
                     Image(systemName: workout.workoutType.iconName).foregroundStyle(.blue).frame(width: 24)
                     VStack(alignment: .leading) {
                         Text(workout.name).font(.subheadline)
-                        Text(DateFormatters.shortDayOfWeek(from: workout.scheduledDate)).font(.caption).foregroundStyle(.secondary)
+                        Text(dayLabel(for: workout)).font(.caption).foregroundStyle(.secondary)
                     }
                     Spacer()
                     if (week.plan?.volumeType ?? .distance) == .time {

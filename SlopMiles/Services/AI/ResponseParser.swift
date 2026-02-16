@@ -5,6 +5,14 @@ struct PlanParseContext {
     let peakVolume: Double      // km or minutes depending on volumeType
     let volumeType: VolumeType
     let vdot: Double?
+    let schedule: WeeklySchedule?
+
+    init(peakVolume: Double, volumeType: VolumeType, vdot: Double?, schedule: WeeklySchedule? = nil) {
+        self.peakVolume = peakVolume
+        self.volumeType = volumeType
+        self.vdot = vdot
+        self.schedule = schedule
+    }
 }
 
 struct ResponseParser {
@@ -133,11 +141,32 @@ struct ResponseParser {
         }
 
         let dayOfWeek = dict["day_of_week"] as? Int ?? 2
+        let timeSlotIndex = dict["time_slot_index"] as? Int ?? 0
         let weekOffset = weekNumber - 1
         if let weekStart = calendar.date(byAdding: .weekOfYear, value: weekOffset, to: planStartDate) {
             let currentWeekday = calendar.component(.weekday, from: weekStart)
             let dayDiff = (dayOfWeek - currentWeekday + 7) % 7
-            workout.scheduledDate = calendar.date(byAdding: .day, value: dayDiff, to: weekStart) ?? planStartDate
+            var scheduledDate = calendar.date(byAdding: .day, value: dayDiff, to: weekStart) ?? planStartDate
+
+            // Set time-of-day from schedule time slots
+            let hour: Int
+            let minute: Int
+            if let schedule = context?.schedule {
+                let windows = schedule.timeWindows(for: dayOfWeek)
+                let window = timeSlotIndex < windows.count ? windows[timeSlotIndex] : windows.first
+                if let window {
+                    hour = window.startMinutes / 60
+                    minute = window.startMinutes % 60
+                } else {
+                    hour = timeSlotIndex == 0 ? 6 : 17
+                    minute = 0
+                }
+            } else {
+                hour = timeSlotIndex == 0 ? 6 : 17
+                minute = 0
+            }
+            scheduledDate = calendar.date(bySettingHour: hour, minute: minute, second: 0, of: scheduledDate) ?? scheduledDate
+            workout.scheduledDate = scheduledDate
         }
 
         return workout

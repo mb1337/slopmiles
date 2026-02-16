@@ -34,6 +34,16 @@ struct PromptBuilder {
         - Interval sessions should go on track-access days when available
         - Use treadmill as weather fallback when the runner has access
 
+        ## Doubles (Two Runs Per Day)
+        - When a day has multiple time_slots in the weekly schedule, you MAY schedule two workouts on that day.
+        - Only prescribe doubles when weekly volume is high enough that individual runs would exceed comfortable single-run duration/distance.
+        - The secondary run in a double should almost always be easy or recovery intensity.
+        - Never schedule a quality workout (tempo/interval/long) in both slots of the same day.
+        - If the day before or after a double has a hard workout, both runs in the double must be easy/recovery.
+        - List workouts in slot order: first time slot's workout appears first.
+        - Include time_slot_index for each workout: 0 for the first slot, 1 for the second.
+        - If a day has only one time_slot, always use time_slot_index: 0.
+
         ## Output Format
         Your final response must be ONLY valid JSON matching this schema (no markdown, no explanation outside the JSON):
 
@@ -231,6 +241,16 @@ struct PromptBuilder {
         - Interval sessions should go on track-access days when available
         - Use treadmill as weather fallback when the runner has access
 
+        ## Doubles (Two Runs Per Day)
+        - When a day has multiple time_slots in the weekly schedule, you MAY schedule two workouts on that day.
+        - Only prescribe doubles when weekly volume is high enough that individual runs would exceed comfortable single-run duration/distance.
+        - The secondary run in a double should almost always be easy or recovery intensity.
+        - Never schedule a quality workout (tempo/interval/long) in both slots of the same day.
+        - If the day before or after a double has a hard workout, both runs in the double must be easy/recovery.
+        - List workouts in slot order: first time slot's workout appears first.
+        - Include time_slot_index for each workout: 0 for the first slot, 1 for the second.
+        - If a day has only one time_slot, always use time_slot_index: 0.
+
         ## Output Format
         Your final response must be ONLY valid JSON matching this schema (no markdown, no explanation outside the JSON):
 
@@ -250,6 +270,7 @@ struct PromptBuilder {
               "name": "string",
               "type": "easy|tempo|interval|long|recovery|race|rest",
               "day_of_week": number (1=Sunday, 7=Saturday),
+              "time_slot_index": number (0-indexed, matches the time_slots array position for that day; 0 when only one slot),
               "daily_volume_percent": number (% of peak weekly volume),
               "intensity": "easy|marathon|tempo|interval|repeat" or number (% VO2max),
               "location": "outdoor|treadmill|track|trail",
@@ -406,6 +427,7 @@ struct PromptBuilder {
                   "name": "string",
                   "type": "easy|tempo|interval|long|recovery|race|rest",
                   "day_of_week": number (1=Sunday, 7=Saturday),
+                  "time_slot_index": number (0-indexed, matches the time_slots array position for that day; 0 when only one slot),
                   "daily_volume_percent": number (% of peak weekly volume),
                   "intensity": "easy|marathon|tempo|interval|repeat" or number (% VO2max),
                   "location": "outdoor|treadmill|track|trail",

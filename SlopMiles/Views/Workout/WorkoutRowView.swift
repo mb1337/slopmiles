@@ -6,13 +6,25 @@ struct WorkoutRowView: View {
 
     private var volumeType: VolumeType { workout.week?.plan?.volumeType ?? .distance }
 
+    private var dayLabel: String {
+        let day = DateFormatters.shortDayOfWeek(from: workout.scheduledDate)
+        let calendar = Calendar.current
+        let hasDouble = workout.week?.sortedWorkouts.contains { other in
+            other.id != workout.id && calendar.isDate(other.scheduledDate, inSameDayAs: workout.scheduledDate)
+        } ?? false
+        if hasDouble {
+            return "\(day) \(DateFormatters.timeOnly(from: workout.scheduledDate))"
+        }
+        return day
+    }
+
     var body: some View {
         HStack {
             Image(systemName: workout.workoutType.iconName).foregroundStyle(.blue).frame(width: 28)
             VStack(alignment: .leading, spacing: 2) {
                 Text(workout.name).font(.subheadline)
                 HStack(spacing: 8) {
-                    Text(DateFormatters.shortDayOfWeek(from: workout.scheduledDate))
+                    Text(dayLabel)
                     if volumeType == .time {
                         if workout.durationMinutes > 0 { Text(UnitConverter.formatDuration(minutes: workout.durationMinutes)) }
                     } else {

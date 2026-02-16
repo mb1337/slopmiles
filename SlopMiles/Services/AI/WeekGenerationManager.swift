@@ -50,7 +50,8 @@ final class WeekGenerationManager {
                 let parseContext = PlanParseContext(
                     peakVolume: profile.volumeType == .time ? profile.peakWeeklyVolumeMinutes : profile.peakWeeklyMileageKm,
                     volumeType: profile.volumeType,
-                    vdot: profile.vdot
+                    vdot: profile.vdot,
+                    schedule: schedule
                 )
                 try ResponseParser.parseWeekWorkouts(
                     from: responseText, week: currentWeek,
@@ -110,7 +111,8 @@ final class WeekGenerationManager {
                 let parseContext = PlanParseContext(
                     peakVolume: profile.volumeType == .time ? profile.peakWeeklyVolumeMinutes : profile.peakWeeklyMileageKm,
                     volumeType: profile.volumeType,
-                    vdot: profile.vdot
+                    vdot: profile.vdot,
+                    schedule: schedule
                 )
                 try ResponseParser.parseWeekWorkouts(
                     from: responseText, week: week,

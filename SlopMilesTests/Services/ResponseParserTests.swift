@@ -560,6 +560,113 @@ struct ResponseParserTests {
         #expect(steps[1].goalValue == 6000)
     }
 
+    // MARK: - time_slot_index tests
+
+    @Test("parseWorkout resolves time_slot_index 0 to first schedule slot time")
+    func parseWorkoutTimeSlotIndex0() {
+        let schedule = WeeklySchedule()
+        // Monday (day 2) default is 6:00-7:00 AM (360-420 minutes)
+        let ctx = PlanParseContext(peakVolume: 50.0, volumeType: .distance, vdot: 50.0, schedule: schedule)
+        let dict: [String: Any] = [
+            "name": "Morning Run", "type": "easy", "day_of_week": 2,
+            "time_slot_index": 0,
+            "daily_volume_percent": 10.0, "intensity": "easy",
+        ]
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "UTC")!
+        let startDate = calendar.date(from: DateComponents(year: 2025, month: 1, day: 6))!
+
+        let workout = ResponseParser.parseWorkout(from: dict, weekNumber: 1, planStartDate: startDate, calendar: calendar, context: ctx)
+        let components = calendar.dateComponents([.hour, .minute], from: workout.scheduledDate)
+        #expect(components.hour == 6)
+        #expect(components.minute == 0)
+    }
+
+    @Test("parseWorkout resolves time_slot_index 1 to second schedule slot time")
+    func parseWorkoutTimeSlotIndex1() {
+        let schedule = WeeklySchedule()
+        // Add a second time slot for Monday (day 2): 5:00-6:00 PM (1020-1080 minutes)
+        let windows = schedule.timeWindows(for: 2) + [WeeklySchedule.TimeWindow(startMinutes: 1020, endMinutes: 1080)]
+        schedule.setTimeWindows(for: 2, windows: windows)
+
+        let ctx = PlanParseContext(peakVolume: 50.0, volumeType: .distance, vdot: 50.0, schedule: schedule)
+        let dict: [String: Any] = [
+            "name": "Evening Run", "type": "recovery", "day_of_week": 2,
+            "time_slot_index": 1,
+            "daily_volume_percent": 8.0, "intensity": "easy",
+        ]
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "UTC")!
+        let startDate = calendar.date(from: DateComponents(year: 2025, month: 1, day: 6))!
+
+        let workout = ResponseParser.parseWorkout(from: dict, weekNumber: 1, planStartDate: startDate, calendar: calendar, context: ctx)
+        let components = calendar.dateComponents([.hour, .minute], from: workout.scheduledDate)
+        #expect(components.hour == 17)
+        #expect(components.minute == 0)
+    }
+
+    @Test("parseWorkout defaults to slot 0 when time_slot_index missing")
+    func parseWorkoutTimeSlotIndexMissing() {
+        let schedule = WeeklySchedule()
+        let ctx = PlanParseContext(peakVolume: 50.0, volumeType: .distance, vdot: 50.0, schedule: schedule)
+        let dict: [String: Any] = [
+            "name": "Easy Run", "type": "easy", "day_of_week": 2,
+            "daily_volume_percent": 10.0, "intensity": "easy",
+        ]
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "UTC")!
+        let startDate = calendar.date(from: DateComponents(year: 2025, month: 1, day: 6))!
+
+        let workout = ResponseParser.parseWorkout(from: dict, weekNumber: 1, planStartDate: startDate, calendar: calendar, context: ctx)
+        let components = calendar.dateComponents([.hour, .minute], from: workout.scheduledDate)
+        // Default slot 0 → Monday's first slot at 6:00 AM
+        #expect(components.hour == 6)
+        #expect(components.minute == 0)
+    }
+
+    @Test("parseWorkout falls back to first slot when time_slot_index out of bounds")
+    func parseWorkoutTimeSlotIndexOutOfBounds() {
+        let schedule = WeeklySchedule()
+        // Monday only has 1 slot, index 5 is out of bounds
+        let ctx = PlanParseContext(peakVolume: 50.0, volumeType: .distance, vdot: 50.0, schedule: schedule)
+        let dict: [String: Any] = [
+            "name": "Easy Run", "type": "easy", "day_of_week": 2,
+            "time_slot_index": 5,
+            "daily_volume_percent": 10.0, "intensity": "easy",
+        ]
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "UTC")!
+        let startDate = calendar.date(from: DateComponents(year: 2025, month: 1, day: 6))!
+
+        let workout = ResponseParser.parseWorkout(from: dict, weekNumber: 1, planStartDate: startDate, calendar: calendar, context: ctx)
+        let components = calendar.dateComponents([.hour, .minute], from: workout.scheduledDate)
+        // Falls back to first slot at 6:00 AM
+        #expect(components.hour == 6)
+        #expect(components.minute == 0)
+    }
+
+    @Test("parseWorkout uses default times without schedule")
+    func parseWorkoutTimeSlotNoSchedule() {
+        let ctx = PlanParseContext(peakVolume: 50.0, volumeType: .distance, vdot: 50.0)
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "UTC")!
+        let startDate = calendar.date(from: DateComponents(year: 2025, month: 1, day: 6))!
+
+        // Slot 0 → 6:00 AM
+        let dict0: [String: Any] = ["name": "AM Run", "type": "easy", "day_of_week": 2, "time_slot_index": 0, "daily_volume_percent": 10.0, "intensity": "easy"]
+        let workout0 = ResponseParser.parseWorkout(from: dict0, weekNumber: 1, planStartDate: startDate, calendar: calendar, context: ctx)
+        let c0 = calendar.dateComponents([.hour, .minute], from: workout0.scheduledDate)
+        #expect(c0.hour == 6)
+        #expect(c0.minute == 0)
+
+        // Slot 1 → 5:00 PM
+        let dict1: [String: Any] = ["name": "PM Run", "type": "recovery", "day_of_week": 2, "time_slot_index": 1, "daily_volume_percent": 8.0, "intensity": "easy"]
+        let workout1 = ResponseParser.parseWorkout(from: dict1, weekNumber: 1, planStartDate: startDate, calendar: calendar, context: ctx)
+        let c1 = calendar.dateComponents([.hour, .minute], from: workout1.scheduledDate)
+        #expect(c1.hour == 17)
+        #expect(c1.minute == 0)
+    }
+
     // MARK: - Intensity Parsing tests
 
     @Test("parseIntensity handles string values")
