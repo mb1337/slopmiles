@@ -23,7 +23,8 @@ final class WeekGenerationManager {
         equipment: RunnerEquipment,
         settings: AISettings,
         aiService: AIService,
-        context: ModelContext
+        context: ModelContext,
+        workoutKitService: WorkoutKitService
     ) {
         guard case .idle = status else { return }
 
@@ -52,6 +53,11 @@ final class WeekGenerationManager {
                 )
                 currentWeek.workoutsGenerated = true
                 try context.save()
+                do {
+                    try await workoutKitService.scheduleWeek(currentWeek)
+                } catch {
+                    logger.error("Auto-schedule to Watch failed: \(error.localizedDescription)")
+                }
                 status = .idle
                 logger.info("Generated workouts for week \(currentWeek.weekNumber)")
             } catch is CancellationError {
@@ -71,7 +77,8 @@ final class WeekGenerationManager {
         equipment: RunnerEquipment,
         settings: AISettings,
         aiService: AIService,
-        context: ModelContext
+        context: ModelContext,
+        workoutKitService: WorkoutKitService
     ) {
         // Delete existing workouts for this week
         for workout in week.sortedWorkouts {
@@ -100,6 +107,11 @@ final class WeekGenerationManager {
                 )
                 week.workoutsGenerated = true
                 try context.save()
+                do {
+                    try await workoutKitService.scheduleWeek(week)
+                } catch {
+                    logger.error("Auto-schedule to Watch failed: \(error.localizedDescription)")
+                }
                 status = .idle
                 logger.info("Regenerated workouts for week \(week.weekNumber)")
             } catch is CancellationError {
@@ -119,13 +131,15 @@ final class WeekGenerationManager {
         equipment: RunnerEquipment,
         settings: AISettings,
         aiService: AIService,
-        context: ModelContext
+        context: ModelContext,
+        workoutKitService: WorkoutKitService
     ) {
         status = .idle
         regenerateWeek(
             week: week, plan: plan,
             profile: profile, schedule: schedule, equipment: equipment,
-            settings: settings, aiService: aiService, context: context
+            settings: settings, aiService: aiService, context: context,
+            workoutKitService: workoutKitService
         )
     }
 

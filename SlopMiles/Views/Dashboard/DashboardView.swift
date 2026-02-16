@@ -116,7 +116,8 @@ struct DashboardView: View {
             equipment: equipment,
             settings: settings,
             aiService: appState.aiService,
-            context: modelContext
+            context: modelContext,
+            workoutKitService: appState.workoutKitService
         )
     }
 }
@@ -202,9 +203,6 @@ private struct CurrentPlanCard: View {
 private struct NextWorkoutCard: View {
     let workout: PlannedWorkout
     let unitPref: UnitPreference
-    @Environment(AppState.self) private var appState
-    @State private var errorMessage: String?
-    @State private var showError = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -221,36 +219,27 @@ private struct NextWorkoutCard: View {
                 if let pace = workout.targetPaceMinPerKm { Label(UnitConverter.formatPace(pace, unit: unitPref), systemImage: "gauge.with.needle").font(.subheadline) }
             }
             .foregroundStyle(.secondary)
-            if workout.completionStatus != .scheduled {
-                Button("Schedule to Watch") {
-                    Task {
-                        do {
-                            try await appState.workoutKitService.scheduleWorkout(workout)
-                        } catch {
-                            errorMessage = error.localizedDescription
-                            showError = true
-                        }
-                    }
-                }
-                    .buttonStyle(.borderedProminent).controlSize(.small)
-                    .accessibilityLabel("Schedule \(workout.name) to Apple Watch")
-            } else {
-                Label("Scheduled on Watch", systemImage: "applewatch").font(.caption).foregroundStyle(.green)
-            }
         }
         .padding()
         .background(.fill.quaternary, in: RoundedRectangle(cornerRadius: 16))
-        .alert("Scheduling Error", isPresented: $showError) {
-            Button("OK") {}
-        } message: {
-            Text(errorMessage ?? "")
-        }
     }
 }
 
 private struct WeekOverviewCard: View {
     let week: TrainingWeek
     let unitPref: UnitPreference
+    @Environment(AppState.self) private var appState
+    @State private var errorMessage: String?
+    @State private var showError = false
+
+    private var hasPlannedWorkouts: Bool {
+        week.sortedWorkouts.contains { $0.workoutType != .rest && $0.completionStatus == .planned }
+    }
+
+    private var allNonRestScheduled: Bool {
+        let nonRest = week.sortedWorkouts.filter { $0.workoutType != .rest }
+        return !nonRest.isEmpty && nonRest.allSatisfy { $0.completionStatus == .scheduled || $0.completionStatus == .completed }
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -276,9 +265,30 @@ private struct WeekOverviewCard: View {
                     }
                 }
             }
+            if hasPlannedWorkouts {
+                Button("Schedule Week to Watch") {
+                    Task {
+                        do {
+                            try await appState.workoutKitService.scheduleWeek(week)
+                        } catch {
+                            errorMessage = error.localizedDescription
+                            showError = true
+                        }
+                    }
+                }
+                .buttonStyle(.borderedProminent).controlSize(.small)
+            } else if allNonRestScheduled {
+                Label("Week scheduled on Watch", systemImage: "applewatch")
+                    .font(.caption).foregroundStyle(.green)
+            }
         }
         .padding()
         .background(.fill.quaternary, in: RoundedRectangle(cornerRadius: 16))
+        .alert("Scheduling Error", isPresented: $showError) {
+            Button("OK") {}
+        } message: {
+            Text(errorMessage ?? "")
+        }
     }
 }
 

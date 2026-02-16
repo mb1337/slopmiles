@@ -3,6 +3,7 @@ import SwiftData
 
 struct PlansListView: View {
     @Query(sort: \TrainingPlan.createdAt, order: .reverse) private var plans: [TrainingPlan]
+    @Query private var profiles: [UserProfile]
     @Environment(AppState.self) private var appState
     @Environment(\.modelContext) private var modelContext
 
@@ -43,8 +44,7 @@ struct PlansListView: View {
                             .swipeActions(edge: .leading) {
                                 if !plan.isActive {
                                     Button {
-                                        TrainingPlan.setActivePlan(plan, in: modelContext)
-                                        try? modelContext.save()
+                                        Task { await switchActivePlan(to: plan) }
                                     } label: { Label("Set Active", systemImage: "checkmark.circle") }
                                         .tint(.blue)
                                 }
@@ -71,6 +71,25 @@ struct PlansListView: View {
                     appState.selectedTab = .plans
                 }
             }
+        }
+    }
+
+    private func switchActivePlan(to newPlan: TrainingPlan) async {
+        let firstDayOfWeek = profiles.first?.firstDayOfWeek ?? 1
+
+        // Unschedule old plan's current week
+        if let oldPlan = plans.first(where: { $0.isActive }),
+           let oldWeek = appState.weekGenerationManager.findCurrentWeek(in: oldPlan, now: Date(), firstDayOfWeek: firstDayOfWeek) {
+            try? await appState.workoutKitService.unscheduleWeek(oldWeek)
+        }
+
+        TrainingPlan.setActivePlan(newPlan, in: modelContext)
+        try? modelContext.save()
+
+        // Schedule new plan's current week
+        if let newWeek = appState.weekGenerationManager.findCurrentWeek(in: newPlan, now: Date(), firstDayOfWeek: firstDayOfWeek),
+           newWeek.workoutsGenerated {
+            try? await appState.workoutKitService.scheduleWeek(newWeek)
         }
     }
 }

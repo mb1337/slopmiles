@@ -64,8 +64,14 @@ final class WorkoutKitService {
         try await WorkoutScheduler.shared.remove(plan, at: dateComponents)
     }
 
+    func unscheduleWeek(_ week: TrainingWeek) async throws {
+        for workout in week.sortedWorkouts where workout.completionStatus == .scheduled {
+            try await removeScheduledWorkout(workout)
+        }
+    }
+
     func scheduleWeek(_ week: TrainingWeek) async throws {
-        for workout in week.sortedWorkouts where workout.workoutType != .rest {
+        for workout in week.sortedWorkouts where workout.workoutType != .rest && workout.completionStatus == .planned {
             try await scheduleWorkout(workout)
         }
     }

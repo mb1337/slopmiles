@@ -84,8 +84,7 @@ struct PlanDetailView: View {
                     }
                     if !plan.isActive {
                         Button("Set as Active Plan", systemImage: "checkmark.circle") {
-                            TrainingPlan.setActivePlan(plan, in: modelContext)
-                            try? modelContext.save()
+                            Task { await switchActivePlan(to: plan) }
                         }
                     }
                     Button("Change Start Date", systemImage: "calendar") {
@@ -116,6 +115,26 @@ struct PlanDetailView: View {
         }
     }
 
+    private func switchActivePlan(to newPlan: TrainingPlan) async {
+        let profile = profiles.first
+        let firstDayOfWeek = profile?.firstDayOfWeek ?? 1
+
+        // Unschedule old plan's current week
+        if let oldPlan = allPlans.first(where: { $0.isActive }),
+           let oldWeek = appState.weekGenerationManager.findCurrentWeek(in: oldPlan, now: Date(), firstDayOfWeek: firstDayOfWeek) {
+            try? await appState.workoutKitService.unscheduleWeek(oldWeek)
+        }
+
+        TrainingPlan.setActivePlan(newPlan, in: modelContext)
+        try? modelContext.save()
+
+        // Schedule new plan's current week
+        if let newWeek = appState.weekGenerationManager.findCurrentWeek(in: newPlan, now: Date(), firstDayOfWeek: firstDayOfWeek),
+           newWeek.workoutsGenerated {
+            try? await appState.workoutKitService.scheduleWeek(newWeek)
+        }
+    }
+
     private func regenerateWeek(_ week: TrainingWeek) {
         guard let profile = profiles.first,
               let schedule = schedules.first,
@@ -125,7 +144,8 @@ struct PlanDetailView: View {
         appState.weekGenerationManager.regenerateWeek(
             week: week, plan: plan,
             profile: profile, schedule: schedule, equipment: equipment,
-            settings: settings, aiService: appState.aiService, context: modelContext
+            settings: settings, aiService: appState.aiService, context: modelContext,
+            workoutKitService: appState.workoutKitService
         )
     }
 }

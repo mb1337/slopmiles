@@ -25,6 +25,7 @@ final class PlanGenerationManager {
         planWeeks: Int,
         aiService: AIService,
         healthKitService: HealthKitService,
+        workoutKitService: WorkoutKitService,
         context: ModelContext
     ) {
         guard !isGenerating else { return }
@@ -79,8 +80,35 @@ final class PlanGenerationManager {
                     )
                 }
 
+                // Unschedule old active plan's current week
+                let allPlans = (try? context.fetch(FetchDescriptor<TrainingPlan>())) ?? []
+                if let oldPlan = allPlans.first(where: { $0.isActive }) {
+                    let firstDayOfWeek = profile.firstDayOfWeek
+                    var cal = Calendar.current
+                    cal.firstWeekday = firstDayOfWeek
+                    let now = Date()
+                    for week in oldPlan.sortedWeeks {
+                        let weekOffset = week.weekNumber - 1
+                        guard let weekStart = cal.date(byAdding: .weekOfYear, value: weekOffset, to: cal.startOfDay(for: oldPlan.startDate)),
+                              let weekEnd = cal.date(byAdding: .weekOfYear, value: 1, to: weekStart) else { continue }
+                        if now >= weekStart && now < weekEnd {
+                            try? await workoutKitService.unscheduleWeek(week)
+                            break
+                        }
+                    }
+                }
+
                 TrainingPlan.setActivePlan(plan, in: context)
                 try context.save()
+
+                // Schedule new plan's week 1
+                if let week1 = plan.sortedWeeks.first, week1.workoutsGenerated {
+                    do {
+                        try await workoutKitService.scheduleWeek(week1)
+                    } catch {
+                        logger.error("Auto-schedule to Watch failed: \(error.localizedDescription)")
+                    }
+                }
 
                 NotificationService.scheduleWeeklyReminder(firstDayOfWeek: profile.firstDayOfWeek)
                 _ = await NotificationService.requestAuthorization()
