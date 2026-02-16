@@ -165,6 +165,11 @@ final class OpenAICompatibleProvider: AIProvider, @unchecked Sendable {
         }
 
         let finishReason = choice["finish_reason"] as? String ?? ""
+        if finishReason == "error" {
+            let nativeReason = choice["native_finish_reason"] as? String ?? "unknown"
+            logger.error("Model finished with error: \(nativeReason, privacy: .public)")
+            throw AIProviderError.modelError("Model error (\(nativeReason)). The selected model may not support tool use properly.")
+        }
         let stopReason: AIResponse.StopReason
         switch finishReason {
         case "tool_calls": stopReason = .toolUse

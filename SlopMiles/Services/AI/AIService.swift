@@ -231,6 +231,12 @@ final class AIService {
 
             let content = accumulatedContent + response.message.content
 
+            if content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                logger.warning("AI returned empty content, requesting retry")
+                messages.append(.user("Your previous response was empty. Please use the available tools to gather data, then respond with the final JSON training plan."))
+                continue
+            }
+
             if !looksLikeJSON(content) {
                 logger.info("AI returned non-JSON text (\(content.count) chars), surfacing as question")
                 generationStatus = .waitingForInput(content)
