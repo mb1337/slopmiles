@@ -16,9 +16,46 @@ struct WorkoutMapper {
         )
     }
 
+    static func isSingleSegment(_ workout: PlannedWorkout) -> Bool {
+        let steps = workout.sortedSteps
+        let hasWarmup = steps.contains { $0.stepType == .warmup }
+        let hasCooldown = steps.contains { $0.stepType == .cooldown }
+        let hasRecovery = steps.contains { $0.stepType == .recovery }
+        let workSteps = steps.filter { $0.stepType == .work }
+        return !hasWarmup && !hasCooldown && !hasRecovery && workSteps.count <= 1
+    }
+
+    static func mapToSingleGoalWorkout(_ workout: PlannedWorkout) -> SingleGoalWorkout {
+        let workStep = workout.sortedSteps.first { $0.stepType == .work }
+
+        let goal: WorkoutGoal
+        if let step = workStep {
+            goal = mapGoal(step)
+        } else if workout.distanceKm > 0 {
+            goal = .distance(workout.distanceKm * 1000, .meters)
+        } else if workout.durationMinutes > 0 {
+            goal = .time(workout.durationMinutes * 60, .seconds)
+        } else {
+            goal = .open
+        }
+
+        return SingleGoalWorkout(
+            activity: .running,
+            location: mapLocation(workout.location),
+            goal: goal
+        )
+    }
+
+    static func mapToWorkoutPlan(_ workout: PlannedWorkout) -> WorkoutPlan {
+        if isSingleSegment(workout) {
+            return WorkoutPlan(.goal(mapToSingleGoalWorkout(workout)))
+        } else {
+            return WorkoutPlan(.custom(mapToCustomWorkout(workout)))
+        }
+    }
+
     static func mapToScheduledPlan(_ workout: PlannedWorkout) -> ScheduledWorkoutPlan? {
-        let custom = mapToCustomWorkout(workout)
-        let plan = WorkoutPlan(.custom(custom))
+        let plan = mapToWorkoutPlan(workout)
 
         let dateComponents = Calendar.current.dateComponents(
             [.year, .month, .day, .hour, .minute],

@@ -35,8 +35,7 @@ final class WorkoutKitService {
     }
 
     func scheduleWorkout(_ workout: PlannedWorkout) async throws {
-        let custom = WorkoutMapper.mapToCustomWorkout(workout)
-        let plan = WorkoutPlan(.custom(custom))
+        let plan = WorkoutMapper.mapToWorkoutPlan(workout)
 
         let dateComponents = Calendar.current.dateComponents(
             [.year, .month, .day, .hour, .minute],
@@ -48,8 +47,7 @@ final class WorkoutKitService {
     }
 
     func removeScheduledWorkout(_ workout: PlannedWorkout) async throws {
-        let custom = WorkoutMapper.mapToCustomWorkout(workout)
-        let plan = WorkoutPlan(.custom(custom))
+        let plan = WorkoutMapper.mapToWorkoutPlan(workout)
 
         let dateComponents = Calendar.current.dateComponents(
             [.year, .month, .day, .hour, .minute],
