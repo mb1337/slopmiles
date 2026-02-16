@@ -19,8 +19,12 @@ struct SettingsView: View {
                             ForEach(AIProviderType.allCases, id: \.self) { Text($0.displayName).tag($0) }
                         }
 
-                        Picker("Model", selection: modelBinding(for: settings)) {
-                            ForEach(settings.provider.availableModels, id: \.self) { Text($0).tag($0) }
+                        if settings.provider == .openRouter {
+                            OpenRouterModelPicker(selection: modelBinding(for: settings))
+                        } else {
+                            Picker("Model", selection: modelBinding(for: settings)) {
+                                ForEach(settings.provider.fallbackModels, id: \.self) { Text($0).tag($0) }
+                            }
                         }
 
                         NavigationLink("Update API Key") { APIKeySettingsView() }
@@ -158,8 +162,110 @@ struct APIKeySettingsView: View {
                 let saved = appState.keychainService.save(key: settings.provider.keychainKey, value: apiKey)
                 message = saved ? "API key saved successfully." : "Failed to save to Keychain."
                 isError = !saved
+                if saved && settings.provider == .openRouter {
+                    appState.openRouterModelService.invalidateCache()
+                    await appState.openRouterModelService.fetchModels(apiKey: apiKey)
+                }
             } else { message = "Invalid API key."; isError = true }
         } catch { message = error.localizedDescription; isError = true }
         isValidating = false
+    }
+}
+
+struct OpenRouterModelPicker: View {
+    @Environment(AppState.self) private var appState
+    @Binding var selection: String
+    @State private var showingPicker = false
+
+    var body: some View {
+        let service = appState.openRouterModelService
+        Button {
+            showingPicker = true
+        } label: {
+            HStack {
+                Text("Model")
+                    .foregroundStyle(.primary)
+                Spacer()
+                if service.isLoading && service.models.isEmpty {
+                    ProgressView()
+                } else {
+                    let displayName = service.models.first(where: { $0.id == selection })?.name ?? selection
+                    Text(displayName)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+            }
+        }
+        .buttonStyle(.plain)
+        .task {
+            guard service.models.isEmpty else { return }
+            if let key = appState.keychainService.read(key: AIProviderType.openRouter.keychainKey) {
+                await service.fetchModels(apiKey: key)
+            }
+        }
+        .sheet(isPresented: $showingPicker) {
+            OpenRouterModelListView(
+                selection: $selection,
+                models: service.models.isEmpty
+                    ? AIProviderType.openRouter.fallbackModels.map {
+                        OpenRouterModel(id: $0, name: $0, contextLength: 0, promptPricing: "", completionPricing: "")
+                    }
+                    : service.models
+            )
+        }
+        if let error = service.lastError {
+            Text(error).font(.caption2).foregroundStyle(.secondary)
+        }
+    }
+}
+
+private struct OpenRouterModelListView: View {
+    @Binding var selection: String
+    let models: [OpenRouterModel]
+    @Environment(\.dismiss) private var dismiss
+    @State private var searchText = ""
+
+    private var filteredModels: [OpenRouterModel] {
+        if searchText.isEmpty { return models }
+        return models.filter { $0.name.localizedCaseInsensitiveContains(searchText) || $0.id.localizedCaseInsensitiveContains(searchText) }
+    }
+
+    var body: some View {
+        NavigationStack {
+            List(filteredModels) { model in
+                Button {
+                    selection = model.id
+                    dismiss()
+                } label: {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(model.name)
+                                .foregroundStyle(.primary)
+                            if !model.promptPricing.isEmpty {
+                                Text("In: \(model.promptPricing) · Out: \(model.completionPricing) per 1M tokens")
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        Spacer()
+                        if model.id == selection {
+                            Image(systemName: "checkmark")
+                                .foregroundStyle(.tint)
+                        }
+                    }
+                }
+            }
+            .searchable(text: $searchText, prompt: "Search models")
+            .navigationTitle("Select Model")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+            }
+        }
     }
 }

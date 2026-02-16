@@ -53,12 +53,16 @@ struct APIKeyStepView: View {
                 if let settings {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("Model").font(.subheadline.bold())
-                        Picker("Model", selection: modelBinding(for: settings)) {
-                            ForEach(selectedProvider.availableModels, id: \.self) { model in
-                                Text(model).tag(model)
+                        if selectedProvider == .openRouter {
+                            OpenRouterModelPicker(selection: modelBinding(for: settings))
+                        } else {
+                            Picker("Model", selection: modelBinding(for: settings)) {
+                                ForEach(selectedProvider.fallbackModels, id: \.self) { model in
+                                    Text(model).tag(model)
+                                }
                             }
+                            .pickerStyle(.menu)
                         }
-                        .pickerStyle(.menu)
                     }
                     .padding(.horizontal)
                 }
@@ -99,7 +103,13 @@ struct APIKeyStepView: View {
             let valid = try await appState.aiService.validateKey(provider: selectedProvider, key: apiKey)
             if valid {
                 let saved = appState.keychainService.save(key: selectedProvider.keychainKey, value: apiKey)
-                if saved { settings?.provider = selectedProvider; isValid = true }
+                if saved {
+                    settings?.provider = selectedProvider; isValid = true
+                    if selectedProvider == .openRouter {
+                        appState.openRouterModelService.invalidateCache()
+                        await appState.openRouterModelService.fetchModels(apiKey: apiKey)
+                    }
+                }
                 else { validationError = "Failed to save API key to Keychain." }
             } else { validationError = "API key validation failed." }
         } catch { validationError = error.localizedDescription }

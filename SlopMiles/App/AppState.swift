@@ -10,6 +10,7 @@ final class AppState {
     let locationService = LocationService()
     let workoutKitService = WorkoutKitService()
     let weekGenerationManager = WeekGenerationManager()
+    let openRouterModelService = OpenRouterModelService()
 
     init() {
         let keychain = KeychainService()

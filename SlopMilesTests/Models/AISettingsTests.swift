@@ -16,9 +16,9 @@ struct AISettingsTests {
         #expect(AIProviderType.openRouter.defaultModel == "anthropic/claude-sonnet-4-5")
     }
 
-    @Test("OpenRouter availableModels contains expected models")
-    func openRouterAvailableModels() {
-        let models = AIProviderType.openRouter.availableModels
+    @Test("OpenRouter fallbackModels contains expected models")
+    func openRouterFallbackModels() {
+        let models = AIProviderType.openRouter.fallbackModels
         #expect(models.contains("anthropic/claude-sonnet-4-5"))
         #expect(models.contains("openai/gpt-4o"))
         #expect(models.contains("google/gemini-2.5-pro"))

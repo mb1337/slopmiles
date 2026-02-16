@@ -73,7 +73,7 @@ final class AnthropicProvider: AIProvider, @unchecked Sendable {
         request.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
 
         // Uses the cheapest available model for validation. Keep in sync
-        // with AIProviderType.availableModels.
+        // with AIProviderType.fallbackModels.
         let body: [String: Any] = [
             "model": "claude-haiku-4-5-20251001",
             "max_tokens": 1,
