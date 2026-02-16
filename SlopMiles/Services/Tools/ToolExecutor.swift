@@ -35,10 +35,6 @@ actor ToolExecutor {
             let time = toolCall.arguments["race_time_seconds"]?.doubleValue ?? 0
             result = VDOTTool.calculateVDOT(raceDistanceMeters: distance, raceTimeSeconds: time)
 
-        case "get_training_paces":
-            let vdot = toolCall.arguments["vdot"]?.doubleValue ?? 0
-            result = VDOTTool.getTrainingPaces(vdot: vdot)
-
         case "project_race_time":
             let vdot = toolCall.arguments["vdot"]?.doubleValue ?? 0
             let distance = toolCall.arguments["distance_meters"]?.doubleValue ?? 0
@@ -48,12 +44,6 @@ actor ToolExecutor {
             let maxHR = toolCall.arguments["max_hr"]?.intValue
             let lthr = toolCall.arguments["lthr"]?.intValue
             result = HeartRateZoneTool.calculateZones(maxHR: maxHR, lthr: lthr)
-
-        case "convert_pace":
-            let value = toolCall.arguments["value"]?.doubleValue ?? 0
-            let fromUnit = toolCall.arguments["from_unit"]?.stringValue ?? ""
-            let toUnit = toolCall.arguments["to_unit"]?.stringValue ?? ""
-            result = PaceConverterTool.convert(value: value, from: fromUnit, to: toUnit)
 
         case "check_mileage_progression":
             if let arr = toolCall.arguments["weekly_durations_minutes"]?.arrayValue {

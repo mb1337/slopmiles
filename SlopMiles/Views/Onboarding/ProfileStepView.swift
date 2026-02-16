@@ -59,13 +59,13 @@ struct ProfileStepView: View {
 
                     if volumeType == .time {
                         VStack(alignment: .leading, spacing: 8) {
-                            Text("Current Weekly Volume (minutes)").font(.subheadline.bold())
+                            Text("Peak Weekly Volume (minutes)").font(.subheadline.bold())
                             TextField("e.g., 200", text: $weeklyVolumeMinutesText)
                                 .textFieldStyle(.roundedBorder).keyboardType(.numberPad)
                         }
                     } else {
                         VStack(alignment: .leading, spacing: 8) {
-                            Text("Current Weekly Mileage (\(unitPreference.distanceLabel))").font(.subheadline.bold())
+                            Text("Peak Weekly Mileage (\(unitPreference.distanceLabel))").font(.subheadline.bold())
                             TextField("e.g., 30", text: $weeklyMileageText)
                                 .textFieldStyle(.roundedBorder).keyboardType(.numberPad)
                         }
@@ -145,10 +145,10 @@ struct ProfileStepView: View {
         p.experienceLevel = experienceLevel
         p.volumeType = volumeType
         if volumeType == .time {
-            p.currentWeeklyVolumeMinutes = Double(weeklyVolumeMinutesText) ?? 0
+            p.peakWeeklyVolumeMinutes = Double(weeklyVolumeMinutesText) ?? 0
         } else {
             let mileage = Double(weeklyMileageText) ?? 0
-            p.currentWeeklyMileageKm = unitPreference == .imperial ? UnitConverter.milesToKm(mileage) : mileage
+            p.peakWeeklyMileageKm = unitPreference == .imperial ? UnitConverter.milesToKm(mileage) : mileage
         }
         p.unitPreference = unitPreference
         p.injuryNotes = injuryNotes

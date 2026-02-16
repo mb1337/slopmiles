@@ -23,6 +23,7 @@ final class PlannedWorkoutStep {
     var goalTypeRaw: String = StepGoalType.open.rawValue
     /// Goal value in WorkoutKit native units: distance in meters, time in seconds.
     var goalValue: Double?
+    var intensityRaw: String = WorkoutIntensity.easy.rawValue
     var targetPaceMinPerKm: Double?
     var hrZone: Int?
     var repeatCount: Int = 1
@@ -41,6 +42,11 @@ final class PlannedWorkoutStep {
     var goalType: StepGoalType {
         get { StepGoalType(rawValue: goalTypeRaw) ?? .open }
         set { goalTypeRaw = newValue.rawValue }
+    }
+
+    var intensityTarget: IntensityTarget {
+        get { IntensityTarget(rawValue: intensityRaw) }
+        set { intensityRaw = newValue.rawValue }
     }
 
     init() {}

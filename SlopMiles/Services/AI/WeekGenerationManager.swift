@@ -47,9 +47,15 @@ final class WeekGenerationManager {
                     settings: settings, performanceData: performanceData,
                     weatherData: weatherData
                 )
+                let parseContext = PlanParseContext(
+                    peakVolume: profile.volumeType == .time ? profile.peakWeeklyVolumeMinutes : profile.peakWeeklyMileageKm,
+                    volumeType: profile.volumeType,
+                    vdot: profile.vdot
+                )
                 try ResponseParser.parseWeekWorkouts(
                     from: responseText, week: currentWeek,
-                    planStartDate: plan.startDate, context: context
+                    planStartDate: plan.startDate, context: context,
+                    parseContext: parseContext
                 )
                 currentWeek.workoutsGenerated = true
                 try context.save()
@@ -101,9 +107,15 @@ final class WeekGenerationManager {
                     settings: settings, performanceData: performanceData,
                     weatherData: weatherData
                 )
+                let parseContext = PlanParseContext(
+                    peakVolume: profile.volumeType == .time ? profile.peakWeeklyVolumeMinutes : profile.peakWeeklyMileageKm,
+                    volumeType: profile.volumeType,
+                    vdot: profile.vdot
+                )
                 try ResponseParser.parseWeekWorkouts(
                     from: responseText, week: week,
-                    planStartDate: plan.startDate, context: context
+                    planStartDate: plan.startDate, context: context,
+                    parseContext: parseContext
                 )
                 week.workoutsGenerated = true
                 try context.save()

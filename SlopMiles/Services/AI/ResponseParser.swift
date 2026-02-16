@@ -1,6 +1,12 @@
 import Foundation
 import SwiftData
 
+struct PlanParseContext {
+    let peakVolume: Double      // km or minutes depending on volumeType
+    let volumeType: VolumeType
+    let vdot: Double?
+}
+
 struct ResponseParser {
     enum ParseError: Error, LocalizedError {
         case noJSON(responsePreview: String)
@@ -16,7 +22,7 @@ struct ResponseParser {
         }
     }
 
-    static func parsePlan(from responseText: String, startDate: Date, context: ModelContext) throws -> TrainingPlan {
+    static func parsePlan(from responseText: String, startDate: Date, context: ModelContext, parseContext: PlanParseContext? = nil) throws -> TrainingPlan {
         let json = try extractJSON(from: responseText)
 
         guard let dict = json as? [String: Any] else {
@@ -44,16 +50,30 @@ struct ResponseParser {
             let week = TrainingWeek()
             week.weekNumber = weekDict["week_number"] as? Int ?? 1
             week.theme = weekDict["theme"] as? String ?? ""
-            week.totalDistanceKm = weekDict["total_distance_km"] as? Double ?? 0
-            week.totalDurationMinutes = weekDict["total_duration_minutes"] as? Double ?? 0
             week.notes = weekDict["notes"] as? String ?? ""
             week.plan = plan
+
+            // Parse percentage-based volume
+            week.weeklyVolumePercent = weekDict["weekly_volume_percent"] as? Double ?? 0
+
+            // Compute absolute volume from percentage
+            if let ctx = parseContext, week.weeklyVolumePercent > 0 {
+                let absoluteVolume = ctx.peakVolume * (week.weeklyVolumePercent / 100.0)
+                switch ctx.volumeType {
+                case .distance: week.totalDistanceKm = absoluteVolume
+                case .time: week.totalDurationMinutes = absoluteVolume
+                }
+            } else {
+                // Fallback: parse absolute values if present (backwards compat)
+                week.totalDistanceKm = weekDict["total_distance_km"] as? Double ?? 0
+                week.totalDurationMinutes = weekDict["total_duration_minutes"] as? Double ?? 0
+            }
 
             context.insert(week)
 
             if let workoutsArray = weekDict["workouts"] as? [[String: Any]] {
                 for workoutDict in workoutsArray {
-                    let workout = parseWorkout(from: workoutDict, weekNumber: week.weekNumber, planStartDate: startDate, calendar: calendar)
+                    let workout = parseWorkout(from: workoutDict, weekNumber: week.weekNumber, planStartDate: startDate, calendar: calendar, context: parseContext)
                     workout.week = week
                     context.insert(workout)
 
@@ -63,7 +83,7 @@ struct ResponseParser {
 
                     if let stepsArray = workoutDict["steps"] as? [[String: Any]] {
                         for (index, stepDict) in stepsArray.enumerated() {
-                            let step = parseStep(from: stepDict, order: index)
+                            let step = parseStep(from: stepDict, order: index, vdot: parseContext?.vdot)
                             step.workout = workout
                             context.insert(step)
                         }
@@ -78,20 +98,39 @@ struct ResponseParser {
         return plan
     }
 
-    static func parseWorkout(from dict: [String: Any], weekNumber: Int, planStartDate: Date, calendar: Calendar) -> PlannedWorkout {
+    static func parseWorkout(from dict: [String: Any], weekNumber: Int, planStartDate: Date, calendar: Calendar, context: PlanParseContext? = nil) -> PlannedWorkout {
         let workout = PlannedWorkout()
         workout.name = dict["name"] as? String ?? "Workout"
 
         let typeStr = dict["type"] as? String ?? "easy"
         workout.workoutType = WorkoutType(rawValue: typeStr) ?? .easy
 
-        workout.distanceKm = dict["distance_km"] as? Double ?? 0
-        workout.durationMinutes = dict["duration_minutes"] as? Double ?? 0
-        workout.targetPaceMinPerKm = dict["target_pace_min_per_km"] as? Double
         workout.notes = dict["notes"] as? String ?? ""
 
         let locationStr = dict["location"] as? String ?? "outdoor"
         workout.location = WorkoutLocation(rawValue: locationStr) ?? .outdoor
+
+        // Parse percentage-based volume and intensity
+        workout.dailyVolumePercent = dict["daily_volume_percent"] as? Double ?? 0
+        workout.intensityTarget = parseIntensity(from: dict["intensity"])
+
+        // Compute absolute values from percentage + context
+        if let ctx = context, workout.dailyVolumePercent > 0 {
+            let absoluteVolume = ctx.peakVolume * (workout.dailyVolumePercent / 100.0)
+            switch ctx.volumeType {
+            case .distance: workout.distanceKm = absoluteVolume
+            case .time: workout.durationMinutes = absoluteVolume
+            }
+
+            if let vdot = ctx.vdot {
+                workout.targetPaceMinPerKm = PaceCalculator.pace(for: workout.intensityTarget, vdot: vdot)
+            }
+        } else {
+            // Fallback: parse absolute values if present (backwards compat)
+            workout.distanceKm = dict["distance_km"] as? Double ?? 0
+            workout.durationMinutes = dict["duration_minutes"] as? Double ?? 0
+            workout.targetPaceMinPerKm = dict["target_pace_min_per_km"] as? Double
+        }
 
         let dayOfWeek = dict["day_of_week"] as? Int ?? 2
         let weekOffset = weekNumber - 1
@@ -104,7 +143,7 @@ struct ResponseParser {
         return workout
     }
 
-    static func parseStep(from dict: [String: Any], order: Int) -> PlannedWorkoutStep {
+    static func parseStep(from dict: [String: Any], order: Int, vdot: Double? = nil) -> PlannedWorkoutStep {
         let step = PlannedWorkoutStep()
         step.order = order
 
@@ -117,17 +156,26 @@ struct ResponseParser {
         step.goalType = StepGoalType(rawValue: goalTypeStr) ?? .open
 
         step.goalValue = dict["goal_value"] as? Double
-        step.targetPaceMinPerKm = dict["target_pace_min_per_km"] as? Double
         step.hrZone = dict["hr_zone"] as? Int
         step.repeatCount = dict["repeat_count"] as? Int ?? 1
         step.groupId = dict["group_id"] as? Int ?? 0
+
+        // Parse intensity and compute pace
+        step.intensityTarget = parseIntensity(from: dict["intensity"])
+
+        if let vdot {
+            step.targetPaceMinPerKm = PaceCalculator.pace(for: step.intensityTarget, vdot: vdot)
+        } else {
+            // Fallback: parse absolute pace if present (backwards compat)
+            step.targetPaceMinPerKm = dict["target_pace_min_per_km"] as? Double
+        }
 
         return step
     }
 
     // MARK: - Outline Parsing
 
-    static func parseOutline(from responseText: String, startDate: Date, endDate: Date, context: ModelContext) throws -> TrainingPlan {
+    static func parseOutline(from responseText: String, startDate: Date, endDate: Date, context: ModelContext, parseContext: PlanParseContext? = nil) throws -> TrainingPlan {
         let json = try extractJSON(from: responseText)
 
         guard let dict = json as? [String: Any] else {
@@ -155,11 +203,26 @@ struct ResponseParser {
             let week = TrainingWeek()
             week.weekNumber = weekDict["week_number"] as? Int ?? 1
             week.theme = weekDict["theme"] as? String ?? ""
-            week.totalDistanceKm = weekDict["target_distance_km"] as? Double ?? weekDict["total_distance_km"] as? Double ?? 0
-            week.totalDurationMinutes = weekDict["target_duration_minutes"] as? Double ?? weekDict["total_duration_minutes"] as? Double ?? 0
             week.notes = weekDict["notes"] as? String ?? ""
             week.workoutsGenerated = false
             week.plan = plan
+
+            // Parse percentage-based volume
+            week.weeklyVolumePercent = weekDict["weekly_volume_percent"] as? Double ?? 0
+
+            // Compute absolute volume from percentage
+            if let ctx = parseContext, week.weeklyVolumePercent > 0 {
+                let absoluteVolume = ctx.peakVolume * (week.weeklyVolumePercent / 100.0)
+                switch ctx.volumeType {
+                case .distance: week.totalDistanceKm = absoluteVolume
+                case .time: week.totalDurationMinutes = absoluteVolume
+                }
+            } else {
+                // Fallback: parse absolute values if present (backwards compat)
+                week.totalDistanceKm = weekDict["target_distance_km"] as? Double ?? weekDict["total_distance_km"] as? Double ?? 0
+                week.totalDurationMinutes = weekDict["target_duration_minutes"] as? Double ?? weekDict["total_duration_minutes"] as? Double ?? 0
+            }
+
             context.insert(week)
         }
 
@@ -169,7 +232,7 @@ struct ResponseParser {
 
     // MARK: - Weekly Workout Parsing
 
-    static func parseWeekWorkouts(from responseText: String, week: TrainingWeek, planStartDate: Date, context: ModelContext) throws {
+    static func parseWeekWorkouts(from responseText: String, week: TrainingWeek, planStartDate: Date, context: ModelContext, parseContext: PlanParseContext? = nil) throws {
         let json = try extractJSON(from: responseText)
 
         guard let dict = json as? [String: Any] else {
@@ -185,22 +248,36 @@ struct ResponseParser {
         if let notes = dict["notes"] as? String {
             week.notes = notes
         }
-        if let dist = dict["total_distance_km"] as? Double {
-            week.totalDistanceKm = dist
-        }
-        if let dur = dict["total_duration_minutes"] as? Double {
-            week.totalDurationMinutes = dur
+
+        // Update volume percent if AI adjusted it
+        if let volumePct = dict["weekly_volume_percent"] as? Double {
+            week.weeklyVolumePercent = volumePct
+            if let ctx = parseContext, volumePct > 0 {
+                let absoluteVolume = ctx.peakVolume * (volumePct / 100.0)
+                switch ctx.volumeType {
+                case .distance: week.totalDistanceKm = absoluteVolume
+                case .time: week.totalDurationMinutes = absoluteVolume
+                }
+            }
+        } else {
+            // Fallback: parse absolute values
+            if let dist = dict["total_distance_km"] as? Double {
+                week.totalDistanceKm = dist
+            }
+            if let dur = dict["total_duration_minutes"] as? Double {
+                week.totalDurationMinutes = dur
+            }
         }
 
         if let workoutsArray = dict["workouts"] as? [[String: Any]] {
             for workoutDict in workoutsArray {
-                let workout = parseWorkout(from: workoutDict, weekNumber: week.weekNumber, planStartDate: planStartDate, calendar: calendar)
+                let workout = parseWorkout(from: workoutDict, weekNumber: week.weekNumber, planStartDate: planStartDate, calendar: calendar, context: parseContext)
                 workout.week = week
                 context.insert(workout)
 
                 if let stepsArray = workoutDict["steps"] as? [[String: Any]] {
                     for (index, stepDict) in stepsArray.enumerated() {
-                        let step = parseStep(from: stepDict, order: index)
+                        let step = parseStep(from: stepDict, order: index, vdot: parseContext?.vdot)
                         step.workout = workout
                         context.insert(step)
                     }
@@ -209,6 +286,23 @@ struct ResponseParser {
         }
 
         week.workoutsGenerated = true
+    }
+
+    // MARK: - Intensity Parsing
+
+    static func parseIntensity(from value: Any?) -> IntensityTarget {
+        if let str = value as? String {
+            // Map AI's "repeat" to our .repetition case
+            let mapped = str == "repeat" ? "repetition" : str
+            return .named(WorkoutIntensity(rawValue: mapped) ?? .easy)
+        }
+        if let num = value as? Double {
+            return .vo2Max(num)
+        }
+        if let num = value as? Int {
+            return .vo2Max(Double(num))
+        }
+        return .named(.easy)
     }
 
     // MARK: - JSON Extraction

@@ -164,7 +164,6 @@ struct GenerationProgressView: View {
     private func toolDisplayName(_ name: String) -> String {
         switch name {
         case "calculate_vdot": return "VDOT Calculator"
-        case "get_training_paces": return "Pace Calculator"
         case "project_race_time": return "Race Predictor"
         case "calculate_hr_zones": return "HR Zone Calculator"
         case "check_mileage_progression": return "Mileage Checker"

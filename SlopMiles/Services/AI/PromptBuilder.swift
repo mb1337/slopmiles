@@ -1,32 +1,27 @@
 import Foundation
 
 struct PromptBuilder {
-    static func systemPrompt(volumeType: VolumeType = .distance) -> String {
-        let volumePhilosophy: String
-        let volumeFormat: String
-
-        switch volumeType {
-        case .distance:
-            volumePhilosophy = "- Gradual mileage increases: ALWAYS use the check_mileage_progression tool to validate your plan's weekly volumes"
-            volumeFormat = "Important: All paces must come from tool results. All distances in km. All durations in minutes. All paces in min/km."
-        case .time:
-            volumePhilosophy = "- Gradual volume increases: ALWAYS use the check_mileage_progression tool with weekly_durations_minutes to validate your plan's weekly volumes"
-            volumeFormat = "Important: All paces must come from tool results. Express weekly totals in total_duration_minutes and workout volumes in duration_minutes. Interval work segments may still use distance (meters). All paces in min/km."
-        }
-
+    static func systemPrompt() -> String {
         return """
         You are an expert running coach creating personalized training plans. Follow these principles:
 
         ## Coaching Philosophy
-        \(volumePhilosophy)
+        - Gradual volume increases: ALWAYS use the check_mileage_progression tool to validate your plan's weekly volumes
         - Include workout variety: easy runs, tempo runs, intervals, long runs, and recovery runs
         - Only include warmup and cooldown steps for quality workouts (tempo, interval, long, race). Easy and recovery runs should be a single work step at easy pace — no warmup or cooldown needed.
         - Schedule recovery weeks every 3-4 weeks (30-40% volume reduction)
         - Taper appropriately before races (2-3 weeks, progressive volume reduction)
         - Respect the runner's experience level and injury history
 
-        ## Tool Usage (MANDATORY)
-        - ALWAYS use calculate_vdot and get_training_paces to determine accurate training paces. NEVER estimate or guess paces.
+        ## Volume & Intensity Rules
+        - Specify weekly volume as a percentage of the runner's peak weekly volume (weekly_volume_percent).
+        - Plans MUST build up to 100% of peak weekly volume at the peak training week. For example, if the plan is 12 weeks, the highest-volume week should have weekly_volume_percent = 100. Earlier weeks build progressively toward this peak. Recovery weeks drop to 60-70%.
+        - Specify daily volume as a percentage of the runner's peak weekly volume (daily_volume_percent).
+        - CRITICAL: The sum of all daily_volume_percent values for workouts in a week MUST EQUAL the weekly_volume_percent. For example, if weekly_volume_percent is 80, the daily values might be 15 + 12 + 15 + 0 + 12 + 26 + 0 = 80. Do NOT let daily values exceed the weekly total.
+        - For intensity, use a named level (easy, marathon, tempo, interval, repeat) or a number representing %VO2max for finer control (e.g. 96). Each workout and step gets exactly one intensity value.
+
+        ## Tool Usage
+        - Use calculate_vdot to determine the runner's VDOT from race data
         - Use project_race_time to set realistic goal times
         - Use calculate_hr_zones if heart rate data is available
         - Use check_mileage_progression to validate your weekly volume plan before finalizing
@@ -42,9 +37,7 @@ struct PromptBuilder {
         ## Output Format
         Your final response must be ONLY valid JSON matching this schema (no markdown, no explanation outside the JSON):
 
-        \(outputSchema(volumeType: volumeType))
-
-        \(volumeFormat)
+        \(outputSchema())
         """
     }
 
@@ -87,10 +80,10 @@ struct PromptBuilder {
         """
 
         if profile.volumeType == .time {
-            prompt += "\n- Current weekly running volume: \(Int(profile.currentWeeklyVolumeMinutes)) minutes"
+            prompt += "\n- Peak weekly running volume: \(Int(profile.peakWeeklyVolumeMinutes)) minutes"
             prompt += "\n- Volume type: time-based"
         } else {
-            prompt += "\n- Current weekly mileage: \(profile.currentWeeklyMileageKm) km"
+            prompt += "\n- Peak weekly mileage: \(profile.peakWeeklyMileageKm) km"
         }
 
         prompt += "\n- Units preference: \(profile.unitPreference.rawValue)"
@@ -108,7 +101,7 @@ struct PromptBuilder {
             prompt += "\n- Lactate threshold HR: \(lthr) bpm"
         }
         if let vdot = profile.vdot {
-            prompt += "\n- VDOT: \(String(format: "%.1f", vdot)) (use get_training_paces with this value)"
+            prompt += "\n- VDOT: \(String(format: "%.1f", vdot))"
         }
 
         if let scheduleJSON = try? JSONSerialization.data(withJSONObject: schedule.dictionaryForPrompt().map(\.anyValue), options: .prettyPrinted),
@@ -124,9 +117,6 @@ struct PromptBuilder {
         if let statsJSON = try? JSONSerialization.data(withJSONObject: stats.dictionaryForPrompt().mapValues(\.anyValue), options: .prettyPrinted),
            let statsStr = String(data: statsJSON, encoding: .utf8) {
             prompt += "\n\n## Recent Running Data\n\(statsStr)"
-            if profile.volumeType == .time {
-                prompt += "\nNote: HealthKit data is distance-based for VDOT/pace context. Plan volumes should be in minutes."
-            }
         }
 
         if let weatherData {
@@ -136,13 +126,12 @@ struct PromptBuilder {
         prompt += """
 
         \n## Instructions
-        1. First, calculate the runner's VDOT from their recent race data or estimate from their current fitness
-        2. Get training paces using the VDOT
-        3. If heart rate data is available, calculate HR zones
-        4. Consider the weather forecast when deciding indoor vs outdoor workouts
-        5. Design the training plan with appropriate progression
-        6. Validate weekly mileage progression with the check_mileage_progression tool
-        7. Output the final plan as JSON
+        1. If the runner has race data, calculate their VDOT
+        2. If heart rate data is available, calculate HR zones
+        3. Consider the weather forecast when deciding indoor vs outdoor workouts
+        4. Design the training plan with appropriate progression using volume percentages and intensity levels
+        5. Validate weekly mileage progression with the check_mileage_progression tool
+        6. Output the final plan as JSON
         """
 
         return prompt
@@ -150,30 +139,22 @@ struct PromptBuilder {
 
     // MARK: - Outline Generation
 
-    static func outlineSystemPrompt(volumeType: VolumeType = .distance) -> String {
-        let volumePhilosophy: String
-        let volumeField: String
-
-        switch volumeType {
-        case .distance:
-            volumePhilosophy = "- Gradual mileage increases: ALWAYS use the check_mileage_progression tool to validate your plan's weekly volumes"
-            volumeField = "target_distance_km"
-        case .time:
-            volumePhilosophy = "- Gradual volume increases: ALWAYS use the check_mileage_progression tool with weekly_durations_minutes to validate your plan's weekly volumes"
-            volumeField = "target_duration_minutes"
-        }
-
+    static func outlineSystemPrompt() -> String {
         return """
         You are an expert running coach creating a training plan outline. Generate ONLY the plan skeleton — weekly themes and volume targets. Do NOT generate individual workouts.
 
         ## Coaching Philosophy
-        \(volumePhilosophy)
+        - Gradual volume increases: ALWAYS use the check_mileage_progression tool to validate your plan's weekly volumes
         - Schedule recovery weeks every 3-4 weeks (30-40% volume reduction)
         - Taper appropriately before races (2-3 weeks, progressive volume reduction)
         - Respect the runner's experience level and injury history
 
-        ## Tool Usage (MANDATORY)
-        - ALWAYS use calculate_vdot and get_training_paces to determine accurate training paces. NEVER estimate or guess paces.
+        ## Volume Rules
+        - Specify weekly volume as a percentage of the runner's peak weekly volume (weekly_volume_percent)
+        - Plans MUST build up to 100% of peak weekly volume at the peak training week. For example, if the plan is 12 weeks, the highest-volume week should have weekly_volume_percent = 100. Earlier weeks build progressively toward this peak. Recovery weeks drop to 60-70%.
+
+        ## Tool Usage
+        - Use calculate_vdot to determine the runner's VDOT from race data
         - Use project_race_time to set realistic goal times
         - Use check_mileage_progression to validate your weekly volume plan before finalizing
 
@@ -183,27 +164,18 @@ struct PromptBuilder {
         {
           "name": "string",
           "goal_description": "string",
-          "vdot": number,
-          "training_paces": {
-            "easy_min_per_km": number,
-            "marathon_min_per_km": number,
-            "threshold_min_per_km": number,
-            "interval_min_per_km": number,
-            "repetition_min_per_km": number
-          },
+          "vdot": number or null,
           "weeks": [
             {
               "week_number": number,
               "theme": "string",
-              "\(volumeField)": number,
+              "weekly_volume_percent": number (% of peak weekly volume),
               "focus": "string",
               "workout_types": ["easy", "tempo", "interval", "long", "recovery"],
               "notes": "string"
             }
           ]
         }
-
-        Important: All paces must come from tool results. All distances in km. All durations in minutes. All paces in min/km.
         """
     }
 
@@ -234,16 +206,7 @@ struct PromptBuilder {
 
     // MARK: - Weekly Workout Generation
 
-    static func weeklySystemPrompt(volumeType: VolumeType = .distance) -> String {
-        let volumeFormat: String
-
-        switch volumeType {
-        case .distance:
-            volumeFormat = "Important: All paces must come from tool results. All distances in km. All durations in minutes. All paces in min/km."
-        case .time:
-            volumeFormat = "Important: All paces must come from tool results. Express workout volumes in duration_minutes. Interval work segments may still use distance (meters). All paces in min/km."
-        }
-
+    static func weeklySystemPrompt() -> String {
         return """
         You are an expert running coach generating detailed workouts for a single week of training. You will be given the plan outline, this week's targets, and the runner's recent performance data.
 
@@ -251,6 +214,11 @@ struct PromptBuilder {
         - If the runner completed fewer than 75% of planned workouts in prior weeks, reduce this week's volume by 10-15%
         - If the runner completed all workouts and reported good performance, maintain or slightly increase targets
         - If the runner skipped multiple workouts, prioritize the most important sessions (long run, key workout)
+
+        ## Volume & Intensity Rules
+        - Specify daily volume as a percentage of the runner's peak weekly volume (daily_volume_percent).
+        - CRITICAL: The sum of all daily_volume_percent values for workouts in the week MUST EQUAL the weekly_volume_percent. For example, if weekly_volume_percent is 80, the daily values might be 15 + 12 + 15 + 0 + 12 + 26 + 0 = 80. Do NOT let daily values exceed the weekly total.
+        - For intensity, use a named level (easy, marathon, tempo, interval, repeat) or a number representing %VO2max for finer control (e.g. 96). Each workout and step gets exactly one intensity value.
 
         ## Workout Structure Rules
         - Only include warmup and cooldown steps for quality workouts (tempo, interval, long, race). Easy and recovery runs should be a single work step at easy pace — no warmup or cooldown needed.
@@ -266,44 +234,24 @@ struct PromptBuilder {
         ## Output Format
         Your final response must be ONLY valid JSON matching this schema (no markdown, no explanation outside the JSON):
 
-        \(weeklyOutputSchema(volumeType: volumeType))
-
-        \(volumeFormat)
+        \(weeklyOutputSchema())
         """
     }
 
-    static func weeklyOutputSchema(volumeType: VolumeType = .distance) -> String {
-        let weekVolume: String
-        let workoutVolume: String
-
-        switch volumeType {
-        case .distance:
-            weekVolume = "\"total_distance_km\": number,"
-            workoutVolume = """
-                  "distance_km": number,
-                  "duration_minutes": number,
-            """
-        case .time:
-            weekVolume = "\"total_duration_minutes\": number,"
-            workoutVolume = """
-                  "duration_minutes": number,
-                  "distance_km": number or null,
-            """
-        }
-
+    static func weeklyOutputSchema() -> String {
         return """
         {
           "week_number": number,
           "theme": "string",
-          \(weekVolume)
+          "weekly_volume_percent": number (% of peak weekly volume),
           "notes": "string",
           "workouts": [
             {
               "name": "string",
               "type": "easy|tempo|interval|long|recovery|race|rest",
               "day_of_week": number (1=Sunday, 7=Saturday),
-        \(workoutVolume)
-              "target_pace_min_per_km": number or null,
+              "daily_volume_percent": number (% of peak weekly volume),
+              "intensity": "easy|marathon|tempo|interval|repeat" or number (% VO2max),
               "location": "outdoor|treadmill|track|trail",
               "notes": "string",
               "steps": [
@@ -312,7 +260,7 @@ struct PromptBuilder {
                   "name": "string",
                   "goal_type": "distance|time|open",
                   "goal_value": number or null (distance in meters, time in seconds),
-                  "target_pace_min_per_km": number or null,
+                  "intensity": "easy|marathon|tempo|interval|repeat" or number (% VO2max),
                   "hr_zone": number or null,
                   "repeat_count": number,
                   "group_id": number (0 = ungrouped; steps sharing the same non-zero group_id form an interval repeat group)
@@ -346,7 +294,7 @@ struct PromptBuilder {
         """
 
         if let vdot = plan.cachedVDOT {
-            prompt += "\n- VDOT: \(vdot) (use get_training_paces with this value)"
+            prompt += "\n- VDOT: \(vdot)"
         } else {
             prompt += "\n- VDOT: not available (use calculate_vdot to determine)"
         }
@@ -362,13 +310,8 @@ struct PromptBuilder {
 
         \n## This Week's Outline
         - Week \(week.weekNumber): \(week.theme)
+        - Target volume: \(Int(week.weeklyVolumePercent))% of peak
         """
-
-        if plan.volumeType == .time {
-            prompt += "\n- Target duration: \(Int(week.totalDurationMinutes)) minutes"
-        } else {
-            prompt += "\n- Target distance: \(week.totalDistanceKm) km"
-        }
 
         if !week.notes.isEmpty {
             prompt += "\n- Notes: \(week.notes)"
@@ -378,9 +321,9 @@ struct PromptBuilder {
         prompt += "\n- Experience: \(profile.experienceLevel.rawValue)"
 
         if profile.volumeType == .time {
-            prompt += "\n- Current weekly volume: \(Int(profile.currentWeeklyVolumeMinutes)) minutes"
+            prompt += "\n- Peak weekly volume: \(Int(profile.peakWeeklyVolumeMinutes)) minutes"
         } else {
-            prompt += "\n- Current weekly mileage: \(profile.currentWeeklyMileageKm) km"
+            prompt += "\n- Peak weekly mileage: \(profile.peakWeeklyMileageKm) km"
         }
 
         prompt += "\n- Units preference: \(profile.unitPreference.rawValue)"
@@ -398,7 +341,7 @@ struct PromptBuilder {
             prompt += "\n- Lactate threshold HR: \(lthr) bpm"
         }
         if let vdot = profile.vdot {
-            prompt += "\n- VDOT: \(String(format: "%.1f", vdot)) (use get_training_paces with this value)"
+            prompt += "\n- VDOT: \(String(format: "%.1f", vdot))"
         }
 
         if let scheduleJSON = try? JSONSerialization.data(withJSONObject: schedule.dictionaryForPrompt().map(\.anyValue), options: .prettyPrinted),
@@ -434,12 +377,11 @@ struct PromptBuilder {
         prompt += """
 
         \n## Instructions
-        1. Use get_training_paces with the VDOT to get accurate paces
-        2. If heart rate data is available, calculate HR zones
-        3. Consider the weather forecast when deciding indoor vs outdoor workouts
-        4. Generate workouts that match this week's theme and volume target
-        5. Adapt based on prior weeks' performance data
-        6. Output the week as JSON
+        1. If heart rate data is available, calculate HR zones
+        2. Consider the weather forecast when deciding indoor vs outdoor workouts
+        3. Generate workouts that match this week's theme and volume target using volume percentages and intensity levels
+        4. Adapt based on prior weeks' performance data
+        5. Output the week as JSON
         """
 
         return prompt
@@ -447,43 +389,25 @@ struct PromptBuilder {
 
     // MARK: - Output Schema
 
-    static func outputSchema(volumeType: VolumeType = .distance) -> String {
-        let weekVolume: String
-        let workoutVolume: String
-
-        switch volumeType {
-        case .distance:
-            weekVolume = "\"total_distance_km\": number,"
-            workoutVolume = """
-                  "distance_km": number,
-                  "duration_minutes": number,
-            """
-        case .time:
-            weekVolume = "\"total_duration_minutes\": number,"
-            workoutVolume = """
-                  "duration_minutes": number,
-                  "distance_km": number or null,
-            """
-        }
-
+    static func outputSchema() -> String {
         return """
         {
           "name": "string",
           "goal_description": "string",
-          "vdot": number,
+          "vdot": number or null,
           "weeks": [
             {
               "week_number": number,
               "theme": "string",
-              \(weekVolume)
+              "weekly_volume_percent": number (% of peak weekly volume),
               "notes": "string",
               "workouts": [
                 {
                   "name": "string",
                   "type": "easy|tempo|interval|long|recovery|race|rest",
                   "day_of_week": number (1=Sunday, 7=Saturday),
-        \(workoutVolume)
-                  "target_pace_min_per_km": number or null,
+                  "daily_volume_percent": number (% of peak weekly volume),
+                  "intensity": "easy|marathon|tempo|interval|repeat" or number (% VO2max),
                   "location": "outdoor|treadmill|track|trail",
                   "notes": "string",
                   "steps": [
@@ -492,7 +416,7 @@ struct PromptBuilder {
                       "name": "string",
                       "goal_type": "distance|time|open",
                       "goal_value": number or null (distance in meters, time in seconds),
-                      "target_pace_min_per_km": number or null,
+                      "intensity": "easy|marathon|tempo|interval|repeat" or number (% VO2max),
                       "hr_zone": number or null,
                       "repeat_count": number,
                       "group_id": number (0 = ungrouped; steps sharing the same non-zero group_id form an interval repeat group, e.g. work+recovery repeated N times. The repeat_count on the first step in the group sets iterations.)
@@ -526,26 +450,15 @@ struct PromptBuilder {
 
     // MARK: - Ad-Hoc Workout
 
-    static func adHocWorkoutSystemPrompt(volumeType: VolumeType = .distance) -> String {
-        let volumeFields: String
-        switch volumeType {
-        case .distance:
-            volumeFields = """
-              "distance_km": number,
-              "duration_minutes": number,
-            """
-        case .time:
-            volumeFields = """
-              "duration_minutes": number,
-              "distance_km": number or null,
-            """
-        }
-
+    static func adHocWorkoutSystemPrompt() -> String {
         return """
         You are an expert running coach generating a single workout session. Follow the same principles as for training plans.
 
-        ## Tool Usage (MANDATORY)
-        - ALWAYS use get_training_paces to determine accurate paces. NEVER estimate.
+        ## Volume & Intensity Rules
+        - Specify volume as daily_volume_percent (percentage of the runner's peak weekly volume)
+        - For intensity, use a named level (easy, marathon, tempo, interval, repeat) or a number representing %VO2max for finer control (e.g. 96). Each workout and step gets exactly one intensity value.
+
+        ## Tool Usage
         - Use calculate_hr_zones if heart rate data is available.
 
         ## Workout Structure Rules
@@ -556,8 +469,8 @@ struct PromptBuilder {
         {
           "name": "string",
           "type": "easy|tempo|interval|long|recovery",
-        \(volumeFields)
-          "target_pace_min_per_km": number or null,
+          "daily_volume_percent": number (% of peak weekly volume),
+          "intensity": "easy|marathon|tempo|interval|repeat" or number (% VO2max),
           "location": "outdoor|treadmill|track|trail",
           "notes": "string",
           "steps": [
@@ -566,7 +479,7 @@ struct PromptBuilder {
               "name": "string",
               "goal_type": "distance|time|open",
               "goal_value": number or null (distance in meters, time in seconds),
-              "target_pace_min_per_km": number or null,
+              "intensity": "easy|marathon|tempo|interval|repeat" or number (% VO2max),
               "hr_zone": number or null,
               "repeat_count": number,
               "group_id": number (0 = ungrouped; steps sharing the same non-zero group_id form an interval repeat group, e.g. work+recovery repeated N times. The repeat_count on the first step in the group sets iterations.)

@@ -57,9 +57,15 @@ final class PlanGenerationManager {
                     startDate: startDate, endDate: endDate,
                     weatherData: weatherData
                 )
+                let parseContext = PlanParseContext(
+                    peakVolume: profile.volumeType == .time ? profile.peakWeeklyVolumeMinutes : profile.peakWeeklyMileageKm,
+                    volumeType: profile.volumeType,
+                    vdot: profile.vdot
+                )
                 let plan = try ResponseParser.parseOutline(
                     from: outlineText, startDate: startDate,
-                    endDate: endDate, context: context
+                    endDate: endDate, context: context,
+                    parseContext: parseContext
                 )
                 plan.volumeType = profile.volumeType
                 plan.goalDescription = goalDescription
@@ -76,7 +82,8 @@ final class PlanGenerationManager {
                     )
                     try ResponseParser.parseWeekWorkouts(
                         from: weekText, week: week1,
-                        planStartDate: startDate, context: context
+                        planStartDate: startDate, context: context,
+                        parseContext: parseContext
                     )
                 }
 

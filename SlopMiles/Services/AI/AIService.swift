@@ -54,7 +54,7 @@ final class AIService {
         let tools = settings.provider == .anthropic
             ? ToolDefinitions.anthropicTools()
             : ToolDefinitions.openAITools()
-        let systemPrompt = PromptBuilder.outlineSystemPrompt(volumeType: profile.volumeType)
+        let systemPrompt = PromptBuilder.outlineSystemPrompt()
         let userPrompt = PromptBuilder.outlineUserPrompt(
             profile: profile, schedule: schedule, equipment: equipment,
             stats: stats, goalDescription: goalDescription,
@@ -99,7 +99,7 @@ final class AIService {
         let tools = settings.provider == .anthropic
             ? ToolDefinitions.anthropicTools()
             : ToolDefinitions.openAITools()
-        let systemPrompt = PromptBuilder.weeklySystemPrompt(volumeType: profile.volumeType)
+        let systemPrompt = PromptBuilder.weeklySystemPrompt()
         let userPrompt = PromptBuilder.weeklyUserPrompt(
             plan: plan, week: week,
             profile: profile, schedule: schedule, equipment: equipment,
@@ -145,7 +145,7 @@ final class AIService {
         let tools = settings.provider == .anthropic
             ? ToolDefinitions.anthropicTools()
             : ToolDefinitions.openAITools()
-        let systemPrompt = PromptBuilder.systemPrompt(volumeType: profile.volumeType)
+        let systemPrompt = PromptBuilder.systemPrompt()
 
         let userPrompt = PromptBuilder.userPrompt(
             profile: profile, schedule: schedule, equipment: equipment,

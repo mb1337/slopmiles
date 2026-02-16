@@ -18,6 +18,7 @@ struct WorkoutRowView: View {
                     } else {
                         if workout.distanceKm > 0 { Text(UnitConverter.formatDistance(workout.distanceKm, unit: unitPref)) }
                     }
+                    Text(workout.intensityTarget.displayName)
                     if let pace = workout.targetPaceMinPerKm { Text(UnitConverter.formatPace(pace, unit: unitPref)) }
                 }
                 .font(.caption).foregroundStyle(.secondary)

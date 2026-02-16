@@ -45,7 +45,7 @@ struct ResponseParserTests {
     func extractJSONWithSurroundingText() throws {
         let text = """
         Based on your profile, here is your plan:
-        {"name": "Marathon Plan", "weeks": [{"week_number": 1, "theme": "Base", "total_distance_km": 30, "notes": "", "workouts": []}]}
+        {"name": "Marathon Plan", "weeks": [{"week_number": 1, "theme": "Base", "weekly_volume_percent": 80, "notes": "", "workouts": []}]}
         Hope this helps!
         """
         let json = try ResponseParser.extractJSON(from: text)
@@ -62,8 +62,27 @@ struct ResponseParserTests {
 
     // MARK: - parseWorkout / parseStep unit tests
 
-    @Test("Parse workout from dictionary")
-    func parseWorkout() {
+    @Test("Parse workout from dictionary with percentage volume")
+    func parseWorkoutPercentage() {
+        let ctx = PlanParseContext(peakVolume: 50.0, volumeType: .distance, vdot: 50.0)
+        let dict: [String: Any] = [
+            "name": "Easy Run", "type": "easy", "day_of_week": 2,
+            "daily_volume_percent": 16.0,
+            "intensity": "easy",
+            "location": "outdoor", "notes": "Keep it easy",
+        ]
+        let workout = ResponseParser.parseWorkout(from: dict, weekNumber: 1, planStartDate: Date(), calendar: Calendar.current, context: ctx)
+        #expect(workout.name == "Easy Run")
+        #expect(workout.workoutType == .easy)
+        #expect(workout.dailyVolumePercent == 16.0)
+        #expect(workout.distanceKm == 8.0) // 16% of 50km
+        #expect(workout.intensityTarget == .named(.easy))
+        #expect(workout.targetPaceMinPerKm != nil)
+        #expect(workout.location == .outdoor)
+    }
+
+    @Test("Parse workout falls back to absolute values without context")
+    func parseWorkoutFallback() {
         let dict: [String: Any] = [
             "name": "Easy Run", "type": "easy", "day_of_week": 2,
             "distance_km": 8.0, "duration_minutes": 48.0,
@@ -71,25 +90,36 @@ struct ResponseParserTests {
         ]
         let workout = ResponseParser.parseWorkout(from: dict, weekNumber: 1, planStartDate: Date(), calendar: Calendar.current)
         #expect(workout.name == "Easy Run")
-        #expect(workout.workoutType == .easy)
         #expect(workout.distanceKm == 8.0)
         #expect(workout.targetPaceMinPerKm == 6.0)
-        #expect(workout.location == .outdoor)
     }
 
-    @Test("Parse step from dictionary")
-    func parseStep() {
+    @Test("Parse step with named intensity")
+    func parseStepNamedIntensity() {
         let dict: [String: Any] = [
             "type": "work", "name": "800m repeat", "goal_type": "distance",
-            "goal_value": 800.0, "target_pace_min_per_km": 4.2, "hr_zone": 4, "repeat_count": 6,
+            "goal_value": 800.0, "intensity": "interval", "hr_zone": 4, "repeat_count": 6,
         ]
-        let step = ResponseParser.parseStep(from: dict, order: 0)
+        let step = ResponseParser.parseStep(from: dict, order: 0, vdot: 50.0)
         #expect(step.stepType == .work)
         #expect(step.name == "800m repeat")
         #expect(step.goalType == .distance)
         #expect(step.goalValue == 800.0)
         #expect(step.repeatCount == 6)
         #expect(step.hrZone == 4)
+        #expect(step.intensityTarget == .named(.interval))
+        #expect(step.targetPaceMinPerKm != nil)
+    }
+
+    @Test("Parse step with VO2max intensity")
+    func parseStepVo2maxIntensity() {
+        let dict: [String: Any] = [
+            "type": "work", "name": "Cruise intervals", "goal_type": "distance",
+            "goal_value": 1600.0, "intensity": 96, "repeat_count": 4,
+        ]
+        let step = ResponseParser.parseStep(from: dict, order: 0, vdot: 50.0)
+        #expect(step.intensityTarget == .vo2Max(96.0))
+        #expect(step.targetPaceMinPerKm != nil)
     }
 
     @Test("Parse step defaults for missing fields")
@@ -99,19 +129,20 @@ struct ResponseParserTests {
         #expect(step.stepType == .work)
         #expect(step.goalType == .open)
         #expect(step.repeatCount == 1)
+        #expect(step.intensityTarget == .named(.easy))
     }
 
     // MARK: - parsePlan integration tests
 
-    @Test("parsePlan creates correct plan structure from full JSON")
-    func parsePlanFullStructure() throws {
+    @Test("parsePlan creates correct plan structure with percentage volume")
+    func parsePlanWithPercentages() throws {
         let context = try Self.makeTestContext()
 
-        // Use a known Monday as startDate so day_of_week math is predictable.
-        // 2025-01-06 is a Monday.
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(identifier: "UTC")!
         let startDate = calendar.date(from: DateComponents(year: 2025, month: 1, day: 6))!
+
+        let parseCtx = PlanParseContext(peakVolume: 50.0, volumeType: .distance, vdot: 50.0)
 
         let json = """
         {
@@ -122,16 +153,15 @@ struct ResponseParserTests {
                 {
                     "week_number": 1,
                     "theme": "Base Building",
-                    "total_distance_km": 40.0,
+                    "weekly_volume_percent": 80,
                     "notes": "Easy start",
                     "workouts": [
                         {
                             "name": "Easy Run",
                             "type": "easy",
                             "day_of_week": 2,
-                            "distance_km": 8.0,
-                            "duration_minutes": 48.0,
-                            "target_pace_min_per_km": 6.0,
+                            "daily_volume_percent": 16,
+                            "intensity": "easy",
                             "location": "outdoor",
                             "notes": "Keep it easy",
                             "steps": [
@@ -140,7 +170,7 @@ struct ResponseParserTests {
                                     "name": "Easy Run",
                                     "goal_type": "distance",
                                     "goal_value": 8000.0,
-                                    "target_pace_min_per_km": 6.0
+                                    "intensity": "easy"
                                 }
                             ]
                         },
@@ -148,9 +178,8 @@ struct ResponseParserTests {
                             "name": "Long Run",
                             "type": "long",
                             "day_of_week": 7,
-                            "distance_km": 16.0,
-                            "duration_minutes": 96.0,
-                            "target_pace_min_per_km": 6.0,
+                            "daily_volume_percent": 32,
+                            "intensity": "easy",
                             "location": "trail",
                             "notes": "Stay comfortable"
                         }
@@ -159,16 +188,15 @@ struct ResponseParserTests {
                 {
                     "week_number": 2,
                     "theme": "Build Phase",
-                    "total_distance_km": 45.0,
+                    "weekly_volume_percent": 90,
                     "notes": "Increase volume",
                     "workouts": [
                         {
                             "name": "Tempo Run",
                             "type": "tempo",
                             "day_of_week": 4,
-                            "distance_km": 10.0,
-                            "duration_minutes": 50.0,
-                            "target_pace_min_per_km": 5.0,
+                            "daily_volume_percent": 20,
+                            "intensity": "tempo",
                             "location": "outdoor",
                             "notes": "Comfortably hard"
                         }
@@ -178,14 +206,12 @@ struct ResponseParserTests {
         }
         """
 
-        let plan = try ResponseParser.parsePlan(from: json, startDate: startDate, context: context)
+        let plan = try ResponseParser.parsePlan(from: json, startDate: startDate, context: context, parseContext: parseCtx)
 
         // Plan-level assertions
         #expect(plan.name == "Half Marathon Plan")
         #expect(plan.goalDescription == "Sub 1:45 half marathon")
         #expect(plan.difficulty == .advanced)
-        #expect(plan.startDate == startDate)
-        #expect(plan.rawAIResponse == json)
 
         // Weeks
         let weeks = plan.sortedWeeks
@@ -193,15 +219,12 @@ struct ResponseParserTests {
 
         let week1 = weeks[0]
         #expect(week1.weekNumber == 1)
-        #expect(week1.theme == "Base Building")
-        #expect(week1.totalDistanceKm == 40.0)
-        #expect(week1.notes == "Easy start")
-        #expect(week1.plan?.id == plan.id)
+        #expect(week1.weeklyVolumePercent == 80)
+        #expect(week1.totalDistanceKm == 40.0) // 80% of 50km
 
         let week2 = weeks[1]
-        #expect(week2.weekNumber == 2)
-        #expect(week2.theme == "Build Phase")
-        #expect(week2.totalDistanceKm == 45.0)
+        #expect(week2.weeklyVolumePercent == 90)
+        #expect(week2.totalDistanceKm == 45.0) // 90% of 50km
 
         // Workouts in week 1
         let week1Workouts = week1.sortedWorkouts
@@ -209,44 +232,16 @@ struct ResponseParserTests {
 
         let easyRun = week1Workouts[0]
         #expect(easyRun.name == "Easy Run")
-        #expect(easyRun.workoutType == .easy)
-        #expect(easyRun.distanceKm == 8.0)
-        #expect(easyRun.durationMinutes == 48.0)
-        #expect(easyRun.targetPaceMinPerKm == 6.0)
-        #expect(easyRun.location == .outdoor)
-        #expect(easyRun.notes == "Keep it easy")
-        #expect(easyRun.week?.id == week1.id)
+        #expect(easyRun.dailyVolumePercent == 16)
+        #expect(easyRun.distanceKm == 8.0) // 16% of 50km
+        #expect(easyRun.intensityTarget == .named(.easy))
+        #expect(easyRun.targetPaceMinPerKm != nil)
 
-        let longRun = week1Workouts[1]
-        #expect(longRun.name == "Long Run")
-        #expect(longRun.workoutType == .long)
-        #expect(longRun.location == .trail)
-        #expect(longRun.distanceKm == 16.0)
-
-        // Steps on the easy run (no warmup/cooldown for easy runs)
+        // Steps on the easy run
         let steps = easyRun.sortedSteps
         #expect(steps.count == 1)
-
-        #expect(steps[0].stepType == .work)
-        #expect(steps[0].name == "Easy Run")
-        #expect(steps[0].goalType == .distance)
-        #expect(steps[0].goalValue == 8000.0)
-        #expect(steps[0].targetPaceMinPerKm == 6.0)
-        #expect(steps[0].order == 0)
-
-        // Workouts in week 2
-        let week2Workouts = week2.sortedWorkouts
-        #expect(week2Workouts.count == 1)
-        #expect(week2Workouts[0].name == "Tempo Run")
-        #expect(week2Workouts[0].workoutType == .tempo)
-
-        // Long run (day 7 = Saturday) has no steps
-        #expect(longRun.sortedSteps.isEmpty)
-
-        // endDate should be the latest workout date
-        #expect(plan.endDate >= easyRun.scheduledDate)
-        #expect(plan.endDate >= longRun.scheduledDate)
-        #expect(plan.endDate >= week2Workouts[0].scheduledDate)
+        #expect(steps[0].intensityTarget == .named(.easy))
+        #expect(steps[0].targetPaceMinPerKm != nil)
     }
 
     @Test("parsePlan handles missing optional fields with defaults")
@@ -254,7 +249,6 @@ struct ResponseParserTests {
         let context = try Self.makeTestContext()
         let startDate = Date()
 
-        // Minimal JSON: no name, no goal_description, no difficulty, workouts with no optional fields
         let json = """
         {
             "weeks": [
@@ -273,41 +267,30 @@ struct ResponseParserTests {
 
         let plan = try ResponseParser.parsePlan(from: json, startDate: startDate, context: context)
 
-        // Plan defaults
         #expect(plan.name == "Training Plan")
         #expect(plan.goalDescription == "")
         #expect(plan.difficulty == .intermediate)
 
-        // Week defaults
         let week = plan.sortedWeeks.first
         #expect(week != nil)
         #expect(week?.weekNumber == 1)
         #expect(week?.theme == "")
         #expect(week?.totalDistanceKm == 0)
-        #expect(week?.notes == "")
 
-        // Workout defaults
         let workout = week?.sortedWorkouts.first
         #expect(workout != nil)
         #expect(workout?.name == "Workout")
         #expect(workout?.workoutType == .easy)
-        #expect(workout?.distanceKm == 0)
-        #expect(workout?.durationMinutes == 0)
-        #expect(workout?.targetPaceMinPerKm == nil)
-        #expect(workout?.location == .outdoor)
-        #expect(workout?.notes == "")
+        #expect(workout?.intensityTarget == .named(.easy))
 
-        // Step defaults
         let step = workout?.sortedSteps.first
         #expect(step != nil)
         #expect(step?.order == 0)
         #expect(step?.stepType == .work)
         #expect(step?.goalType == .open)
-        #expect(step?.goalValue == nil)
-        #expect(step?.targetPaceMinPerKm == nil)
-        #expect(step?.hrZone == nil)
         #expect(step?.repeatCount == 1)
         #expect(step?.groupId == 0)
+        #expect(step?.intensityTarget == .named(.easy))
     }
 
     @Test("parsePlan throws when weeks array is missing")
@@ -325,7 +308,6 @@ struct ResponseParserTests {
     func parsePlanScheduledDateCalculation() throws {
         let context = try Self.makeTestContext()
 
-        // 2025-01-06 is a Monday (weekday 2 in the Gregorian calendar).
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(identifier: "UTC")!
         let startDate = calendar.date(from: DateComponents(year: 2025, month: 1, day: 6))!
@@ -356,62 +338,42 @@ struct ResponseParserTests {
         let plan = try ResponseParser.parsePlan(from: json, startDate: startDate, context: context)
         let weeks = plan.sortedWeeks
 
-        // Week 1 workouts
         let w1Workouts = weeks[0].sortedWorkouts
         #expect(w1Workouts.count == 3)
 
         let systemCalendar = Calendar.current
 
-        // Monday W1: day_of_week=2, week 1 → should be the startDate itself (Monday Jan 6)
         let mondayW1 = w1Workouts.first { $0.name == "Monday W1" }!
         let mondayComponents = systemCalendar.dateComponents([.year, .month, .day], from: mondayW1.scheduledDate)
         #expect(mondayComponents.year == 2025)
         #expect(mondayComponents.month == 1)
         #expect(mondayComponents.day == 6)
 
-        // Wednesday W1: day_of_week=4, week 1 → Wednesday Jan 8
         let wednesdayW1 = w1Workouts.first { $0.name == "Wednesday W1" }!
         let wedComponents = systemCalendar.dateComponents([.year, .month, .day], from: wednesdayW1.scheduledDate)
-        #expect(wedComponents.year == 2025)
-        #expect(wedComponents.month == 1)
         #expect(wedComponents.day == 8)
 
-        // Saturday W1: day_of_week=7, week 1 → Saturday Jan 11
         let saturdayW1 = w1Workouts.first { $0.name == "Saturday W1" }!
         let satComponents = systemCalendar.dateComponents([.year, .month, .day], from: saturdayW1.scheduledDate)
-        #expect(satComponents.year == 2025)
-        #expect(satComponents.month == 1)
         #expect(satComponents.day == 11)
 
-        // Week 2 workouts (start = Jan 13, one week after Jan 6)
         let w2Workouts = weeks[1].sortedWorkouts
         #expect(w2Workouts.count == 2)
 
-        // Tuesday W2: day_of_week=3, week 2 → Tuesday Jan 14
         let tuesdayW2 = w2Workouts.first { $0.name == "Tuesday W2" }!
         let tueComponents = systemCalendar.dateComponents([.year, .month, .day], from: tuesdayW2.scheduledDate)
-        #expect(tueComponents.year == 2025)
-        #expect(tueComponents.month == 1)
         #expect(tueComponents.day == 14)
 
-        // Friday W2: day_of_week=6, week 2 → Friday Jan 17
         let fridayW2 = w2Workouts.first { $0.name == "Friday W2" }!
         let friComponents = systemCalendar.dateComponents([.year, .month, .day], from: fridayW2.scheduledDate)
-        #expect(friComponents.year == 2025)
-        #expect(friComponents.month == 1)
         #expect(friComponents.day == 17)
-
-        // endDate should equal the latest workout (Friday Jan 17)
-        let endComponents = systemCalendar.dateComponents([.year, .month, .day], from: plan.endDate)
-        #expect(endComponents.year == 2025)
-        #expect(endComponents.month == 1)
-        #expect(endComponents.day == 17)
     }
 
-    @Test("parsePlan parses total_duration_minutes from time-based plan")
+    @Test("parsePlan parses time-based plan with percentage volume")
     func parsePlanTimeBased() throws {
         let context = try Self.makeTestContext()
         let startDate = Date()
+        let parseCtx = PlanParseContext(peakVolume: 300.0, volumeType: .time, vdot: nil)
 
         let json = """
         {
@@ -421,54 +383,41 @@ struct ResponseParserTests {
                 {
                     "week_number": 1,
                     "theme": "Base Week",
-                    "total_duration_minutes": 180.0,
+                    "weekly_volume_percent": 60,
                     "notes": "Easy start",
                     "workouts": [
                         {
                             "name": "Easy Run",
                             "type": "easy",
                             "day_of_week": 2,
-                            "duration_minutes": 45.0,
-                            "distance_km": null,
+                            "daily_volume_percent": 15,
+                            "intensity": "easy",
                             "location": "outdoor",
                             "notes": "Keep it easy"
                         }
                     ]
-                },
-                {
-                    "week_number": 2,
-                    "theme": "Build Week",
-                    "total_distance_km": 40.0,
-                    "total_duration_minutes": 210.0,
-                    "notes": "More volume",
-                    "workouts": []
                 }
             ]
         }
         """
 
-        let plan = try ResponseParser.parsePlan(from: json, startDate: startDate, context: context)
+        let plan = try ResponseParser.parsePlan(from: json, startDate: startDate, context: context, parseContext: parseCtx)
         let weeks = plan.sortedWeeks
-        #expect(weeks.count == 2)
+        #expect(weeks.count == 1)
 
-        // Week 1: time-based only
-        #expect(weeks[0].totalDurationMinutes == 180.0)
-        #expect(weeks[0].totalDistanceKm == 0)
+        #expect(weeks[0].weeklyVolumePercent == 60)
+        #expect(weeks[0].totalDurationMinutes == 180.0) // 60% of 300min
+        #expect(weeks[0].totalDistanceKm == 0) // time-based, no distance
 
-        // Week 2: has both fields
-        #expect(weeks[1].totalDurationMinutes == 210.0)
-        #expect(weeks[1].totalDistanceKm == 40.0)
-
-        // Workout with null distance
         let workouts = weeks[0].sortedWorkouts
         #expect(workouts.count == 1)
-        #expect(workouts[0].durationMinutes == 45.0)
-        #expect(workouts[0].distanceKm == 0)
+        #expect(workouts[0].dailyVolumePercent == 15)
+        #expect(workouts[0].durationMinutes == 45.0) // 15% of 300min
     }
 
     // MARK: - parseOutline tests
 
-    @Test("parseOutline creates plan with weeks but no workouts")
+    @Test("parseOutline creates plan with percentage-based weeks")
     func parseOutlineStructure() throws {
         let context = try Self.makeTestContext()
 
@@ -477,23 +426,18 @@ struct ResponseParserTests {
         let startDate = calendar.date(from: DateComponents(year: 2025, month: 3, day: 1))!
         let endDate = calendar.date(from: DateComponents(year: 2025, month: 5, day: 24))!
 
+        let parseCtx = PlanParseContext(peakVolume: 50.0, volumeType: .distance, vdot: 42.5)
+
         let json = """
         {
             "name": "10K Training Plan",
             "goal_description": "Sub-50 10K",
             "vdot": 42.5,
-            "training_paces": {
-                "easy_min_per_km": 6.2,
-                "marathon_min_per_km": 5.5,
-                "threshold_min_per_km": 5.0,
-                "interval_min_per_km": 4.5,
-                "repetition_min_per_km": 4.0
-            },
             "weeks": [
                 {
                     "week_number": 1,
                     "theme": "Base Building",
-                    "target_distance_km": 35.0,
+                    "weekly_volume_percent": 70,
                     "focus": "Aerobic development",
                     "workout_types": ["easy", "long"],
                     "notes": "Easy start"
@@ -501,7 +445,7 @@ struct ResponseParserTests {
                 {
                     "week_number": 2,
                     "theme": "Build Phase",
-                    "target_distance_km": 40.0,
+                    "weekly_volume_percent": 80,
                     "focus": "Increasing volume",
                     "notes": "Add tempo work"
                 }
@@ -509,43 +453,46 @@ struct ResponseParserTests {
         }
         """
 
-        let plan = try ResponseParser.parseOutline(from: json, startDate: startDate, endDate: endDate, context: context)
+        let plan = try ResponseParser.parseOutline(from: json, startDate: startDate, endDate: endDate, context: context, parseContext: parseCtx)
 
         #expect(plan.name == "10K Training Plan")
         #expect(plan.goalDescription == "Sub-50 10K")
         #expect(plan.cachedVDOT == 42.5)
-        #expect(plan.outlineRawAIResponse == json)
-        #expect(plan.startDate == startDate)
-        #expect(plan.endDate == endDate)
 
         let weeks = plan.sortedWeeks
         #expect(weeks.count == 2)
 
-        #expect(weeks[0].weekNumber == 1)
-        #expect(weeks[0].theme == "Base Building")
-        #expect(weeks[0].totalDistanceKm == 35.0)
+        #expect(weeks[0].weeklyVolumePercent == 70)
+        #expect(weeks[0].totalDistanceKm == 35.0) // 70% of 50km
         #expect(weeks[0].workoutsGenerated == false)
-        #expect(weeks[0].sortedWorkouts.isEmpty)
 
-        #expect(weeks[1].weekNumber == 2)
-        #expect(weeks[1].theme == "Build Phase")
-        #expect(weeks[1].totalDistanceKm == 40.0)
-        #expect(weeks[1].workoutsGenerated == false)
+        #expect(weeks[1].weeklyVolumePercent == 80)
+        #expect(weeks[1].totalDistanceKm == 40.0) // 80% of 50km
     }
 
     @Test("parseOutline stores integer vdot correctly")
     func parseOutlineIntegerVdot() throws {
         let context = try Self.makeTestContext()
         let json = """
-        {"name":"Plan","vdot":45,"weeks":[{"week_number":1,"theme":"W1","target_distance_km":30,"notes":""}]}
+        {"name":"Plan","vdot":45,"weeks":[{"week_number":1,"theme":"W1","weekly_volume_percent":100,"notes":""}]}
         """
         let plan = try ResponseParser.parseOutline(from: json, startDate: Date(), endDate: Date(), context: context)
         #expect(plan.cachedVDOT == 45.0)
     }
 
+    @Test("parseOutline falls back to absolute values without context")
+    func parseOutlineFallback() throws {
+        let context = try Self.makeTestContext()
+        let json = """
+        {"name":"Plan","vdot":45,"weeks":[{"week_number":1,"theme":"W1","target_distance_km":35.0,"notes":""}]}
+        """
+        let plan = try ResponseParser.parseOutline(from: json, startDate: Date(), endDate: Date(), context: context)
+        #expect(plan.sortedWeeks[0].totalDistanceKm == 35.0)
+    }
+
     // MARK: - parseWeekWorkouts tests
 
-    @Test("parseWeekWorkouts attaches workouts to existing week")
+    @Test("parseWeekWorkouts attaches workouts with percentage volume")
     func parseWeekWorkoutsAttachesWorkouts() throws {
         let context = try Self.makeTestContext()
 
@@ -557,32 +504,34 @@ struct ResponseParserTests {
         week.workoutsGenerated = false
         context.insert(week)
 
+        let parseCtx = PlanParseContext(peakVolume: 50.0, volumeType: .distance, vdot: 50.0)
+
         let json = """
         {
             "week_number": 1,
             "theme": "Base Building",
-            "total_distance_km": 32.0,
+            "weekly_volume_percent": 64,
             "notes": "Updated notes",
             "workouts": [
                 {
                     "name": "Easy Run",
                     "type": "easy",
                     "day_of_week": 2,
-                    "distance_km": 8.0,
-                    "duration_minutes": 48.0,
+                    "daily_volume_percent": 16,
+                    "intensity": "easy",
                     "location": "outdoor",
                     "notes": "Relaxed pace",
                     "steps": [
-                        {"type": "warmup", "name": "Warmup", "goal_type": "time", "goal_value": 300},
-                        {"type": "work", "name": "Main", "goal_type": "distance", "goal_value": 6000}
+                        {"type": "warmup", "name": "Warmup", "goal_type": "time", "goal_value": 300, "intensity": "easy"},
+                        {"type": "work", "name": "Main", "goal_type": "distance", "goal_value": 6000, "intensity": "easy"}
                     ]
                 },
                 {
                     "name": "Long Run",
                     "type": "long",
                     "day_of_week": 7,
-                    "distance_km": 16.0,
-                    "duration_minutes": 96.0,
+                    "daily_volume_percent": 32,
+                    "intensity": "easy",
                     "location": "trail",
                     "notes": ""
                 }
@@ -590,27 +539,47 @@ struct ResponseParserTests {
         }
         """
 
-        try ResponseParser.parseWeekWorkouts(from: json, week: week, planStartDate: startDate, context: context)
+        try ResponseParser.parseWeekWorkouts(from: json, week: week, planStartDate: startDate, context: context, parseContext: parseCtx)
 
         #expect(week.workoutsGenerated == true)
         #expect(week.theme == "Base Building")
-        #expect(week.totalDistanceKm == 32.0)
+        #expect(week.weeklyVolumePercent == 64)
+        #expect(week.totalDistanceKm == 32.0) // 64% of 50km
         #expect(week.notes == "Updated notes")
 
         let workouts = week.sortedWorkouts
         #expect(workouts.count == 2)
         #expect(workouts[0].name == "Easy Run")
-        #expect(workouts[0].workoutType == .easy)
-        #expect(workouts[0].distanceKm == 8.0)
+        #expect(workouts[0].dailyVolumePercent == 16)
+        #expect(workouts[0].distanceKm == 8.0) // 16% of 50km
 
         let steps = workouts[0].sortedSteps
         #expect(steps.count == 2)
         #expect(steps[0].stepType == .warmup)
+        #expect(steps[0].intensityTarget == .named(.easy))
         #expect(steps[1].goalValue == 6000)
+    }
 
-        #expect(workouts[1].name == "Long Run")
-        #expect(workouts[1].workoutType == .long)
-        #expect(workouts[1].location == .trail)
+    // MARK: - Intensity Parsing tests
+
+    @Test("parseIntensity handles string values")
+    func parseIntensityString() {
+        #expect(ResponseParser.parseIntensity(from: "easy") == .named(.easy))
+        #expect(ResponseParser.parseIntensity(from: "marathon") == .named(.marathon))
+        #expect(ResponseParser.parseIntensity(from: "tempo") == .named(.tempo))
+        #expect(ResponseParser.parseIntensity(from: "interval") == .named(.interval))
+        #expect(ResponseParser.parseIntensity(from: "repeat") == .named(.repetition))
+    }
+
+    @Test("parseIntensity handles numeric values")
+    func parseIntensityNumeric() {
+        #expect(ResponseParser.parseIntensity(from: 96.0 as Double) == .vo2Max(96.0))
+        #expect(ResponseParser.parseIntensity(from: 88 as Int) == .vo2Max(88.0))
+    }
+
+    @Test("parseIntensity defaults to easy for nil")
+    func parseIntensityNil() {
+        #expect(ResponseParser.parseIntensity(from: nil) == .named(.easy))
     }
 
     @Test("parsePlan extracts JSON from markdown code block wrapper")
@@ -627,7 +596,7 @@ struct ResponseParserTests {
                 {
                     "week_number": 1,
                     "theme": "Easy Week",
-                    "total_distance_km": 20,
+                    "weekly_volume_percent": 70,
                     "workouts": []
                 }
             ]

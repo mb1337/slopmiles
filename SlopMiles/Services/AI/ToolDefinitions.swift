@@ -44,17 +44,6 @@ struct ToolDefinitions {
             ]
         ),
         ToolDef(
-            name: "get_training_paces",
-            description: "Get all 5 training paces (easy, marathon, threshold, interval, repetition) for a given VDOT value. Returns paces in min/km.",
-            inputSchema: [
-                "type": "object",
-                "properties": .object([
-                    "vdot": .object(["type": "number", "description": "VDOT fitness score"]),
-                ]),
-                "required": .array([.string("vdot")]),
-            ]
-        ),
-        ToolDef(
             name: "project_race_time",
             description: "Predict finish time for a race distance based on VDOT.",
             inputSchema: [
@@ -76,19 +65,6 @@ struct ToolDefinitions {
                     "lthr": .object(["type": "integer", "description": "Lactate threshold heart rate in bpm"]),
                 ]),
                 "required": .array([]),
-            ]
-        ),
-        ToolDef(
-            name: "convert_pace",
-            description: "Convert between pace and speed units: min_per_km, min_per_mile, km_per_hour, mph.",
-            inputSchema: [
-                "type": "object",
-                "properties": .object([
-                    "value": .object(["type": "number", "description": "The value to convert"]),
-                    "from_unit": .object(["type": "string", "enum": .array([.string("min_per_km"), .string("min_per_mile"), .string("km_per_hour"), .string("mph")])]),
-                    "to_unit": .object(["type": "string", "enum": .array([.string("min_per_km"), .string("min_per_mile"), .string("km_per_hour"), .string("mph")])]),
-                ]),
-                "required": .array([.string("value"), .string("from_unit"), .string("to_unit")]),
             ]
         ),
         ToolDef(

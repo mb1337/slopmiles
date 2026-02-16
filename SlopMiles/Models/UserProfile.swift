@@ -47,10 +47,10 @@ enum UnitPreference: String, Codable, CaseIterable {
 final class UserProfile {
     var id: UUID = UUID()
     var experienceLevelRaw: String = ExperienceLevel.intermediate.rawValue
-    var currentWeeklyMileageKm: Double = 0
+    var peakWeeklyMileageKm: Double = 0
     var unitPreferenceRaw: String = UnitPreference.metric.rawValue
     var volumeTypeRaw: String = VolumeType.distance.rawValue
-    var currentWeeklyVolumeMinutes: Double = 0
+    var peakWeeklyVolumeMinutes: Double = 0
     var injuryNotes: String = ""
     var homeLatitude: Double?
     var homeLongitude: Double?

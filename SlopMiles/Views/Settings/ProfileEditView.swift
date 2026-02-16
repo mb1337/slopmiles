@@ -27,10 +27,10 @@ private struct ProfileEditForm: View {
     init(profile: UserProfile) {
         self.profile = profile
         let displayMileage = profile.unitPreference == .imperial
-            ? UnitConverter.kmToMiles(profile.currentWeeklyMileageKm)
-            : profile.currentWeeklyMileageKm
+            ? UnitConverter.kmToMiles(profile.peakWeeklyMileageKm)
+            : profile.peakWeeklyMileageKm
         _weeklyMileageText = State(initialValue: displayMileage > 0 ? "\(Int(displayMileage))" : "")
-        _weeklyVolumeMinutesText = State(initialValue: profile.currentWeeklyVolumeMinutes > 0 ? "\(Int(profile.currentWeeklyVolumeMinutes))" : "")
+        _weeklyVolumeMinutesText = State(initialValue: profile.peakWeeklyVolumeMinutes > 0 ? "\(Int(profile.peakWeeklyVolumeMinutes))" : "")
         _maxHRText = State(initialValue: profile.maxHeartRate.map(String.init) ?? "")
         _restingHRText = State(initialValue: profile.restingHeartRate.map(String.init) ?? "")
         _ltHRText = State(initialValue: profile.lactateThresholdHR.map(String.init) ?? "")
@@ -85,7 +85,7 @@ private struct ProfileEditForm: View {
             }
 
             if profile.volumeType == .time {
-                Section("Weekly Volume (minutes)") {
+                Section("Peak Weekly Volume (minutes)") {
                     HStack {
                         Text("Minutes per week")
                         Spacer()
@@ -94,12 +94,12 @@ private struct ProfileEditForm: View {
                             .multilineTextAlignment(.trailing)
                             .frame(width: 80)
                             .onChange(of: weeklyVolumeMinutesText) {
-                                profile.currentWeeklyVolumeMinutes = Double(weeklyVolumeMinutesText) ?? 0
+                                profile.peakWeeklyVolumeMinutes = Double(weeklyVolumeMinutesText) ?? 0
                             }
                     }
                 }
             } else {
-                Section("Weekly Mileage (\(profile.unitPreference.distanceLabel))") {
+                Section("Peak Weekly Mileage (\(profile.unitPreference.distanceLabel))") {
                     HStack {
                         Text("\(profile.unitPreference == .metric ? "Kilometers" : "Miles") per week")
                         Spacer()
@@ -109,7 +109,7 @@ private struct ProfileEditForm: View {
                             .frame(width: 80)
                             .onChange(of: weeklyMileageText) {
                                 let value = Double(weeklyMileageText) ?? 0
-                                profile.currentWeeklyMileageKm = profile.unitPreference == .imperial
+                                profile.peakWeeklyMileageKm = profile.unitPreference == .imperial
                                     ? UnitConverter.milesToKm(value)
                                     : value
                             }
@@ -195,10 +195,10 @@ private struct ProfileEditForm: View {
             restingHRText = "\(resting)"
             profile.restingHeartRate = resting
         }
-        if profile.currentWeeklyMileageKm == 0, let avgKm = await hk.fetchAverageWeeklyDistance() {
+        if profile.peakWeeklyMileageKm == 0, let avgKm = await hk.fetchAverageWeeklyDistance() {
             let display = profile.unitPreference == .imperial ? UnitConverter.kmToMiles(avgKm) : avgKm
             weeklyMileageText = "\(Int(display.rounded()))"
-            profile.currentWeeklyMileageKm = avgKm
+            profile.peakWeeklyMileageKm = avgKm
         }
     }
 }

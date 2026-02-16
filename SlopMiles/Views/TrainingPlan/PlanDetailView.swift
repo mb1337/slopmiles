@@ -54,6 +54,10 @@ struct PlanDetailView: View {
                     HStack {
                         Text(week.workoutsGenerated ? "Total" : "Target").foregroundStyle(.secondary)
                         Spacer()
+                        if week.weeklyVolumePercent > 0 {
+                            Text("\(Int(week.weeklyVolumePercent))% of peak").foregroundStyle(.secondary)
+                            Text("·").foregroundStyle(.quaternary)
+                        }
                         if plan.volumeType == .time {
                             Text(UnitConverter.formatDuration(minutes: week.totalDurationMinutes)).foregroundStyle(.secondary)
                         } else {

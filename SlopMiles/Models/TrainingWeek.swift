@@ -6,6 +6,7 @@ final class TrainingWeek {
     var id: UUID = UUID()
     var weekNumber: Int = 1
     var theme: String = ""
+    var weeklyVolumePercent: Double = 0
     var totalDistanceKm: Double = 0
     var totalDurationMinutes: Double = 0
     var notes: String = ""

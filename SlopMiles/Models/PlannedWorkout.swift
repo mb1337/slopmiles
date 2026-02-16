@@ -1,6 +1,55 @@
 import Foundation
 import SwiftData
 
+enum WorkoutIntensity: String, Codable, CaseIterable, Sendable {
+    case easy
+    case marathon
+    case tempo       // maps to VDOT threshold
+    case interval
+    case repetition  // "repeat" in AI-facing JSON
+
+    var displayName: String {
+        switch self {
+        case .easy: return "Easy"
+        case .marathon: return "Marathon"
+        case .tempo: return "Tempo"
+        case .interval: return "Interval"
+        case .repetition: return "Repetition"
+        }
+    }
+}
+
+/// Unified intensity: either a named VDOT level or a specific %VO2max
+enum IntensityTarget: Equatable, Sendable {
+    case named(WorkoutIntensity)
+    case vo2Max(Double)  // e.g. 96.0 = 96% VO2max
+
+    var displayName: String {
+        switch self {
+        case .named(let i): return i.displayName
+        case .vo2Max(let pct): return "\(Int(pct))% VO2max"
+        }
+    }
+
+    /// Encode to raw string for SwiftData storage.
+    var rawValue: String {
+        switch self {
+        case .named(let i): return i.rawValue
+        case .vo2Max(let p): return "vo2:\(p)"
+        }
+    }
+
+    /// Decode from raw string stored in SwiftData.
+    init(rawValue: String) {
+        if rawValue.hasPrefix("vo2:"),
+           let pct = Double(String(rawValue.dropFirst(4))) {
+            self = .vo2Max(pct)
+        } else {
+            self = .named(WorkoutIntensity(rawValue: rawValue) ?? .easy)
+        }
+    }
+}
+
 enum WorkoutType: String, Codable, CaseIterable {
     case easy
     case tempo
@@ -61,6 +110,8 @@ final class PlannedWorkout {
     var name: String = ""
     var workoutTypeRaw: String = WorkoutType.easy.rawValue
     var scheduledDate: Date = Date()
+    var dailyVolumePercent: Double = 0
+    var intensityRaw: String = WorkoutIntensity.easy.rawValue
     var distanceKm: Double = 0
     var durationMinutes: Double = 0
     var targetPaceMinPerKm: Double?
@@ -88,6 +139,11 @@ final class PlannedWorkout {
     var location: WorkoutLocation {
         get { WorkoutLocation(rawValue: locationRaw) ?? .outdoor }
         set { locationRaw = newValue.rawValue }
+    }
+
+    var intensityTarget: IntensityTarget {
+        get { IntensityTarget(rawValue: intensityRaw) }
+        set { intensityRaw = newValue.rawValue }
     }
 
     var sortedSteps: [PlannedWorkoutStep] {

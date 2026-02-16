@@ -32,6 +32,10 @@ struct WorkoutDetailView: View {
                     if workout.durationMinutes > 0 { LabeledContent("Duration", value: UnitConverter.formatDuration(minutes: workout.durationMinutes)) }
                 }
                 if let pace = workout.targetPaceMinPerKm { LabeledContent("Target Pace", value: UnitConverter.formatPace(pace, unit: unitPref)) }
+                LabeledContent("Intensity", value: workout.intensityTarget.displayName)
+                if workout.dailyVolumePercent > 0 {
+                    LabeledContent("Volume", value: "\(Int(workout.dailyVolumePercent))% of peak")
+                }
                 LabeledContent("Location", value: workout.location.rawValue.capitalized)
             }
             if !workout.sortedSteps.isEmpty {
@@ -53,6 +57,7 @@ struct WorkoutDetailView: View {
                                     if step.repeatCount > 1 { Text("x\(step.repeatCount)").font(.caption.bold()).foregroundStyle(.blue) }
                                 }
                                 HStack(spacing: 8) {
+                                    Text(step.intensityTarget.displayName)
                                     if let v = step.goalValue {
                                         if step.goalType == .distance { Text(UnitConverter.formatDistance(v / 1000, unit: unitPref)) }
                                         else if step.goalType == .time { Text(UnitConverter.formatDuration(minutes: v / 60)) }
