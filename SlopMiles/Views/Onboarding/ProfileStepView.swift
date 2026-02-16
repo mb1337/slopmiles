@@ -4,6 +4,7 @@ import SwiftData
 struct ProfileStepView: View {
     let onContinue: () -> Void
     @Query private var profiles: [UserProfile]
+    @Environment(AppState.self) private var appState
 
     @State private var experienceLevel: ExperienceLevel = .intermediate
     @State private var weeklyMileageText: String = "20"
@@ -12,6 +13,8 @@ struct ProfileStepView: View {
     @State private var weeklyVolumeMinutesText: String = "150"
     @State private var injuryNotes = ""
     @State private var maxHR = ""
+    @State private var restingHR = ""
+    @State private var showVDOTCalculator = false
 
     /// Read-only access to the singleton UserProfile seeded at app launch.
     private var profile: UserProfile? {
@@ -75,6 +78,30 @@ struct ProfileStepView: View {
                     }
 
                     VStack(alignment: .leading, spacing: 8) {
+                        Text("Resting Heart Rate (optional)").font(.subheadline.bold())
+                        TextField("e.g., 55", text: $restingHR)
+                            .textFieldStyle(.roundedBorder).keyboardType(.numberPad)
+                    }
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("VDOT (optional)").font(.subheadline.bold())
+                        HStack {
+                            if let vdot = profile?.vdot {
+                                Text(String(format: "%.1f", vdot))
+                                    .foregroundStyle(.secondary)
+                            } else {
+                                Text("Not set")
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Button("Calculate from Race") {
+                                showVDOTCalculator = true
+                            }
+                            .font(.subheadline)
+                        }
+                    }
+
+                    VStack(alignment: .leading, spacing: 8) {
                         Text("Injury Notes (optional)").font(.subheadline.bold())
                         TextField("Any current injuries or limitations", text: $injuryNotes, axis: .vertical)
                             .textFieldStyle(.roundedBorder).lineLimit(3...5)
@@ -86,6 +113,29 @@ struct ProfileStepView: View {
 
                 Button("Continue") { saveProfile(); onContinue() }
                     .buttonStyle(.borderedProminent).controlSize(.large).padding(.bottom, 32)
+            }
+        }
+        .task { await autoFillFromHealthKit() }
+        .sheet(isPresented: $showVDOTCalculator) {
+            if let profile {
+                VDOTCalculatorSheet(profile: profile)
+            }
+        }
+    }
+
+    private func autoFillFromHealthKit() async {
+        guard appState.healthKitService.isAuthorized else { return }
+        let hk = appState.healthKitService
+        if maxHR.isEmpty, let estimated = await hk.fetchEstimatedMaxHeartRate() {
+            maxHR = "\(estimated)"
+        }
+        if restingHR.isEmpty, let resting = await hk.fetchRestingHeartRate() {
+            restingHR = "\(resting)"
+        }
+        if weeklyMileageText == "20" || weeklyMileageText.isEmpty {
+            if let avgKm = await hk.fetchAverageWeeklyDistance() {
+                let display = unitPreference == .imperial ? UnitConverter.kmToMiles(avgKm) : avgKm
+                weeklyMileageText = "\(Int(display.rounded()))"
             }
         }
     }
@@ -103,5 +153,6 @@ struct ProfileStepView: View {
         p.unitPreference = unitPreference
         p.injuryNotes = injuryNotes
         if let hr = Int(maxHR) { p.maxHeartRate = hr }
+        if let rhr = Int(restingHR) { p.restingHeartRate = rhr }
     }
 }

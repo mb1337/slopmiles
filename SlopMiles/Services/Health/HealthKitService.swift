@@ -16,6 +16,7 @@ final class HealthKitService {
             HKObjectType.quantityType(forIdentifier: .vo2Max)!,
             HKObjectType.quantityType(forIdentifier: .runningSpeed)!,
             HKObjectType.quantityType(forIdentifier: .restingHeartRate)!,
+            HKObjectType.characteristicType(forIdentifier: .dateOfBirth)!,
         ]
     }
 
@@ -169,5 +170,55 @@ final class HealthKitService {
             }
             healthStore.execute(query)
         }
+    }
+
+    // MARK: - Profile Auto-fill
+
+    func fetchEstimatedMaxHeartRate() async -> Int? {
+        do {
+            let components = try healthStore.dateOfBirthComponents()
+            guard let birthDate = Calendar.current.date(from: components) else { return nil }
+            let age = Calendar.current.dateComponents([.year], from: birthDate, to: Date()).year ?? 0
+            guard age > 0 else { return nil }
+            return 220 - age
+        } catch {
+            return nil
+        }
+    }
+
+    func fetchRestingHeartRate() async -> Int? {
+        guard let restingHRType = HKQuantityType.quantityType(forIdentifier: .restingHeartRate) else { return nil }
+        let sort = NSSortDescriptor(key: HKSampleSortIdentifierStartDate, ascending: false)
+
+        return await withCheckedContinuation { continuation in
+            let query = HKSampleQuery(
+                sampleType: restingHRType,
+                predicate: nil,
+                limit: 1,
+                sortDescriptors: [sort]
+            ) { _, samples, _ in
+                guard let sample = samples?.first as? HKQuantitySample else {
+                    continuation.resume(returning: nil)
+                    return
+                }
+                let bpm = sample.quantity.doubleValue(for: HKUnit.count().unitDivided(by: .minute()))
+                continuation.resume(returning: Int(bpm.rounded()))
+            }
+            healthStore.execute(query)
+        }
+    }
+
+    func fetchAverageWeeklyDistance(weeks: Int = 4) async -> Double? {
+        let calendar = Calendar.current
+        let now = Date()
+        guard let startDate = calendar.date(byAdding: .weekOfYear, value: -weeks, to: now) else { return nil }
+
+        let workouts = await fetchRunningWorkouts(from: startDate, to: now)
+        guard !workouts.isEmpty else { return nil }
+
+        let totalDistanceKm = workouts.reduce(0.0) { sum, workout in
+            sum + (workout.totalDistance?.doubleValue(for: .meterUnit(with: .kilo)) ?? 0)
+        }
+        return totalDistanceKm / Double(weeks)
     }
 }

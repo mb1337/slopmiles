@@ -100,8 +100,14 @@ struct PromptBuilder {
         if let maxHR = profile.maxHeartRate {
             prompt += "\n- Max heart rate: \(maxHR) bpm"
         }
+        if let restingHR = profile.restingHeartRate {
+            prompt += "\n- Resting heart rate: \(restingHR) bpm"
+        }
         if let lthr = profile.lactateThresholdHR {
             prompt += "\n- Lactate threshold HR: \(lthr) bpm"
+        }
+        if let vdot = profile.vdot {
+            prompt += "\n- VDOT: \(String(format: "%.1f", vdot)) (use get_training_paces with this value)"
         }
 
         if let scheduleJSON = try? JSONSerialization.data(withJSONObject: schedule.dictionaryForPrompt().map(\.anyValue), options: .prettyPrinted),
@@ -381,8 +387,14 @@ struct PromptBuilder {
         if let maxHR = profile.maxHeartRate {
             prompt += "\n- Max heart rate: \(maxHR) bpm"
         }
+        if let restingHR = profile.restingHeartRate {
+            prompt += "\n- Resting heart rate: \(restingHR) bpm"
+        }
         if let lthr = profile.lactateThresholdHR {
             prompt += "\n- Lactate threshold HR: \(lthr) bpm"
+        }
+        if let vdot = profile.vdot {
+            prompt += "\n- VDOT: \(String(format: "%.1f", vdot)) (use get_training_paces with this value)"
         }
 
         if let scheduleJSON = try? JSONSerialization.data(withJSONObject: schedule.dictionaryForPrompt().map(\.anyValue), options: .prettyPrinted),

@@ -15,12 +15,14 @@ struct ProfileEditView: View {
 
 private struct ProfileEditForm: View {
     @Bindable var profile: UserProfile
+    @Environment(AppState.self) private var appState
 
     @State private var weeklyMileageText: String
     @State private var weeklyVolumeMinutesText: String
     @State private var maxHRText: String
     @State private var restingHRText: String
     @State private var ltHRText: String
+    @State private var showVDOTCalculator = false
 
     init(profile: UserProfile) {
         self.profile = profile
@@ -145,6 +147,28 @@ private struct ProfileEditForm: View {
                 }
             }
 
+            Section("VDOT") {
+                HStack {
+                    Text("VDOT")
+                    Spacer()
+                    if let vdot = profile.vdot {
+                        Text(String(format: "%.1f", vdot))
+                            .foregroundStyle(.secondary)
+                    } else {
+                        Text("Not set")
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                Button("Calculate from Race") {
+                    showVDOTCalculator = true
+                }
+                if profile.vdot != nil {
+                    Button("Clear VDOT", role: .destructive) {
+                        profile.vdot = nil
+                    }
+                }
+            }
+
             Section("Injury Notes") {
                 TextField("Any current injuries or limitations", text: Binding(
                     get: { profile.injuryNotes },
@@ -154,5 +178,27 @@ private struct ProfileEditForm: View {
             }
         }
         .navigationTitle("Runner Profile")
+        .sheet(isPresented: $showVDOTCalculator) {
+            VDOTCalculatorSheet(profile: profile)
+        }
+        .task { await autoFillFromHealthKit() }
+    }
+
+    private func autoFillFromHealthKit() async {
+        guard appState.healthKitService.isAuthorized else { return }
+        let hk = appState.healthKitService
+        if profile.maxHeartRate == nil, let estimated = await hk.fetchEstimatedMaxHeartRate() {
+            maxHRText = "\(estimated)"
+            profile.maxHeartRate = estimated
+        }
+        if profile.restingHeartRate == nil, let resting = await hk.fetchRestingHeartRate() {
+            restingHRText = "\(resting)"
+            profile.restingHeartRate = resting
+        }
+        if profile.currentWeeklyMileageKm == 0, let avgKm = await hk.fetchAverageWeeklyDistance() {
+            let display = profile.unitPreference == .imperial ? UnitConverter.kmToMiles(avgKm) : avgKm
+            weeklyMileageText = "\(Int(display.rounded()))"
+            profile.currentWeeklyMileageKm = avgKm
+        }
     }
 }

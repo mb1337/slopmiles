@@ -57,6 +57,7 @@ final class UserProfile {
     var maxHeartRate: Int?
     var restingHeartRate: Int?
     var lactateThresholdHR: Int?
+    var vdot: Double?
     var firstDayOfWeekRaw: Int = 0
 
     var firstDayOfWeek: Int {
