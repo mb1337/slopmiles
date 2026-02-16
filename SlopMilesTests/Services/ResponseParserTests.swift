@@ -136,23 +136,11 @@ struct ResponseParserTests {
                             "notes": "Keep it easy",
                             "steps": [
                                 {
-                                    "type": "warmup",
-                                    "name": "Warmup Jog",
-                                    "goal_type": "time",
-                                    "goal_value": 600.0
-                                },
-                                {
                                     "type": "work",
-                                    "name": "Steady Run",
+                                    "name": "Easy Run",
                                     "goal_type": "distance",
-                                    "goal_value": 6000.0,
+                                    "goal_value": 8000.0,
                                     "target_pace_min_per_km": 6.0
-                                },
-                                {
-                                    "type": "cooldown",
-                                    "name": "Cooldown",
-                                    "goal_type": "time",
-                                    "goal_value": 300.0
                                 }
                             ]
                         },
@@ -235,28 +223,16 @@ struct ResponseParserTests {
         #expect(longRun.location == .trail)
         #expect(longRun.distanceKm == 16.0)
 
-        // Steps on the easy run
+        // Steps on the easy run (no warmup/cooldown for easy runs)
         let steps = easyRun.sortedSteps
-        #expect(steps.count == 3)
+        #expect(steps.count == 1)
 
-        #expect(steps[0].stepType == .warmup)
-        #expect(steps[0].name == "Warmup Jog")
-        #expect(steps[0].goalType == .time)
-        #expect(steps[0].goalValue == 600.0)
+        #expect(steps[0].stepType == .work)
+        #expect(steps[0].name == "Easy Run")
+        #expect(steps[0].goalType == .distance)
+        #expect(steps[0].goalValue == 8000.0)
+        #expect(steps[0].targetPaceMinPerKm == 6.0)
         #expect(steps[0].order == 0)
-
-        #expect(steps[1].stepType == .work)
-        #expect(steps[1].name == "Steady Run")
-        #expect(steps[1].goalType == .distance)
-        #expect(steps[1].goalValue == 6000.0)
-        #expect(steps[1].targetPaceMinPerKm == 6.0)
-        #expect(steps[1].order == 1)
-
-        #expect(steps[2].stepType == .cooldown)
-        #expect(steps[2].name == "Cooldown")
-        #expect(steps[2].goalType == .time)
-        #expect(steps[2].goalValue == 300.0)
-        #expect(steps[2].order == 2)
 
         // Workouts in week 2
         let week2Workouts = week2.sortedWorkouts

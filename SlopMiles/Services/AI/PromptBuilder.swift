@@ -20,6 +20,7 @@ struct PromptBuilder {
         ## Coaching Philosophy
         \(volumePhilosophy)
         - Include workout variety: easy runs, tempo runs, intervals, long runs, and recovery runs
+        - Only include warmup and cooldown steps for quality workouts (tempo, interval, long, race). Easy and recovery runs should be a single work step at easy pace — no warmup or cooldown needed.
         - Schedule recovery weeks every 3-4 weeks (30-40% volume reduction)
         - Taper appropriately before races (2-3 weeks, progressive volume reduction)
         - Respect the runner's experience level and injury history
@@ -251,6 +252,9 @@ struct PromptBuilder {
         - If the runner completed all workouts and reported good performance, maintain or slightly increase targets
         - If the runner skipped multiple workouts, prioritize the most important sessions (long run, key workout)
 
+        ## Workout Structure Rules
+        - Only include warmup and cooldown steps for quality workouts (tempo, interval, long, race). Easy and recovery runs should be a single work step at easy pace — no warmup or cooldown needed.
+
         ## Scheduling Rules
         - Each workout MUST fit within the runner's available time window for that day
         - Assign long runs to days with the most available time
@@ -304,7 +308,7 @@ struct PromptBuilder {
               "notes": "string",
               "steps": [
                 {
-                  "type": "warmup|work|recovery|cooldown",
+                  "type": "warmup|work|recovery|cooldown (warmup/cooldown only for quality sessions: tempo, interval, long, race. Easy/recovery runs use a single work step.)",
                   "name": "string",
                   "goal_type": "distance|time|open",
                   "goal_value": number or null (distance in meters, time in seconds),
@@ -484,7 +488,7 @@ struct PromptBuilder {
                   "notes": "string",
                   "steps": [
                     {
-                      "type": "warmup|work|recovery|cooldown",
+                      "type": "warmup|work|recovery|cooldown (warmup/cooldown only for quality sessions: tempo, interval, long, race. Easy/recovery runs use a single work step.)",
                       "name": "string",
                       "goal_type": "distance|time|open",
                       "goal_value": number or null (distance in meters, time in seconds),
@@ -544,6 +548,9 @@ struct PromptBuilder {
         - ALWAYS use get_training_paces to determine accurate paces. NEVER estimate.
         - Use calculate_hr_zones if heart rate data is available.
 
+        ## Workout Structure Rules
+        - Only include warmup and cooldown steps for quality workouts (tempo, interval, long, race). Easy and recovery runs should be a single work step at easy pace — no warmup or cooldown needed.
+
         ## Output Format
         Your final response must be ONLY valid JSON matching this schema:
         {
@@ -555,7 +562,7 @@ struct PromptBuilder {
           "notes": "string",
           "steps": [
             {
-              "type": "warmup|work|recovery|cooldown",
+              "type": "warmup|work|recovery|cooldown (warmup/cooldown only for quality sessions: tempo, interval, long, race. Easy/recovery runs use a single work step.)",
               "name": "string",
               "goal_type": "distance|time|open",
               "goal_value": number or null (distance in meters, time in seconds),
