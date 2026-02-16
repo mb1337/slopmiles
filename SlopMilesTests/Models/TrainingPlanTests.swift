@@ -182,6 +182,38 @@ struct TrainingPlanTests {
         #expect(calendar.component(.day, from: w2.scheduledDate) == 12)
     }
 
+    @Test("Reordering workouts swaps their scheduled dates")
+    func reorderWorkoutsSwapsDates() {
+        let calendar = Calendar.current
+        let mon = calendar.date(from: DateComponents(year: 2026, month: 3, day: 2))!
+        let wed = calendar.date(from: DateComponents(year: 2026, month: 3, day: 4))!
+        let fri = calendar.date(from: DateComponents(year: 2026, month: 3, day: 6))!
+
+        let w1 = PlannedWorkout(name: "Easy", workoutType: .easy, scheduledDate: mon)
+        let w2 = PlannedWorkout(name: "Tempo", workoutType: .tempo, scheduledDate: wed)
+        let w3 = PlannedWorkout(name: "Long", workoutType: .long, scheduledDate: fri)
+
+        let week = TrainingWeek(weekNumber: 1)
+        week.workouts = [w1, w2, w3]
+
+        // Simulate moving the last workout (Long, index 2) to the top (index 0)
+        var workouts = week.sortedWorkouts
+        let originalDates = workouts.map(\.scheduledDate)
+        workouts.move(fromOffsets: IndexSet(integer: 2), toOffset: 0)
+        for (index, workout) in workouts.enumerated() {
+            workout.scheduledDate = originalDates[index]
+        }
+
+        // After move: Long (Mon), Easy (Wed), Tempo (Fri)
+        let sorted = week.sortedWorkouts
+        #expect(sorted[0].name == "Long")
+        #expect(sorted[1].name == "Easy")
+        #expect(sorted[2].name == "Tempo")
+        #expect(calendar.component(.day, from: sorted[0].scheduledDate) == 2)
+        #expect(calendar.component(.day, from: sorted[1].scheduledDate) == 4)
+        #expect(calendar.component(.day, from: sorted[2].scheduledDate) == 6)
+    }
+
     @Test("shiftStartDate does not change raceDate")
     func shiftStartDatePreservesRaceDate() {
         let calendar = Calendar.current

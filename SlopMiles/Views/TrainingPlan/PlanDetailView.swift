@@ -11,6 +11,7 @@ struct PlanDetailView: View {
     @Query private var equipmentList: [RunnerEquipment]
     @Query private var aiSettings: [AISettings]
     @Query(sort: \TrainingPlan.createdAt, order: .reverse) private var allPlans: [TrainingPlan]
+    @State private var selectedWorkout: PlannedWorkout?
     @State private var errorMessage: String?
     @State private var showError = false
     @State private var showStartDateSheet = false
@@ -34,7 +35,12 @@ struct PlanDetailView: View {
                 Section("Week \(week.weekNumber) \u{2014} \(week.theme)") {
                     if week.workoutsGenerated {
                         ForEach(week.sortedWorkouts) { workout in
-                            NavigationLink(value: workout) { WorkoutRowView(workout: workout, unitPref: unitPref) }
+                            Button { selectedWorkout = workout } label: {
+                                WorkoutRowView(workout: workout, unitPref: unitPref)
+                            }
+                        }
+                        .onMove { source, destination in
+                            moveWorkouts(in: week, from: source, to: destination)
                         }
                     } else {
                         HStack {
@@ -65,8 +71,9 @@ struct PlanDetailView: View {
                 }
             }
         }
+        .environment(\.editMode, .constant(.active))
         .navigationTitle(plan.name)
-        .navigationDestination(for: PlannedWorkout.self) { WorkoutDetailView(workout: $0) }
+        .navigationDestination(item: $selectedWorkout) { WorkoutDetailView(workout: $0) }
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Menu {
@@ -132,6 +139,33 @@ struct PlanDetailView: View {
         if let newWeek = appState.weekGenerationManager.findCurrentWeek(in: newPlan, now: Date(), firstDayOfWeek: firstDayOfWeek),
            newWeek.workoutsGenerated {
             try? await appState.workoutKitService.scheduleWeek(newWeek)
+        }
+    }
+
+    private func moveWorkouts(in week: TrainingWeek, from source: IndexSet, to destination: Int) {
+        var workouts = week.sortedWorkouts
+        let originalDates = workouts.map(\.scheduledDate)
+        workouts.move(fromOffsets: source, toOffset: destination)
+
+        var reschedulePairs: [(PlannedWorkout, Date)] = []
+        for (index, workout) in workouts.enumerated() {
+            let newDate = originalDates[index]
+            if workout.scheduledDate != newDate {
+                let oldDate = workout.scheduledDate
+                workout.scheduledDate = newDate
+                if workout.completionStatus == .scheduled {
+                    reschedulePairs.append((workout, oldDate))
+                }
+            }
+        }
+        try? modelContext.save()
+
+        if !reschedulePairs.isEmpty {
+            Task {
+                for (workout, oldDate) in reschedulePairs {
+                    try? await appState.workoutKitService.rescheduleWorkout(workout, from: oldDate)
+                }
+            }
         }
     }
 

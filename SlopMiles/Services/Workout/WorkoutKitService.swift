@@ -64,6 +64,16 @@ final class WorkoutKitService {
         try await WorkoutScheduler.shared.remove(plan, at: dateComponents)
     }
 
+    func rescheduleWorkout(_ workout: PlannedWorkout, from oldDate: Date) async throws {
+        let plan = WorkoutMapper.mapToWorkoutPlan(workout)
+        let oldComponents = Calendar.current.dateComponents(
+            [.year, .month, .day, .hour, .minute], from: oldDate)
+        try await Self.unscheduleWorkout(plan, at: oldComponents)
+        let newComponents = Calendar.current.dateComponents(
+            [.year, .month, .day, .hour, .minute], from: workout.scheduledDate)
+        await WorkoutScheduler.shared.schedule(plan, at: newComponents)
+    }
+
     func unscheduleWeek(_ week: TrainingWeek) async throws {
         for workout in week.sortedWorkouts where workout.completionStatus == .scheduled {
             try await removeScheduledWorkout(workout)
