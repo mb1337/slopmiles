@@ -1,5 +1,6 @@
 import Foundation
 import SwiftData
+import SwiftUI
 
 @Observable
 @MainActor
@@ -10,6 +11,7 @@ final class AppState {
     let locationService = LocationService()
     let workoutKitService = WorkoutKitService()
     let weekGenerationManager = WeekGenerationManager()
+    let planGenerationManager = PlanGenerationManager()
     let openRouterModelService = OpenRouterModelService()
 
     init() {
@@ -19,6 +21,7 @@ final class AppState {
     }
 
     var selectedTab: AppTab = .dashboard
+    var plansNavigationPath = NavigationPath()
 
     enum AppTab: Int, CaseIterable {
         case dashboard

@@ -4,7 +4,6 @@ import SwiftData
 struct GeneratePlanView: View {
     @Environment(AppState.self) private var appState
     @Environment(\.modelContext) private var modelContext
-    @Environment(\.dismiss) private var dismiss
     @Query private var profiles: [UserProfile]
     @Query private var schedules: [WeeklySchedule]
     @Query private var equipmentList: [RunnerEquipment]
@@ -16,10 +15,9 @@ struct GeneratePlanView: View {
     @State private var startDate = Date()
     @State private var hasRace = true
     @State private var planWeeks = 12
-    @State private var isGenerating = false
-    @State private var errorMessage: String?
-    @State private var generationTask: Task<Void, Never>?
     @State private var userResponse = ""
+
+    private var manager: PlanGenerationManager { appState.planGenerationManager }
 
     private var isWaitingForInput: Bool {
         if case .waitingForInput = appState.aiService.generationStatus { return true }
@@ -58,7 +56,7 @@ struct GeneratePlanView: View {
                         HStack { Text("Provider"); Spacer(); Text(settings.provider.displayName).foregroundStyle(.secondary) }
                         HStack { Text("Model"); Spacer(); Text(settings.selectedModel).foregroundStyle(.secondary) }
                     }
-                    if isGenerating {
+                    if manager.isGenerating {
                         Section("Generating...") { GenerationProgressView(status: appState.aiService.generationStatus) }
                         if case .waitingForInput(let question) = appState.aiService.generationStatus {
                             Section("AI Question") {
@@ -74,7 +72,7 @@ struct GeneratePlanView: View {
                             .id("aiQuestion")
                         }
                     }
-                    if let error = errorMessage {
+                    if let error = manager.errorMessage {
                         Section { Text(error).foregroundStyle(.red).font(.caption) }
                     }
                 }
@@ -88,28 +86,37 @@ struct GeneratePlanView: View {
             }
             .navigationTitle("New Plan")
             .toolbar {
-                if isGenerating {
+                if manager.isGenerating {
                     ToolbarItem(placement: .cancellationAction) {
                         Button("Cancel", role: .cancel) {
-                            appState.aiService.cancelPendingInput()
-                            generationTask?.cancel()
-                            generationTask = nil
-                            isGenerating = false
-                            errorMessage = nil
+                            manager.cancel(aiService: appState.aiService)
                         }
                     }
                 }
                 ToolbarItem(placement: .primaryAction) {
                     Button("Generate") {
-                        generationTask = Task { await generate(profile: profile, schedule: schedule, equipment: equipment, settings: settings) }
-                    }.disabled(isGenerating || goalDescription.isEmpty)
+                        manager.startGeneration(
+                            profile: profile, schedule: schedule,
+                            equipment: equipment, settings: settings,
+                            goalDescription: goalDescription,
+                            raceDistance: selectedRaceDistance,
+                            raceDate: hasRace ? raceDate : nil,
+                            hasRace: hasRace,
+                            startDate: startDate, planWeeks: planWeeks,
+                            aiService: appState.aiService,
+                            healthKitService: appState.healthKitService,
+                            context: modelContext
+                        )
+                    }.disabled(manager.isGenerating || goalDescription.isEmpty)
                 }
             }
-        .onDisappear {
-            appState.aiService.cancelPendingInput()
-            generationTask?.cancel()
-            generationTask = nil
-        }
+            .onDisappear {
+                // Auto-respond to pending AI question so generation doesn't hang,
+                // but do NOT cancel the task — let it finish in the background
+                if manager.isGenerating {
+                    appState.aiService.cancelPendingInput()
+                }
+            }
         } else {
             ProgressView("Loading profile...")
                 .navigationTitle("New Plan")
@@ -122,58 +129,6 @@ struct GeneratePlanView: View {
         if schedules.first == nil { modelContext.insert(WeeklySchedule()) }
         if equipmentList.first == nil { modelContext.insert(RunnerEquipment()) }
         if aiSettings.first == nil { modelContext.insert(AISettings()) }
-    }
-
-    private func generate(profile: UserProfile, schedule: WeeklySchedule, equipment: RunnerEquipment, settings: AISettings) async {
-        isGenerating = true; errorMessage = nil
-        let endDate = hasRace ? raceDate : Calendar.current.date(byAdding: .weekOfYear, value: planWeeks, to: startDate)!
-        let stats: RunningStats = appState.healthKitService.isAuthorized ? await appState.healthKitService.fetchRunningStats() : RunningStats()
-
-        // Pre-fetch weather
-        var weatherData: [String: JSONValue]?
-        if let lat = profile.homeLatitude, let lon = profile.homeLongitude {
-            let forecast = await WeatherTool.getForecast(latitude: lat, longitude: lon, days: 7)
-            if forecast["error"] == nil { weatherData = forecast }
-        }
-
-        do {
-            // Phase 1: Generate outline
-            let outlineText = try await appState.aiService.generatePlanOutline(
-                profile: profile, schedule: schedule, equipment: equipment,
-                stats: stats, settings: settings, goalDescription: goalDescription,
-                raceDistance: selectedRaceDistance, raceDate: hasRace ? raceDate : nil,
-                startDate: startDate, endDate: endDate,
-                weatherData: weatherData
-            )
-            let plan = try ResponseParser.parseOutline(from: outlineText, startDate: startDate, endDate: endDate, context: modelContext)
-            plan.volumeType = profile.volumeType
-            plan.goalDescription = goalDescription
-            plan.raceDistance = selectedRaceDistance
-            plan.raceDate = hasRace ? raceDate : nil
-
-            // Phase 2: Generate week 1 workouts immediately
-            if let week1 = plan.sortedWeeks.first {
-                let weekText = try await appState.aiService.generateWeekWorkouts(
-                    plan: plan, week: week1,
-                    profile: profile, schedule: schedule, equipment: equipment,
-                    settings: settings, performanceData: WeeklyPerformanceData(),
-                    weatherData: weatherData
-                )
-                try ResponseParser.parseWeekWorkouts(from: weekText, week: week1, planStartDate: startDate, context: modelContext)
-            }
-
-            TrainingPlan.setActivePlan(plan, in: modelContext)
-            try modelContext.save()
-
-            // Schedule weekly notification
-            NotificationService.scheduleWeeklyReminder(firstDayOfWeek: profile.firstDayOfWeek)
-            _ = await NotificationService.requestAuthorization()
-
-            dismiss()
-        } catch is CancellationError {
-            // Task was cancelled (e.g. user navigated away), no error to show
-        } catch { errorMessage = error.localizedDescription }
-        isGenerating = false
     }
 }
 

@@ -3,10 +3,12 @@ import SwiftData
 
 struct PlansListView: View {
     @Query(sort: \TrainingPlan.createdAt, order: .reverse) private var plans: [TrainingPlan]
+    @Environment(AppState.self) private var appState
     @Environment(\.modelContext) private var modelContext
 
     var body: some View {
-        NavigationStack {
+        @Bindable var state = appState
+        NavigationStack(path: $state.plansNavigationPath) {
             Group {
                 if plans.isEmpty {
                     ContentUnavailableView { Label("No Plans", systemImage: "calendar.badge.plus") }
@@ -60,6 +62,15 @@ struct PlansListView: View {
             .navigationTitle("Plans")
             .toolbar { ToolbarItem(placement: .primaryAction) { NavigationLink { GeneratePlanView() } label: { Image(systemName: "plus") } } }
             .navigationDestination(for: TrainingPlan.self) { PlanDetailView(plan: $0) }
+            .onChange(of: appState.planGenerationManager.completedPlan) { _, plan in
+                if let plan {
+                    appState.planGenerationManager.completedPlan = nil
+                    var path = NavigationPath()
+                    path.append(plan)
+                    appState.plansNavigationPath = path
+                    appState.selectedTab = .plans
+                }
+            }
         }
     }
 }
