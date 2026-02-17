@@ -2,12 +2,13 @@ import SwiftUI
 
 struct WelcomeStepView: View {
     let onContinue: () -> Void
+    @ScaledMetric(relativeTo: .largeTitle) private var iconSize: CGFloat = 80
 
     var body: some View {
         VStack(spacing: 32) {
             Spacer()
             Image(systemName: "figure.run.circle.fill")
-                .font(.system(size: 80))
+                .font(.system(size: iconSize))
                 .foregroundStyle(.blue)
             VStack(spacing: 12) {
                 Text("Slop Miles")

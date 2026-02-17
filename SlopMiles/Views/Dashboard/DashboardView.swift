@@ -339,10 +339,12 @@ private struct ActivePlanNoWeekCard: View {
 }
 
 private struct EmptyDashboardView: View {
+    @ScaledMetric(relativeTo: .largeTitle) private var iconSize: CGFloat = 60
+
     var body: some View {
         VStack(spacing: 20) {
             Spacer()
-            Image(systemName: "figure.run.circle").font(.system(size: 60)).foregroundStyle(.secondary)
+            Image(systemName: "figure.run.circle").font(.system(size: iconSize)).foregroundStyle(.secondary)
             Text("No Active Plan").font(.title3.bold())
             Text("Create a training plan to get started.").font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center)
             NavigationLink("Create Plan") { GeneratePlanView() }.buttonStyle(.borderedProminent)

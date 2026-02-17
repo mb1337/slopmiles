@@ -3,12 +3,13 @@ import SwiftUI
 struct HealthKitStepView: View {
     let onContinue: () -> Void
     @Environment(AppState.self) private var appState
+    @ScaledMetric(relativeTo: .largeTitle) private var iconSize: CGFloat = 60
 
     var body: some View {
         VStack(spacing: 32) {
             Spacer()
             Image(systemName: "heart.text.clipboard")
-                .font(.system(size: 60)).foregroundStyle(.red)
+                .font(.system(size: iconSize)).foregroundStyle(.red)
             VStack(spacing: 12) {
                 Text("Health Data").font(.title2.bold())
                 Text("Slop Miles can read your running history to create better, more personalized training plans.")

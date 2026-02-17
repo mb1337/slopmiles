@@ -3,12 +3,13 @@ import SwiftUI
 struct WorkoutKitStepView: View {
     let onComplete: () -> Void
     @Environment(AppState.self) private var appState
+    @ScaledMetric(relativeTo: .largeTitle) private var iconSize: CGFloat = 60
 
     var body: some View {
         VStack(spacing: 32) {
             Spacer()
             Image(systemName: "applewatch.and.arrow.forward")
-                .font(.system(size: 60)).foregroundStyle(.green)
+                .font(.system(size: iconSize)).foregroundStyle(.green)
             VStack(spacing: 12) {
                 Text("Apple Watch").font(.title2.bold())
                 Text("Push structured workouts directly to your Apple Watch Workout app.")
