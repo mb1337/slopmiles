@@ -28,13 +28,15 @@ final class AnthropicProvider: AIProvider, @unchecked Sendable {
         request.setValue(key, forHTTPHeaderField: "x-api-key")
         request.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
 
-        let body: [String: Any] = [
+        var body: [String: Any] = [
             "model": model,
             "max_tokens": 8192,
             "system": systemPrompt,
-            "tools": tools.map { $0.mapValues(\.anyValue) },
             "messages": encodeMessages(messages),
         ]
+        if !tools.isEmpty {
+            body["tools"] = tools.map { $0.mapValues(\.anyValue) }
+        }
 
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 

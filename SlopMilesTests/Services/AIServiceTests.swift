@@ -119,122 +119,18 @@ struct AIServiceTests {
         }
     }
 
-    // MARK: - Multi-round tool use
-
-    @Test("Multi-round tool use executes tools and accumulates messages")
-    func multiRoundToolUse() async throws {
-        let mock = MockAIProvider()
-        // Round 1: AI requests a tool call
-        mock.responses = [
-            AIResponse(
-                message: AIMessage(
-                    role: .assistant,
-                    content: "",
-                    toolCalls: [
-                        ToolCall(
-                            id: "call_1",
-                            name: "calculate_vdot",
-                            arguments: [
-                                "race_distance_meters": .number(5000),
-                                "race_time_seconds": .number(1200),
-                            ]
-                        ),
-                    ]
-                ),
-                stopReason: .toolUse,
-                usage: AIResponse.TokenUsage(inputTokens: 200, outputTokens: 30)
-            ),
-            // Round 2: AI returns final text
-            AIResponse(
-                message: AIMessage(role: .assistant, content: stubPlanJSON),
-                stopReason: .endTurn,
-                usage: AIResponse.TokenUsage(inputTokens: 250, outputTokens: 60)
-            ),
-        ]
-
-        let service = makeService(mock: mock)
-        let result = try await callGeneratePlan(on: service)
-
-        #expect(result == stubPlanJSON)
-        // Provider should have been called twice (two rounds)
-        #expect(mock.receivedMessages.count == 2)
-        // Total tokens: (200+30) + (250+60) = 540
-        #expect(service.totalTokensUsed == 540)
-
-        // Second call should have accumulated messages:
-        // [user, assistant(tool_call), tool(result)]
-        let secondCallMessages = mock.receivedMessages[1]
-        #expect(secondCallMessages.count == 3)
-        #expect(secondCallMessages[0].role == .user)
-        #expect(secondCallMessages[1].role == .assistant)
-        #expect(secondCallMessages[2].role == .tool)
-        #expect(secondCallMessages[2].toolCallId == "call_1")
-    }
-
-    @Test("Multi-round with multiple tool calls in one response")
-    func multipleToolCallsInOneRound() async throws {
-        let mock = MockAIProvider()
-        mock.responses = [
-            // Round 1: AI requests two tool calls simultaneously
-            AIResponse(
-                message: AIMessage(
-                    role: .assistant,
-                    content: "",
-                    toolCalls: [
-                        ToolCall(id: "call_a", name: "calculate_vdot", arguments: [
-                            "race_distance_meters": .number(5000),
-                            "race_time_seconds": .number(1200),
-                        ]),
-                        ToolCall(id: "call_b", name: "get_training_paces", arguments: [
-                            "vdot": .number(50),
-                        ]),
-                    ]
-                ),
-                stopReason: .toolUse,
-                usage: AIResponse.TokenUsage(inputTokens: 100, outputTokens: 40)
-            ),
-            // Round 2: final response
-            AIResponse(
-                message: AIMessage(role: .assistant, content: stubPlanJSON),
-                stopReason: .endTurn,
-                usage: nil
-            ),
-        ]
-
-        let service = makeService(mock: mock)
-        let result = try await callGeneratePlan(on: service)
-
-        #expect(result == stubPlanJSON)
-        // The second call should include: user, assistant, tool_a, tool_b = 4 messages
-        let secondCallMessages = mock.receivedMessages[1]
-        #expect(secondCallMessages.count == 4)
-        let toolMessages = secondCallMessages.filter { $0.role == .tool }
-        #expect(toolMessages.count == 2)
-    }
-
     // MARK: - Max rounds exceeded
 
     @Test("Max rounds exceeded throws modelError")
     func maxRoundsExceeded() async throws {
         let mock = MockAIProvider()
-        // Return tool calls for all 10 rounds — provider will always return a tool use response
-        let toolResponse = AIResponse(
-            message: AIMessage(
-                role: .assistant,
-                content: "",
-                toolCalls: [
-                    ToolCall(id: "loop", name: "convert_pace", arguments: [
-                        "value": .number(5.0),
-                        "from_unit": .string("min_per_km"),
-                        "to_unit": .string("min_per_mile"),
-                    ]),
-                ]
-            ),
-            stopReason: .toolUse,
+        // Return empty content for all 10 rounds — triggers retry each time
+        let emptyResponse = AIResponse(
+            message: AIMessage(role: .assistant, content: ""),
+            stopReason: .endTurn,
             usage: nil
         )
-        // Fill with 10 tool-use responses (the max)
-        mock.responses = Array(repeating: toolResponse, count: 10)
+        mock.responses = Array(repeating: emptyResponse, count: 10)
 
         let service = makeService(mock: mock)
 
@@ -315,42 +211,6 @@ struct AIServiceTests {
         }
     }
 
-    @Test("Status transitions through .executingTool during tool use round")
-    func statusTransitionsWithToolUse() async throws {
-        let mock = MockAIProvider()
-        mock.responses = [
-            AIResponse(
-                message: AIMessage(
-                    role: .assistant,
-                    content: "",
-                    toolCalls: [
-                        ToolCall(id: "t1", name: "calculate_vdot", arguments: [
-                            "race_distance_meters": .number(10000),
-                            "race_time_seconds": .number(2400),
-                        ]),
-                    ]
-                ),
-                stopReason: .toolUse,
-                usage: nil
-            ),
-            AIResponse(
-                message: AIMessage(role: .assistant, content: stubPlanJSON),
-                stopReason: .endTurn,
-                usage: nil
-            ),
-        ]
-
-        let service = makeService(mock: mock)
-        let result = try await callGeneratePlan(on: service)
-        #expect(result == stubPlanJSON)
-
-        if case .complete = service.generationStatus {
-            // expected
-        } else {
-            Issue.record("Expected .complete but got \(service.generationStatus)")
-        }
-    }
-
     // MARK: - Provider error propagation
 
     @Test("Provider error propagates and sets failed status")
@@ -391,39 +251,6 @@ struct AIServiceTests {
 
     // MARK: - Token usage accumulation
 
-    @Test("Token usage accumulates across rounds")
-    func tokenUsageAccumulation() async throws {
-        let mock = MockAIProvider()
-        mock.responses = [
-            AIResponse(
-                message: AIMessage(
-                    role: .assistant,
-                    content: "",
-                    toolCalls: [
-                        ToolCall(id: "t1", name: "convert_pace", arguments: [
-                            "value": .number(5.0),
-                            "from_unit": .string("min_per_km"),
-                            "to_unit": .string("min_per_mile"),
-                        ]),
-                    ]
-                ),
-                stopReason: .toolUse,
-                usage: AIResponse.TokenUsage(inputTokens: 100, outputTokens: 20)
-            ),
-            AIResponse(
-                message: AIMessage(role: .assistant, content: stubPlanJSON),
-                stopReason: .endTurn,
-                usage: AIResponse.TokenUsage(inputTokens: 150, outputTokens: 80)
-            ),
-        ]
-
-        let service = makeService(mock: mock)
-        _ = try await callGeneratePlan(on: service)
-
-        // (100+20) + (150+80) = 350
-        #expect(service.totalTokensUsed == 350)
-    }
-
     @Test("Nil usage does not affect total")
     func nilUsageHandling() async throws {
         let mock = MockAIProvider()
@@ -442,105 +269,6 @@ struct AIServiceTests {
     }
 
     // MARK: - Message accumulation
-
-    @Test("Messages accumulate correctly across tool-use rounds")
-    func messageAccumulation() async throws {
-        let mock = MockAIProvider()
-        mock.responses = [
-            // Round 1: tool call
-            AIResponse(
-                message: AIMessage(
-                    role: .assistant,
-                    content: "",
-                    toolCalls: [
-                        ToolCall(id: "c1", name: "calculate_vdot", arguments: [
-                            "race_distance_meters": .number(5000),
-                            "race_time_seconds": .number(1200),
-                        ]),
-                    ]
-                ),
-                stopReason: .toolUse,
-                usage: nil
-            ),
-            // Round 2: another tool call
-            AIResponse(
-                message: AIMessage(
-                    role: .assistant,
-                    content: "",
-                    toolCalls: [
-                        ToolCall(id: "c2", name: "get_training_paces", arguments: [
-                            "vdot": .number(43),
-                        ]),
-                    ]
-                ),
-                stopReason: .toolUse,
-                usage: nil
-            ),
-            // Round 3: final text
-            AIResponse(
-                message: AIMessage(role: .assistant, content: stubPlanJSON),
-                stopReason: .endTurn,
-                usage: nil
-            ),
-        ]
-
-        let service = makeService(mock: mock)
-        let result = try await callGeneratePlan(on: service)
-        #expect(result == stubPlanJSON)
-
-        // 3 rounds of calls to provider
-        #expect(mock.receivedMessages.count == 3)
-
-        // Round 1: [user]
-        #expect(mock.receivedMessages[0].count == 1)
-
-        // Round 2: [user, assistant(tool_call), tool(result)]
-        #expect(mock.receivedMessages[1].count == 3)
-        #expect(mock.receivedMessages[1][1].role == .assistant)
-        #expect(mock.receivedMessages[1][2].role == .tool)
-
-        // Round 3: [user, assistant(tc1), tool(r1), assistant(tc2), tool(r2)]
-        #expect(mock.receivedMessages[2].count == 5)
-        #expect(mock.receivedMessages[2][3].role == .assistant)
-        #expect(mock.receivedMessages[2][4].role == .tool)
-    }
-
-    // MARK: - Tool result content
-
-    @Test("Tool results are passed back as JSON content")
-    func toolResultContent() async throws {
-        let mock = MockAIProvider()
-        mock.responses = [
-            AIResponse(
-                message: AIMessage(
-                    role: .assistant,
-                    content: "",
-                    toolCalls: [
-                        ToolCall(id: "vdot_call", name: "calculate_vdot", arguments: [
-                            "race_distance_meters": .number(5000),
-                            "race_time_seconds": .number(1200),
-                        ]),
-                    ]
-                ),
-                stopReason: .toolUse,
-                usage: nil
-            ),
-            AIResponse(
-                message: AIMessage(role: .assistant, content: stubPlanJSON),
-                stopReason: .endTurn,
-                usage: nil
-            ),
-        ]
-
-        let service = makeService(mock: mock)
-        _ = try await callGeneratePlan(on: service)
-
-        // The tool result message in round 2 should contain JSON with vdot
-        let toolMessage = mock.receivedMessages[1].first { $0.role == .tool }
-        #expect(toolMessage != nil)
-        #expect(toolMessage?.content.contains("vdot") == true)
-        #expect(toolMessage?.toolCallId == "vdot_call")
-    }
 
     // MARK: - Edge cases
 

@@ -6,7 +6,6 @@ struct PromptBuilder {
         You are an expert running coach creating personalized training plans. Follow these principles:
 
         ## Coaching Philosophy
-        - Gradual volume increases: ALWAYS use the check_mileage_progression tool to validate your plan's weekly volumes
         - Include workout variety: easy runs, tempo runs, intervals, long runs, and recovery runs
         - Only include warmup and cooldown steps for quality workouts (tempo, interval, long, race). Easy and recovery runs should be a single work step at easy pace — no warmup or cooldown needed.
         - Schedule recovery weeks every 3-4 weeks (30-40% volume reduction)
@@ -19,12 +18,6 @@ struct PromptBuilder {
         - Specify daily volume as a percentage of the runner's peak weekly volume (daily_volume_percent).
         - CRITICAL: The sum of all daily_volume_percent values for workouts in a week MUST EQUAL the weekly_volume_percent. For example, if weekly_volume_percent is 80, the daily values might be 15 + 12 + 15 + 0 + 12 + 26 + 0 = 80. Do NOT let daily values exceed the weekly total.
         - For intensity, use a named level (easy, marathon, tempo, interval, repeat) or a number representing %VO2max for finer control (e.g. 96). Each workout and step gets exactly one intensity value.
-
-        ## Tool Usage
-        - Use calculate_vdot to determine the runner's VDOT from race data
-        - Use project_race_time to set realistic goal times
-        - Use calculate_hr_zones if heart rate data is available
-        - Use check_mileage_progression to validate your weekly volume plan before finalizing
 
         ## Scheduling Rules
         - Each workout MUST fit within the runner's available time window for that day
@@ -136,12 +129,9 @@ struct PromptBuilder {
         prompt += """
 
         \n## Instructions
-        1. If the runner has race data, calculate their VDOT
-        2. If heart rate data is available, calculate HR zones
-        3. Consider the weather forecast when deciding indoor vs outdoor workouts
-        4. Design the training plan with appropriate progression using volume percentages and intensity levels
-        5. Validate weekly mileage progression with the check_mileage_progression tool
-        6. Output the final plan as JSON
+        1. Consider the weather forecast when deciding indoor vs outdoor workouts
+        2. Design the training plan with appropriate progression using volume percentages and intensity levels
+        3. Output the final plan as JSON
         """
 
         return prompt
@@ -154,7 +144,6 @@ struct PromptBuilder {
         You are an expert running coach creating a training plan outline. Generate ONLY the plan skeleton — weekly themes and volume targets. Do NOT generate individual workouts.
 
         ## Coaching Philosophy
-        - Gradual volume increases: ALWAYS use the check_mileage_progression tool to validate your plan's weekly volumes
         - Schedule recovery weeks every 3-4 weeks (30-40% volume reduction)
         - Taper appropriately before races (2-3 weeks, progressive volume reduction)
         - Respect the runner's experience level and injury history
@@ -162,11 +151,6 @@ struct PromptBuilder {
         ## Volume Rules
         - Specify weekly volume as a percentage of the runner's peak weekly volume (weekly_volume_percent)
         - Plans MUST build up to 100% of peak weekly volume at the peak training week. For example, if the plan is 12 weeks, the highest-volume week should have weekly_volume_percent = 100. Earlier weeks build progressively toward this peak. Recovery weeks drop to 60-70%.
-
-        ## Tool Usage
-        - Use calculate_vdot to determine the runner's VDOT from race data
-        - Use project_race_time to set realistic goal times
-        - Use check_mileage_progression to validate your weekly volume plan before finalizing
 
         ## Output Format
         Your final response must be ONLY valid JSON matching this schema (no markdown, no explanation outside the JSON):
@@ -317,7 +301,7 @@ struct PromptBuilder {
         if let vdot = plan.cachedVDOT {
             prompt += "\n- VDOT: \(vdot)"
         } else {
-            prompt += "\n- VDOT: not available (use calculate_vdot to determine)"
+            prompt += "\n- VDOT: not available"
         }
 
         if let raceDistance = plan.raceDistance {
@@ -398,11 +382,10 @@ struct PromptBuilder {
         prompt += """
 
         \n## Instructions
-        1. If heart rate data is available, calculate HR zones
-        2. Consider the weather forecast when deciding indoor vs outdoor workouts
-        3. Generate workouts that match this week's theme and volume target using volume percentages and intensity levels
-        4. Adapt based on prior weeks' performance data
-        5. Output the week as JSON
+        1. Consider the weather forecast when deciding indoor vs outdoor workouts
+        2. Generate workouts that match this week's theme and volume target using volume percentages and intensity levels
+        3. Adapt based on prior weeks' performance data
+        4. Output the week as JSON
         """
 
         return prompt
@@ -479,9 +462,6 @@ struct PromptBuilder {
         ## Volume & Intensity Rules
         - Specify volume as daily_volume_percent (percentage of the runner's peak weekly volume)
         - For intensity, use a named level (easy, marathon, tempo, interval, repeat) or a number representing %VO2max for finer control (e.g. 96). Each workout and step gets exactly one intensity value.
-
-        ## Tool Usage
-        - Use calculate_hr_zones if heart rate data is available.
 
         ## Workout Structure Rules
         - Only include warmup and cooldown steps for quality workouts (tempo, interval, long, race). Easy and recovery runs should be a single work step at easy pace — no warmup or cooldown needed.

@@ -1,5 +1,6 @@
 import SwiftUI
 import HealthKit
+import VDotCalculator
 
 struct VDOTCalculatorSheet: View {
     @Bindable var profile: UserProfile
@@ -201,13 +202,9 @@ struct VDOTCalculatorSheet: View {
         let totalSeconds = hours * 3600 + minutes * 60 + seconds
         guard totalSeconds > 0 else { return }
 
-        let result = VDOTTool.calculateVDOT(
-            raceDistanceMeters: selectedDistance.meters,
-            raceTimeSeconds: totalSeconds
-        )
-        if case .number(let v) = result["vdot"] {
-            calculatedVDOT = v
-        }
+        let distance = Measurement<UnitLength>(value: selectedDistance.meters, unit: .meters)
+        let vdot = Vdot(raceDistance: distance, raceTime: totalSeconds)
+        calculatedVDOT = round(vdot.value * 10) / 10
     }
 
     private func loadRecentWorkouts() async {
@@ -224,13 +221,9 @@ struct VDOTCalculatorSheet: View {
             workoutVDOT = nil
             return
         }
-        let result = VDOTTool.calculateVDOT(
-            raceDistanceMeters: distance,
-            raceTimeSeconds: workout.duration
-        )
-        if case .number(let v) = result["vdot"] {
-            workoutVDOT = v
-        }
+        let dist = Measurement<UnitLength>(value: distance, unit: .meters)
+        let vdot = Vdot(raceDistance: dist, raceTime: workout.duration)
+        workoutVDOT = round(vdot.value * 10) / 10
     }
 
     private func workoutRow(_ workout: HKWorkout) -> some View {

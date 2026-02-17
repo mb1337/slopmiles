@@ -138,7 +138,7 @@ struct GenerationProgressView: View {
     let status: GenerationStatus
     private var isInProgress: Bool {
         switch status {
-        case .starting, .sendingToAI, .executingTool, .generatingOutline, .generatingWeek, .parsingResponse: return true
+        case .starting, .sendingToAI, .generatingOutline, .generatingWeek, .parsingResponse: return true
         case .waitingForInput, .complete, .failed: return false
         }
     }
@@ -151,7 +151,6 @@ struct GenerationProgressView: View {
             switch status {
             case .starting: Text("Starting...")
             case .sendingToAI: Text("Thinking...")
-            case .executingTool(let name): Text("Running \(toolDisplayName(name))...")
             case .generatingOutline: Text("Generating plan outline...")
             case .generatingWeek(let n): Text("Generating week \(n) workouts...")
             case .parsingResponse: Text("Building plan...")
@@ -161,14 +160,5 @@ struct GenerationProgressView: View {
             }
         }
         .font(.subheadline)
-    }
-    private func toolDisplayName(_ name: String) -> String {
-        switch name {
-        case "calculate_vdot": return "VDOT Calculator"
-        case "project_race_time": return "Race Predictor"
-        case "calculate_hr_zones": return "HR Zone Calculator"
-        case "check_mileage_progression": return "Mileage Checker"
-        default: return name
-        }
     }
 }

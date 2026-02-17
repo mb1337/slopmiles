@@ -7,8 +7,7 @@ struct PromptBuilderTests {
     @Test("System prompt contains key instructions")
     func systemPromptContent() {
         let prompt = PromptBuilder.systemPrompt()
-        #expect(prompt.contains("check_mileage_progression"))
-        #expect(prompt.contains("calculate_vdot"))
+        #expect(prompt.contains("training plan"))
         #expect(prompt.contains("JSON"))
         #expect(prompt.contains("recovery weeks"))
         #expect(prompt.contains("weekly_volume_percent"))

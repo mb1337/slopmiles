@@ -6,7 +6,6 @@ private let logger = Logger(subsystem: "com.slopmiles", category: "ai")
 enum GenerationStatus: Sendable {
     case starting
     case sendingToAI
-    case executingTool(String)
     case generatingOutline
     case generatingWeek(Int)
     case parsingResponse
@@ -18,7 +17,6 @@ enum GenerationStatus: Sendable {
 @Observable
 @MainActor
 final class AIService {
-    private let toolExecutor = ToolExecutor()
     private var keychainService: KeychainService
 
     /// Override for testing — when set, generation methods use this instead of building a real provider.
@@ -51,9 +49,6 @@ final class AIService {
         totalTokensUsed = 0
 
         let provider = providerOverride ?? makeProvider(for: settings)
-        let tools = settings.provider == .anthropic
-            ? ToolDefinitions.anthropicTools()
-            : ToolDefinitions.openAITools()
         let systemPrompt = PromptBuilder.outlineSystemPrompt()
         let userPrompt = PromptBuilder.outlineUserPrompt(
             profile: profile, schedule: schedule, equipment: equipment,
@@ -67,7 +62,7 @@ final class AIService {
         do {
             let content = try await runConversationLoop(
                 messages: &messages, provider: provider,
-                systemPrompt: systemPrompt, tools: tools,
+                systemPrompt: systemPrompt,
                 model: settings.selectedModel
             )
             generationStatus = .complete
@@ -96,9 +91,6 @@ final class AIService {
         totalTokensUsed = 0
 
         let provider = providerOverride ?? makeProvider(for: settings)
-        let tools = settings.provider == .anthropic
-            ? ToolDefinitions.anthropicTools()
-            : ToolDefinitions.openAITools()
         let systemPrompt = PromptBuilder.weeklySystemPrompt()
         let userPrompt = PromptBuilder.weeklyUserPrompt(
             plan: plan, week: week,
@@ -111,7 +103,7 @@ final class AIService {
         do {
             let content = try await runConversationLoop(
                 messages: &messages, provider: provider,
-                systemPrompt: systemPrompt, tools: tools,
+                systemPrompt: systemPrompt,
                 model: settings.selectedModel
             )
             generationStatus = .complete
@@ -142,9 +134,6 @@ final class AIService {
         totalTokensUsed = 0
 
         let provider = providerOverride ?? makeProvider(for: settings)
-        let tools = settings.provider == .anthropic
-            ? ToolDefinitions.anthropicTools()
-            : ToolDefinitions.openAITools()
         let systemPrompt = PromptBuilder.systemPrompt()
 
         let userPrompt = PromptBuilder.userPrompt(
@@ -157,7 +146,7 @@ final class AIService {
         do {
             let content = try await runConversationLoop(
                 messages: &messages, provider: provider,
-                systemPrompt: systemPrompt, tools: tools,
+                systemPrompt: systemPrompt,
                 model: settings.selectedModel
             )
             generationStatus = .complete
@@ -177,7 +166,6 @@ final class AIService {
         messages: inout [AIMessage],
         provider: AIProvider,
         systemPrompt: String,
-        tools: [[String: JSONValue]],
         model: String,
         maxRounds: Int = 10
     ) async throws -> String {
@@ -191,7 +179,7 @@ final class AIService {
             let response = try await provider.sendMessages(
                 messages,
                 systemPrompt: systemPrompt,
-                tools: tools,
+                tools: [],
                 model: model
             )
 
@@ -200,27 +188,6 @@ final class AIService {
             }
 
             messages.append(response.message)
-
-            if let toolCalls = response.message.toolCalls, !toolCalls.isEmpty {
-                let toolNames = toolCalls.map(\.name).joined(separator: ", ")
-                logger.info("Executing tools: \(toolNames, privacy: .public)")
-                for toolCall in toolCalls {
-                    generationStatus = .executingTool(toolCall.name)
-                }
-
-                let results = await toolExecutor.executeAll(toolCalls)
-                try Task.checkCancellation()
-
-                for result in results {
-                    messages.append(AIMessage(
-                        role: .tool,
-                        content: result.jsonString,
-                        toolCallId: result.toolCallId
-                    ))
-                }
-
-                continue
-            }
 
             if response.stopReason == .maxTokens {
                 accumulatedContent += response.message.content

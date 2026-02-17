@@ -133,6 +133,14 @@ extension JSONValue: ExpressibleByNilLiteral {
     init(nilLiteral: ()) { self = .null }
 }
 
+// MARK: - ToolCall
+
+struct ToolCall: Sendable {
+    let id: String
+    let name: String
+    let arguments: [String: JSONValue]
+}
+
 // MARK: - AIRole
 
 enum AIRole: String, Sendable {
