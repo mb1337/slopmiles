@@ -75,12 +75,20 @@ struct ProfileStepView: View {
                         Text("Max Heart Rate (optional)").font(.subheadline.bold())
                         TextField("e.g., 185", text: $maxHR)
                             .textFieldStyle(.roundedBorder).keyboardType(.numberPad)
+                        if let hr = Int(maxHR), !maxHR.isEmpty, hr < 100 || hr > 220 {
+                            Text("Typical range is 100\u{2013}220 bpm")
+                                .font(.caption).foregroundStyle(.orange)
+                        }
                     }
 
                     VStack(alignment: .leading, spacing: 8) {
                         Text("Resting Heart Rate (optional)").font(.subheadline.bold())
                         TextField("e.g., 55", text: $restingHR)
                             .textFieldStyle(.roundedBorder).keyboardType(.numberPad)
+                        if let hr = Int(restingHR), !restingHR.isEmpty, hr < 30 || hr > 100 {
+                            Text("Typical range is 30\u{2013}100 bpm")
+                                .font(.caption).foregroundStyle(.orange)
+                        }
                     }
 
                     VStack(alignment: .leading, spacing: 8) {

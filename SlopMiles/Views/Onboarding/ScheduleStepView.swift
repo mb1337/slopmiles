@@ -118,8 +118,13 @@ struct DayScheduleRow: View {
                         ), displayedComponents: .hourAndMinute).labelsHidden()
                             .accessibilityLabel("\(DateFormatters.dayName(for: day.dayOfWeek)) slot \(index + 1) end time")
                         Spacer()
-                        Text("\(day.slots[index].endMinutes - day.slots[index].startMinutes) min")
-                            .font(.caption).foregroundStyle(.secondary)
+                        if day.slots[index].startMinutes >= day.slots[index].endMinutes {
+                            Text("Invalid")
+                                .font(.caption).foregroundStyle(.red)
+                        } else {
+                            Text("\(day.slots[index].endMinutes - day.slots[index].startMinutes) min")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
                         if day.slots.count > 1 {
                             Button { day.slots.remove(at: index) } label: {
                                 Image(systemName: "minus.circle.fill").foregroundStyle(.red)

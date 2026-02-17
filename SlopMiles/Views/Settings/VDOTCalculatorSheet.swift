@@ -95,6 +95,11 @@ struct VDOTCalculatorSheet: View {
                         .multilineTextAlignment(.center)
                         .frame(width: 50)
                         .accessibilityLabel("Seconds")
+                        .onChange(of: secondsText) {
+                            if let val = Int(secondsText), val > 59 {
+                                secondsText = "59"
+                            }
+                        }
                     Text("sec").font(.caption2).foregroundStyle(.secondary)
                 }
             }

@@ -128,6 +128,10 @@ private struct ProfileEditForm: View {
                         .frame(width: 80)
                         .onChange(of: maxHRText) { profile.maxHeartRate = Int(maxHRText) }
                 }
+                if let hr = Int(maxHRText), !maxHRText.isEmpty, hr < 100 || hr > 220 {
+                    Text("Typical range is 100\u{2013}220 bpm")
+                        .font(.caption).foregroundStyle(.orange)
+                }
                 HStack {
                     Text("Resting HR")
                     Spacer()
@@ -136,6 +140,10 @@ private struct ProfileEditForm: View {
                         .multilineTextAlignment(.trailing)
                         .frame(width: 80)
                         .onChange(of: restingHRText) { profile.restingHeartRate = Int(restingHRText) }
+                }
+                if let hr = Int(restingHRText), !restingHRText.isEmpty, hr < 30 || hr > 100 {
+                    Text("Typical range is 30\u{2013}100 bpm")
+                        .font(.caption).foregroundStyle(.orange)
                 }
                 HStack {
                     Text("Lactate Threshold HR")
