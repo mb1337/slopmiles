@@ -2,6 +2,7 @@ import SwiftUI
 
 struct MainTabView: View {
     @Environment(AppState.self) private var appState
+    @SceneStorage("selectedTab") private var storedTab: Int = AppState.AppTab.dashboard.rawValue
 
     var body: some View {
         @Bindable var state = appState
@@ -18,6 +19,16 @@ struct MainTabView: View {
             Tab("Settings", systemImage: "gear", value: .settings) {
                 SettingsView()
             }
+        }
+        .onAppear {
+            // Restore the persisted tab on launch
+            if let restored = AppState.AppTab(rawValue: storedTab) {
+                appState.selectedTab = restored
+            }
+        }
+        .onChange(of: appState.selectedTab) { _, newTab in
+            // Persist tab changes to scene storage
+            storedTab = newTab.rawValue
         }
     }
 }
