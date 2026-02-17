@@ -270,5 +270,6 @@ private struct OpenRouterModelListView: View {
                 }
             }
         }
+        .presentationDetents([.medium, .large])
     }
 }

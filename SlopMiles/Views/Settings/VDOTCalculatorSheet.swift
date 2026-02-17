@@ -57,6 +57,7 @@ struct VDOTCalculatorSheet: View {
                 }
             }
         }
+        .presentationDetents([.medium, .large])
     }
 
     // MARK: - Manual Entry
