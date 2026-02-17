@@ -114,7 +114,7 @@ struct WorkoutDetailView: View {
                         Task {
                             do {
                                 try await appState.workoutKitService.scheduleWorkout(workout)
-                                scheduleSuccessCount += 1
+                                withAnimation { scheduleSuccessCount += 1 }
                             } catch {
                                 errorMessage = error.localizedDescription
                                 showError = true
@@ -135,13 +135,13 @@ struct WorkoutDetailView: View {
             Text(errorMessage ?? "")
         }
         .confirmationDialog("Mark as Completed", isPresented: $showCompletionConfirm, titleVisibility: .visible) {
-            Button("Complete Workout") { workout.completionStatus = .completed }
+            Button("Complete Workout") { withAnimation { workout.completionStatus = .completed } }
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("Are you sure you want to mark this workout as completed? This action cannot be undone.")
         }
         .confirmationDialog("Skip Workout", isPresented: $showSkipConfirm, titleVisibility: .visible) {
-            Button("Skip Workout", role: .destructive) { workout.completionStatus = .skipped }
+            Button("Skip Workout", role: .destructive) { withAnimation { workout.completionStatus = .skipped } }
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("Are you sure you want to skip this workout? This action cannot be undone.")

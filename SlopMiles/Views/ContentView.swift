@@ -24,8 +24,10 @@ struct ContentView: View {
             if aiSettings.first != nil {
                 if isFullyOnboarded {
                     MainTabView()
+                        .transition(.opacity)
                 } else {
                     OnboardingView()
+                        .transition(.opacity)
                 }
             } else {
                 // Singleton models are seeded in SlopMilesApp.task;
@@ -36,7 +38,9 @@ struct ContentView: View {
                         .foregroundStyle(.blue)
                     ProgressView()
                 }
+                .transition(.opacity)
             }
         }
+        .animation(.default, value: isFullyOnboarded)
     }
 }

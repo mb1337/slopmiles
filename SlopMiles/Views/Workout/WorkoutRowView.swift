@@ -45,11 +45,14 @@ struct CompletionStatusIcon: View {
     let status: WorkoutCompletionStatus
 
     var body: some View {
-        switch status {
-        case .completed: Image(systemName: "checkmark.circle.fill").foregroundStyle(.green).accessibilityLabel("Completed")
-        case .scheduled: Image(systemName: "applewatch").foregroundStyle(.blue).accessibilityLabel("Scheduled on Watch")
-        case .skipped: Image(systemName: "xmark.circle.fill").foregroundStyle(.orange).accessibilityLabel("Skipped")
-        case .planned: Image(systemName: "circle").foregroundStyle(.secondary).accessibilityLabel("Planned")
+        Group {
+            switch status {
+            case .completed: Image(systemName: "checkmark.circle.fill").foregroundStyle(.green).accessibilityLabel("Completed")
+            case .scheduled: Image(systemName: "applewatch").foregroundStyle(.blue).accessibilityLabel("Scheduled on Watch")
+            case .skipped: Image(systemName: "xmark.circle.fill").foregroundStyle(.orange).accessibilityLabel("Skipped")
+            case .planned: Image(systemName: "circle").foregroundStyle(.secondary).accessibilityLabel("Planned")
+            }
         }
+        .contentTransition(.symbolEffect(.replace))
     }
 }

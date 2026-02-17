@@ -44,6 +44,7 @@ struct DashboardView: View {
                                         weekNumber: week.weekNumber,
                                         onRetry: { triggerAutoGeneration() }
                                     )
+                                    .transition(.blurReplace)
                                 } else {
                                     if let workout = nextWorkout {
                                         NavigationLink(value: workout) {
@@ -58,6 +59,7 @@ struct DashboardView: View {
                             }
                         }
                         .padding()
+                        .animation(.default, value: currentWeek?.workoutsGenerated)
                     }
                 } else {
                     ContentUnavailableView {
