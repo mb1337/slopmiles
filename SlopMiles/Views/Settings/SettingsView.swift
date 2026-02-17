@@ -32,7 +32,8 @@ struct SettingsView: View {
                         HStack {
                             Text("API Key"); Spacer()
                             let hasKey = appState.keychainService.hasKey(settings.provider.keychainKey)
-                            Text(hasKey ? "Configured" : "Not Set")
+                            Label(hasKey ? "Configured" : "Not Set",
+                                  systemImage: hasKey ? "checkmark.circle.fill" : "xmark.circle")
                                 .foregroundStyle(hasKey ? .green : .red)
                         }
                     }
@@ -70,7 +71,8 @@ struct SettingsView: View {
                     Section("Location") {
                         HStack {
                             Text("Location"); Spacer()
-                            Text(appState.locationService.isAuthorized ? "Connected" : "Not Connected")
+                            Label(appState.locationService.isAuthorized ? "Connected" : "Not Connected",
+                                  systemImage: appState.locationService.isAuthorized ? "checkmark.circle.fill" : "circle")
                                 .foregroundStyle(appState.locationService.isAuthorized ? .green : .secondary)
                         }
                         if appState.locationService.isAuthorized {
@@ -90,7 +92,8 @@ struct SettingsView: View {
                     Section("Health & Watch") {
                         HStack {
                             Text("HealthKit"); Spacer()
-                            Text(appState.healthKitService.isAuthorized ? "Connected" : "Not Connected")
+                            Label(appState.healthKitService.isAuthorized ? "Connected" : "Not Connected",
+                                  systemImage: appState.healthKitService.isAuthorized ? "checkmark.circle.fill" : "circle")
                                 .foregroundStyle(appState.healthKitService.isAuthorized ? .green : .secondary)
                         }
                         if !appState.healthKitService.isAuthorized {

@@ -76,22 +76,25 @@ struct VDOTCalculatorSheet: View {
                         .keyboardType(.numberPad)
                         .multilineTextAlignment(.center)
                         .frame(width: 50)
+                        .accessibilityLabel("Hours")
                     Text("hours").font(.caption2).foregroundStyle(.secondary)
                 }
-                Text(":").font(.title3)
+                Text(":").font(.title3).accessibilityHidden(true)
                 VStack {
                     TextField("MM", text: $minutesText)
                         .keyboardType(.numberPad)
                         .multilineTextAlignment(.center)
                         .frame(width: 50)
+                        .accessibilityLabel("Minutes")
                     Text("min").font(.caption2).foregroundStyle(.secondary)
                 }
-                Text(":").font(.title3)
+                Text(":").font(.title3).accessibilityHidden(true)
                 VStack {
                     TextField("SS", text: $secondsText)
                         .keyboardType(.numberPad)
                         .multilineTextAlignment(.center)
                         .frame(width: 50)
+                        .accessibilityLabel("Seconds")
                     Text("sec").font(.caption2).foregroundStyle(.secondary)
                 }
             }

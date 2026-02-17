@@ -199,6 +199,7 @@ private struct CurrentPlanCard: View {
                 }
             }
         }
+        .accessibilityElement(children: .combine)
         .padding()
         .background(.fill.quaternary, in: RoundedRectangle(cornerRadius: 16))
     }
@@ -224,6 +225,7 @@ private struct NextWorkoutCard: View {
             }
             .foregroundStyle(.secondary)
         }
+        .accessibilityElement(children: .combine)
         .padding()
         .background(.fill.quaternary, in: RoundedRectangle(cornerRadius: 16))
     }

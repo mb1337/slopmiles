@@ -44,6 +44,7 @@ struct HistoryView: View {
                             }
                             Spacer()
                         }
+                        .accessibilityElement(children: .combine)
                     }
                 }
             }
