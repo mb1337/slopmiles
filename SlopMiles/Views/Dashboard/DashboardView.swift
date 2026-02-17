@@ -31,35 +31,44 @@ struct DashboardView: View {
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(spacing: 20) {
-                    if let plan = activePlan {
-                        if let week = currentWeek {
-                            CurrentPlanCard(plan: plan, week: week, unitPref: unitPref)
+            Group {
+                if let plan = activePlan {
+                    ScrollView {
+                        VStack(spacing: 20) {
+                            if let week = currentWeek {
+                                CurrentPlanCard(plan: plan, week: week, unitPref: unitPref)
 
-                            if !week.workoutsGenerated {
-                                WeekGeneratingCard(
-                                    status: appState.weekGenerationManager.status,
-                                    weekNumber: week.weekNumber,
-                                    onRetry: { triggerAutoGeneration() }
-                                )
-                            } else {
-                                if let workout = nextWorkout {
-                                    NavigationLink(value: workout) {
-                                        NextWorkoutCard(workout: workout, unitPref: unitPref)
+                                if !week.workoutsGenerated {
+                                    WeekGeneratingCard(
+                                        status: appState.weekGenerationManager.status,
+                                        weekNumber: week.weekNumber,
+                                        onRetry: { triggerAutoGeneration() }
+                                    )
+                                } else {
+                                    if let workout = nextWorkout {
+                                        NavigationLink(value: workout) {
+                                            NextWorkoutCard(workout: workout, unitPref: unitPref)
+                                        }
+                                        .buttonStyle(.plain)
                                     }
-                                    .buttonStyle(.plain)
+                                    WeekOverviewCard(week: week, unitPref: unitPref)
                                 }
-                                WeekOverviewCard(week: week, unitPref: unitPref)
+                            } else {
+                                ActivePlanNoWeekCard(plan: plan)
                             }
-                        } else {
-                            ActivePlanNoWeekCard(plan: plan)
                         }
-                    } else {
-                        EmptyDashboardView()
+                        .padding()
+                    }
+                } else {
+                    ContentUnavailableView {
+                        Label("No Active Plan", systemImage: "figure.run.circle")
+                    } description: {
+                        Text("Create a training plan to get started.")
+                    } actions: {
+                        NavigationLink("Create Plan") { GeneratePlanView() }
+                            .buttonStyle(.borderedProminent)
                     }
                 }
-                .padding()
             }
             .navigationDestination(for: PlannedWorkout.self) { WorkoutDetailView(workout: $0) }
             .navigationTitle("Dashboard")
@@ -338,18 +347,3 @@ private struct ActivePlanNoWeekCard: View {
     }
 }
 
-private struct EmptyDashboardView: View {
-    @ScaledMetric(relativeTo: .largeTitle) private var iconSize: CGFloat = 60
-
-    var body: some View {
-        VStack(spacing: 20) {
-            Spacer()
-            Image(systemName: "figure.run.circle").font(.system(size: iconSize)).foregroundStyle(.secondary)
-            Text("No Active Plan").font(.title3.bold())
-            Text("Create a training plan to get started.").font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center)
-            NavigationLink("Create Plan") { GeneratePlanView() }.buttonStyle(.borderedProminent)
-            Spacer()
-        }
-        .padding()
-    }
-}
