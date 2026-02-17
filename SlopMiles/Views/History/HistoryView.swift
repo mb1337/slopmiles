@@ -46,6 +46,7 @@ struct HistoryView: View {
                         }
                         .accessibilityElement(children: .combine)
                     }
+                    .refreshable { await loadWorkouts() }
                 }
             }
             .navigationTitle("History")
