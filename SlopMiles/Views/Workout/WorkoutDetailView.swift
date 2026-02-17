@@ -11,6 +11,7 @@ struct WorkoutDetailView: View {
     @State private var showSkipConfirm = false
     @State private var showUnlinkAllConfirm = false
     @State private var runToUnlink: String?
+    @State private var scheduleSuccessCount = 0
 
     private var unitPref: UnitPreference { profiles.first?.unitPreference ?? .metric }
     private var volumeType: VolumeType { workout.week?.plan?.volumeType ?? .distance }
@@ -113,6 +114,7 @@ struct WorkoutDetailView: View {
                         Task {
                             do {
                                 try await appState.workoutKitService.scheduleWorkout(workout)
+                                scheduleSuccessCount += 1
                             } catch {
                                 errorMessage = error.localizedDescription
                                 showError = true
@@ -164,5 +166,8 @@ struct WorkoutDetailView: View {
         } message: {
             Text("This will remove the link between this workout and all HealthKit runs. The workout will be marked as planned again.")
         }
+        .sensoryFeedback(.success, trigger: scheduleSuccessCount)
+        .sensoryFeedback(.success, trigger: workout.completionStatus) { _, new in new == .completed }
+        .sensoryFeedback(.error, trigger: showError) { _, new in new }
     }
 }

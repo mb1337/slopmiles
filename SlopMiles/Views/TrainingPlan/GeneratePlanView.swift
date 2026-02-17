@@ -111,6 +111,7 @@ struct GeneratePlanView: View {
                     }.disabled(manager.isGenerating || goalDescription.isEmpty)
                 }
             }
+            .sensoryFeedback(.error, trigger: manager.errorMessage) { _, new in new != nil }
             .onDisappear {
                 // Auto-respond to pending AI question so generation doesn't hang,
                 // but do NOT cancel the task — let it finish in the background

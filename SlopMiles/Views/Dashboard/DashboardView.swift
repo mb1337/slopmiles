@@ -235,6 +235,7 @@ private struct WeekOverviewCard: View {
     @Environment(AppState.self) private var appState
     @State private var errorMessage: String?
     @State private var showError = false
+    @State private var scheduleSuccessCount = 0
 
     private func dayLabel(for workout: PlannedWorkout) -> String {
         let day = DateFormatters.shortDayOfWeek(from: workout.scheduledDate)
@@ -289,6 +290,7 @@ private struct WeekOverviewCard: View {
                     Task {
                         do {
                             try await appState.workoutKitService.scheduleWeek(week)
+                            scheduleSuccessCount += 1
                         } catch {
                             errorMessage = error.localizedDescription
                             showError = true
@@ -308,6 +310,8 @@ private struct WeekOverviewCard: View {
         } message: {
             Text(errorMessage ?? "")
         }
+        .sensoryFeedback(.success, trigger: scheduleSuccessCount)
+        .sensoryFeedback(.error, trigger: showError) { _, new in new }
     }
 }
 

@@ -18,6 +18,7 @@ struct PlanDetailView: View {
     @State private var newStartDate = Date()
     @State private var showDeleteConfirm = false
     @State private var weekToRegenerate: TrainingWeek?
+    @State private var scheduleSuccessCount = 0
 
     private var unitPref: UnitPreference { profiles.first?.unitPreference ?? .metric }
 
@@ -88,6 +89,7 @@ struct PlanDetailView: View {
                             Task {
                                 do {
                                     try await appState.workoutKitService.scheduleWeek(week)
+                                    scheduleSuccessCount += 1
                                 } catch {
                                     errorMessage = error.localizedDescription
                                     showError = true
@@ -144,6 +146,8 @@ struct PlanDetailView: View {
         } message: {
             Text("Regenerate this week\u{2019}s workouts? All current workouts will be replaced. This uses an API call.")
         }
+        .sensoryFeedback(.success, trigger: scheduleSuccessCount)
+        .sensoryFeedback(.error, trigger: showError) { _, new in new }
         .sheet(isPresented: $showStartDateSheet) {
             ChangeStartDateSheet(plan: plan, newStartDate: $newStartDate)
         }
