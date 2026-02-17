@@ -36,12 +36,20 @@ struct WorkoutRowView: View {
                 .font(.caption).foregroundStyle(.secondary)
             }
             Spacer()
-            switch workout.completionStatus {
-            case .completed: Image(systemName: "checkmark.circle.fill").foregroundStyle(.green).accessibilityLabel("Completed")
-            case .scheduled: Image(systemName: "applewatch").foregroundStyle(.blue).accessibilityLabel("Scheduled on Watch")
-            case .skipped: Image(systemName: "xmark.circle").foregroundStyle(.orange).accessibilityLabel("Skipped")
-            case .planned: Image(systemName: "circle").foregroundStyle(.quaternary).accessibilityLabel("Planned")
-            }
+            CompletionStatusIcon(status: workout.completionStatus)
+        }
+    }
+}
+
+struct CompletionStatusIcon: View {
+    let status: WorkoutCompletionStatus
+
+    var body: some View {
+        switch status {
+        case .completed: Image(systemName: "checkmark.circle.fill").foregroundStyle(.green).accessibilityLabel("Completed")
+        case .scheduled: Image(systemName: "applewatch").foregroundStyle(.blue).accessibilityLabel("Scheduled on Watch")
+        case .skipped: Image(systemName: "xmark.circle.fill").foregroundStyle(.orange).accessibilityLabel("Skipped")
+        case .planned: Image(systemName: "circle").foregroundStyle(.secondary).accessibilityLabel("Planned")
         }
     }
 }

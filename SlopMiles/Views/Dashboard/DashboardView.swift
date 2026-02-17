@@ -286,12 +286,7 @@ private struct WeekOverviewCard: View {
                         } else {
                             if workout.distanceKm > 0 { Text(UnitConverter.formatDistance(workout.distanceKm, unit: unitPref)).font(.caption).foregroundStyle(.secondary) }
                         }
-                        switch workout.completionStatus {
-                        case .completed: Image(systemName: "checkmark.circle.fill").foregroundStyle(.green).accessibilityLabel("Completed")
-                        case .scheduled: Image(systemName: "applewatch").foregroundStyle(.blue).accessibilityLabel("Scheduled on Watch")
-                        case .skipped: Image(systemName: "xmark.circle.fill").foregroundStyle(.orange).accessibilityLabel("Skipped")
-                        case .planned: Image(systemName: "circle").foregroundStyle(.secondary).accessibilityLabel("Planned")
-                        }
+                        CompletionStatusIcon(status: workout.completionStatus)
                     }
                 }
                 .buttonStyle(.plain)
