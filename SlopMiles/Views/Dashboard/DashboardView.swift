@@ -45,7 +45,10 @@ struct DashboardView: View {
                                 )
                             } else {
                                 if let workout = nextWorkout {
-                                    NextWorkoutCard(workout: workout, unitPref: unitPref)
+                                    NavigationLink(value: workout) {
+                                        NextWorkoutCard(workout: workout, unitPref: unitPref)
+                                    }
+                                    .buttonStyle(.plain)
                                 }
                                 WeekOverviewCard(week: week, unitPref: unitPref)
                             }
@@ -58,6 +61,7 @@ struct DashboardView: View {
                 }
                 .padding()
             }
+            .navigationDestination(for: PlannedWorkout.self) { WorkoutDetailView(workout: $0) }
             .navigationTitle("Dashboard")
             .task {
                 if appState.locationService.isAuthorized, let profile = profiles.first {
@@ -257,25 +261,28 @@ private struct WeekOverviewCard: View {
         VStack(alignment: .leading, spacing: 12) {
             Text("This Week").font(.headline)
             ForEach(week.sortedWorkouts) { workout in
-                HStack {
-                    Image(systemName: workout.workoutType.iconName).foregroundStyle(.blue).frame(width: 24)
-                    VStack(alignment: .leading) {
-                        Text(workout.name).font(.subheadline)
-                        Text(dayLabel(for: workout)).font(.caption).foregroundStyle(.secondary)
-                    }
-                    Spacer()
-                    if (week.plan?.volumeType ?? .distance) == .time {
-                        if workout.durationMinutes > 0 { Text(UnitConverter.formatDuration(minutes: workout.durationMinutes)).font(.caption).foregroundStyle(.secondary) }
-                    } else {
-                        if workout.distanceKm > 0 { Text(UnitConverter.formatDistance(workout.distanceKm, unit: unitPref)).font(.caption).foregroundStyle(.secondary) }
-                    }
-                    switch workout.completionStatus {
-                    case .completed: Image(systemName: "checkmark.circle.fill").foregroundStyle(.green).accessibilityLabel("Completed")
-                    case .scheduled: Image(systemName: "applewatch").foregroundStyle(.blue).accessibilityLabel("Scheduled on Watch")
-                    case .skipped: Image(systemName: "xmark.circle.fill").foregroundStyle(.orange).accessibilityLabel("Skipped")
-                    case .planned: Image(systemName: "circle").foregroundStyle(.secondary).accessibilityLabel("Planned")
+                NavigationLink(value: workout) {
+                    HStack {
+                        Image(systemName: workout.workoutType.iconName).foregroundStyle(.blue).frame(width: 24)
+                        VStack(alignment: .leading) {
+                            Text(workout.name).font(.subheadline)
+                            Text(dayLabel(for: workout)).font(.caption).foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        if (week.plan?.volumeType ?? .distance) == .time {
+                            if workout.durationMinutes > 0 { Text(UnitConverter.formatDuration(minutes: workout.durationMinutes)).font(.caption).foregroundStyle(.secondary) }
+                        } else {
+                            if workout.distanceKm > 0 { Text(UnitConverter.formatDistance(workout.distanceKm, unit: unitPref)).font(.caption).foregroundStyle(.secondary) }
+                        }
+                        switch workout.completionStatus {
+                        case .completed: Image(systemName: "checkmark.circle.fill").foregroundStyle(.green).accessibilityLabel("Completed")
+                        case .scheduled: Image(systemName: "applewatch").foregroundStyle(.blue).accessibilityLabel("Scheduled on Watch")
+                        case .skipped: Image(systemName: "xmark.circle.fill").foregroundStyle(.orange).accessibilityLabel("Skipped")
+                        case .planned: Image(systemName: "circle").foregroundStyle(.secondary).accessibilityLabel("Planned")
+                        }
                     }
                 }
+                .buttonStyle(.plain)
             }
             if hasPlannedWorkouts {
                 Button("Schedule Week to Watch") {
