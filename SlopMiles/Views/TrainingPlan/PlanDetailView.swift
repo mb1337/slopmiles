@@ -78,10 +78,12 @@ struct PlanDetailView: View {
                 }
             }
         }
-        .environment(\.editMode, .constant(.active))
         .navigationTitle(plan.name)
         .navigationDestination(item: $selectedWorkout) { WorkoutDetailView(workout: $0) }
         .toolbar {
+            ToolbarItem(placement: .secondaryAction) {
+                EditButton()
+            }
             ToolbarItem(placement: .primaryAction) {
                 Menu {
                     Button("Schedule Next Week to Watch") {
