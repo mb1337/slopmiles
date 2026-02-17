@@ -15,6 +15,7 @@ struct GeneratePlanView: View {
     @State private var startDate = Date()
     @State private var hasRace = true
     @State private var planWeeks = 12
+    @State private var selectedModel = ""
     @State private var userResponse = ""
 
     private var manager: PlanGenerationManager { appState.planGenerationManager }
@@ -54,7 +55,13 @@ struct GeneratePlanView: View {
                     }
                     Section("AI Coach") {
                         HStack { Text("Provider"); Spacer(); Text(settings.provider.displayName).foregroundStyle(.secondary) }
-                        HStack { Text("Model"); Spacer(); Text(settings.selectedModel).foregroundStyle(.secondary) }
+                        if settings.provider == .openRouter {
+                            OpenRouterModelPicker(selection: $selectedModel)
+                        } else {
+                            Picker("Model", selection: $selectedModel) {
+                                ForEach(settings.provider.fallbackModels, id: \.self) { Text($0).tag($0) }
+                            }
+                        }
                     }
                     if manager.isGenerating {
                         Section("Generating...") { GenerationProgressView(status: appState.aiService.generationStatus) }
@@ -103,6 +110,7 @@ struct GeneratePlanView: View {
                             raceDate: hasRace ? raceDate : nil,
                             hasRace: hasRace,
                             startDate: startDate, planWeeks: planWeeks,
+                            model: selectedModel,
                             aiService: appState.aiService,
                             healthKitService: appState.healthKitService,
                             workoutKitService: appState.workoutKitService,
@@ -111,6 +119,7 @@ struct GeneratePlanView: View {
                     }.disabled(manager.isGenerating || goalDescription.isEmpty)
                 }
             }
+            .onAppear { if selectedModel.isEmpty { selectedModel = settings.selectedModel } }
             .sensoryFeedback(.error, trigger: manager.errorMessage) { _, new in new != nil }
             .onDisappear {
                 // Auto-respond to pending AI question so generation doesn't hang,

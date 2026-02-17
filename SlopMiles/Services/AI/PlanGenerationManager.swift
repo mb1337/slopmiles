@@ -23,6 +23,7 @@ final class PlanGenerationManager {
         hasRace: Bool,
         startDate: Date,
         planWeeks: Int,
+        model: String,
         aiService: AIService,
         healthKitService: HealthKitService,
         workoutKitService: WorkoutKitService,
@@ -55,7 +56,8 @@ final class PlanGenerationManager {
                     stats: stats, settings: settings, goalDescription: goalDescription,
                     raceDistance: raceDistance, raceDate: hasRace ? raceDate : nil,
                     startDate: startDate, endDate: endDate,
-                    weatherData: weatherData
+                    weatherData: weatherData,
+                    modelOverride: model
                 )
                 let parseContext = PlanParseContext(
                     peakVolume: profile.volumeType == .time ? profile.peakWeeklyVolumeMinutes : profile.peakWeeklyMileageKm,
@@ -79,7 +81,8 @@ final class PlanGenerationManager {
                         plan: plan, week: week1,
                         profile: profile, schedule: schedule, equipment: equipment,
                         settings: settings, performanceData: WeeklyPerformanceData(),
-                        weatherData: weatherData
+                        weatherData: weatherData,
+                        modelOverride: model
                     )
                     try ResponseParser.parseWeekWorkouts(
                         from: weekText, week: week1,

@@ -43,7 +43,8 @@ final class AIService {
         raceDate: Date?,
         startDate: Date,
         endDate: Date,
-        weatherData: [String: JSONValue]? = nil
+        weatherData: [String: JSONValue]? = nil,
+        modelOverride: String? = nil
     ) async throws -> String {
         generationStatus = .generatingOutline
         totalTokensUsed = 0
@@ -63,7 +64,7 @@ final class AIService {
             let content = try await runConversationLoop(
                 messages: &messages, provider: provider,
                 systemPrompt: systemPrompt,
-                model: settings.selectedModel
+                model: modelOverride ?? settings.selectedModel
             )
             generationStatus = .complete
             return content
@@ -85,7 +86,8 @@ final class AIService {
         equipment: RunnerEquipment,
         settings: AISettings,
         performanceData: WeeklyPerformanceData,
-        weatherData: [String: JSONValue]? = nil
+        weatherData: [String: JSONValue]? = nil,
+        modelOverride: String? = nil
     ) async throws -> String {
         generationStatus = .generatingWeek(week.weekNumber)
         totalTokensUsed = 0
@@ -104,7 +106,7 @@ final class AIService {
             let content = try await runConversationLoop(
                 messages: &messages, provider: provider,
                 systemPrompt: systemPrompt,
-                model: settings.selectedModel
+                model: modelOverride ?? settings.selectedModel
             )
             generationStatus = .complete
             return content
