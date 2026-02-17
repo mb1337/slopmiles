@@ -81,11 +81,9 @@ struct PlanDetailView: View {
         .navigationTitle(plan.name)
         .navigationDestination(item: $selectedWorkout) { WorkoutDetailView(workout: $0) }
         .toolbar {
-            ToolbarItem(placement: .secondaryAction) {
-                EditButton()
-            }
             ToolbarItem(placement: .primaryAction) {
                 Menu {
+                    EditButton()
                     Button("Schedule Next Week to Watch") {
                         if let week = plan.sortedWeeks.first(where: { $0.workoutsGenerated && $0.sortedWorkouts.contains { $0.completionStatus == .planned } }) {
                             Task {
@@ -112,7 +110,7 @@ struct PlanDetailView: View {
                     Button("Delete Plan", systemImage: "trash", role: .destructive) {
                         showDeleteConfirm = true
                     }
-                } label: { Image(systemName: "ellipsis.circle") }
+                } label: { Image(systemName: "ellipsis") }
             }
         }
         .alert("Scheduling Error", isPresented: $showError) {
