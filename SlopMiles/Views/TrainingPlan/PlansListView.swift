@@ -6,6 +6,7 @@ struct PlansListView: View {
     @Query private var profiles: [UserProfile]
     @Environment(AppState.self) private var appState
     @Environment(\.modelContext) private var modelContext
+    @State private var planToDelete: TrainingPlan?
 
     var body: some View {
         @Bindable var state = appState
@@ -49,15 +50,29 @@ struct PlansListView: View {
                                         .tint(.blue)
                                 }
                             }
-                            .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                                 Button(role: .destructive) {
-                                    modelContext.delete(plan)
-                                    try? modelContext.save()
+                                    planToDelete = plan
                                 } label: { Label("Delete", systemImage: "trash") }
                             }
                         }
                     }
                 }
+            }
+            .confirmationDialog("Delete Plan", isPresented: Binding(
+                get: { planToDelete != nil },
+                set: { if !$0 { planToDelete = nil } }
+            ), titleVisibility: .visible) {
+                Button("Delete", role: .destructive) {
+                    if let plan = planToDelete {
+                        modelContext.delete(plan)
+                        try? modelContext.save()
+                    }
+                    planToDelete = nil
+                }
+                Button("Cancel", role: .cancel) { planToDelete = nil }
+            } message: {
+                Text("Delete \u{201C}\(planToDelete?.name ?? "")\u{201D}? This cannot be undone.")
             }
             .navigationTitle("Plans")
             .toolbar { ToolbarItem(placement: .primaryAction) { NavigationLink { GeneratePlanView() } label: { Image(systemName: "plus") } } }

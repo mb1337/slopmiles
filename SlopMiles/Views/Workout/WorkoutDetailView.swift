@@ -10,6 +10,7 @@ struct WorkoutDetailView: View {
     @State private var showCompletionConfirm = false
     @State private var showSkipConfirm = false
     @State private var showUnlinkAllConfirm = false
+    @State private var runToUnlink: String?
 
     private var unitPref: UnitPreference { profiles.first?.unitPreference ?? .metric }
     private var volumeType: VolumeType { workout.week?.plan?.volumeType ?? .distance }
@@ -94,7 +95,7 @@ struct WorkoutDetailView: View {
                                     }
                                     Spacer()
                                     Button("Unlink", role: .destructive) {
-                                        WorkoutMatcher.unlinkSingleRun(entry.healthKitWorkoutID, from: workout)
+                                        runToUnlink = entry.healthKitWorkoutID
                                     }
                                     .font(.caption)
                                     .buttonStyle(.borderless)
@@ -142,6 +143,20 @@ struct WorkoutDetailView: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("Are you sure you want to skip this workout? This action cannot be undone.")
+        }
+        .confirmationDialog("Unlink Run", isPresented: Binding(
+            get: { runToUnlink != nil },
+            set: { if !$0 { runToUnlink = nil } }
+        ), titleVisibility: .visible) {
+            Button("Unlink", role: .destructive) {
+                if let id = runToUnlink {
+                    WorkoutMatcher.unlinkSingleRun(id, from: workout)
+                }
+                runToUnlink = nil
+            }
+            Button("Cancel", role: .cancel) { runToUnlink = nil }
+        } message: {
+            Text("Unlink this run from the workout?")
         }
         .confirmationDialog("Unlink All Runs", isPresented: $showUnlinkAllConfirm, titleVisibility: .visible) {
             Button("Unlink All", role: .destructive) { WorkoutMatcher.unlinkWorkout(workout) }

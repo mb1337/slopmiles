@@ -23,6 +23,7 @@ private struct ProfileEditForm: View {
     @State private var restingHRText: String
     @State private var ltHRText: String
     @State private var showVDOTCalculator = false
+    @State private var showClearVDOTConfirm = false
 
     init(profile: UserProfile) {
         self.profile = profile
@@ -164,7 +165,7 @@ private struct ProfileEditForm: View {
                 }
                 if profile.vdot != nil {
                     Button("Clear VDOT", role: .destructive) {
-                        profile.vdot = nil
+                        showClearVDOTConfirm = true
                     }
                 }
             }
@@ -178,6 +179,12 @@ private struct ProfileEditForm: View {
             }
         }
         .navigationTitle("Runner Profile")
+        .confirmationDialog("Clear VDOT", isPresented: $showClearVDOTConfirm, titleVisibility: .visible) {
+            Button("Clear", role: .destructive) { profile.vdot = nil }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Remove your VDOT score? You can recalculate it from a race result.")
+        }
         .sheet(isPresented: $showVDOTCalculator) {
             VDOTCalculatorSheet(profile: profile)
         }

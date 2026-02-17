@@ -16,6 +16,8 @@ struct PlanDetailView: View {
     @State private var showError = false
     @State private var showStartDateSheet = false
     @State private var newStartDate = Date()
+    @State private var showDeleteConfirm = false
+    @State private var weekToRegenerate: TrainingWeek?
 
     private var unitPref: UnitPreference { profiles.first?.unitPreference ?? .metric }
 
@@ -68,7 +70,7 @@ struct PlanDetailView: View {
                 .swipeActions(edge: .trailing) {
                     if week.workoutsGenerated {
                         Button("Regenerate") {
-                            regenerateWeek(week)
+                            weekToRegenerate = week
                         }
                         .tint(.orange)
                     }
@@ -104,14 +106,7 @@ struct PlanDetailView: View {
                     }
                     Divider()
                     Button("Delete Plan", systemImage: "trash", role: .destructive) {
-                        modelContext.delete(plan)
-                        try? modelContext.save()
-                        // Cancel notification if no other active plans
-                        let remaining = allPlans.filter { $0.id != plan.id }
-                        if !remaining.contains(where: { $0.isActive }) {
-                            NotificationService.cancelWeeklyReminder()
-                        }
-                        dismiss()
+                        showDeleteConfirm = true
                     }
                 } label: { Image(systemName: "ellipsis.circle") }
             }
@@ -120,6 +115,34 @@ struct PlanDetailView: View {
             Button("OK") {}
         } message: {
             Text(errorMessage ?? "")
+        }
+        .confirmationDialog("Delete Plan", isPresented: $showDeleteConfirm, titleVisibility: .visible) {
+            Button("Delete", role: .destructive) {
+                modelContext.delete(plan)
+                try? modelContext.save()
+                let remaining = allPlans.filter { $0.id != plan.id }
+                if !remaining.contains(where: { $0.isActive }) {
+                    NotificationService.cancelWeeklyReminder()
+                }
+                dismiss()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Delete \u{201C}\(plan.name)\u{201D}? This cannot be undone.")
+        }
+        .confirmationDialog("Regenerate Week", isPresented: Binding(
+            get: { weekToRegenerate != nil },
+            set: { if !$0 { weekToRegenerate = nil } }
+        ), titleVisibility: .visible) {
+            Button("Regenerate") {
+                if let week = weekToRegenerate {
+                    regenerateWeek(week)
+                }
+                weekToRegenerate = nil
+            }
+            Button("Cancel", role: .cancel) { weekToRegenerate = nil }
+        } message: {
+            Text("Regenerate this week\u{2019}s workouts? All current workouts will be replaced. This uses an API call.")
         }
         .sheet(isPresented: $showStartDateSheet) {
             ChangeStartDateSheet(plan: plan, newStartDate: $newStartDate)

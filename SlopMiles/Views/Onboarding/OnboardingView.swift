@@ -30,25 +30,19 @@ struct OnboardingView: View {
                 .padding(.horizontal)
                 .padding(.top, 4)
 
-            TabView(selection: $currentStep) {
-                WelcomeStepView(onContinue: nextStep)
-                    .tag(0)
-                APIKeyStepView(onContinue: nextStep)
-                    .tag(1)
-                HealthKitStepView(onContinue: nextStep)
-                    .tag(2)
-                LocationStepView(onContinue: nextStep)
-                    .tag(3)
-                ProfileStepView(onContinue: nextStep)
-                    .tag(4)
-                ScheduleStepView(onContinue: nextStep)
-                    .tag(5)
-                EquipmentStepView(onContinue: nextStep)
-                    .tag(6)
-                WorkoutKitStepView(onComplete: completeOnboarding)
-                    .tag(7)
+            Group {
+                switch currentStep {
+                case 0: WelcomeStepView(onContinue: nextStep)
+                case 1: APIKeyStepView(onContinue: nextStep)
+                case 2: HealthKitStepView(onContinue: nextStep)
+                case 3: LocationStepView(onContinue: nextStep)
+                case 4: ProfileStepView(onContinue: nextStep)
+                case 5: ScheduleStepView(onContinue: nextStep)
+                case 6: EquipmentStepView(onContinue: nextStep)
+                case 7: WorkoutKitStepView(onComplete: completeOnboarding)
+                default: EmptyView()
+                }
             }
-            .tabViewStyle(.page(indexDisplayMode: .never))
             .animation(.easeInOut, value: currentStep)
         }
     }
