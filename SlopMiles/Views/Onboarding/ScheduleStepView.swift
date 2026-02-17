@@ -54,6 +54,7 @@ struct ScheduleStepView: View {
                         .font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center)
                 }
                 .padding(.top, 32)
+                .padding(.horizontal)
 
                 ForEach($dayWindows) { $day in
                     DayScheduleRow(day: $day)
@@ -63,7 +64,8 @@ struct ScheduleStepView: View {
                 Spacer(minLength: 32)
 
                 Button("Continue") { saveSchedule(); onContinue() }
-                    .buttonStyle(.borderedProminent).controlSize(.large).padding(.bottom, 32)
+                    .buttonStyle(.borderedProminent).controlSize(.large)
+                    .padding(.horizontal).padding(.bottom, 32)
             }
         }
     }
@@ -100,6 +102,7 @@ struct DayScheduleRow: View {
                         }
                     }
                 )).labelsHidden()
+                    .toggleStyle(.switch)
                     .accessibilityLabel("\(DateFormatters.dayName(for: day.dayOfWeek)) available")
                     .accessibilityHint(day.isAvailable ? "Currently enabled, double tap to mark as rest day" : "Currently rest day, double tap to enable")
             }

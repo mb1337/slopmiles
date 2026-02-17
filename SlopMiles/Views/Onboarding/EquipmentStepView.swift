@@ -21,6 +21,7 @@ struct EquipmentStepView: View {
                     Text("What do you have access to?").font(.subheadline).foregroundStyle(.secondary)
                 }
                 .padding(.top, 32)
+                .padding(.horizontal)
                 VStack(spacing: 12) {
                     EquipmentToggle(icon: "figure.run.treadmill", title: "Treadmill", isOn: $hasTreadmill)
                     EquipmentToggle(icon: "oval", title: "Track", isOn: $hasTrack)
@@ -44,7 +45,8 @@ struct EquipmentStepView: View {
                 .padding(.horizontal)
                 Spacer(minLength: 32)
                 Button("Continue") { saveEquipment(); onContinue() }
-                    .buttonStyle(.borderedProminent).controlSize(.large).padding(.bottom, 32)
+                    .buttonStyle(.borderedProminent).controlSize(.large)
+                    .padding(.horizontal).padding(.bottom, 32)
             }
         }
     }
@@ -69,6 +71,7 @@ private struct EquipmentToggle: View {
 
     var body: some View {
         Toggle(isOn: $isOn) { Label(title, systemImage: icon) }
+            .toggleStyle(.switch)
             .padding()
             .background(.fill.quaternary, in: RoundedRectangle(cornerRadius: 12))
     }

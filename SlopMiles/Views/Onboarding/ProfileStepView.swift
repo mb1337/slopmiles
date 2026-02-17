@@ -30,6 +30,7 @@ struct ProfileStepView: View {
                         .font(.subheadline).foregroundStyle(.secondary)
                 }
                 .padding(.top, 32)
+                .padding(.horizontal)
 
                 VStack(alignment: .leading, spacing: 16) {
                     VStack(alignment: .leading, spacing: 8) {
@@ -120,7 +121,8 @@ struct ProfileStepView: View {
                 Spacer(minLength: 32)
 
                 Button("Continue") { saveProfile(); onContinue() }
-                    .buttonStyle(.borderedProminent).controlSize(.large).padding(.bottom, 32)
+                    .buttonStyle(.borderedProminent).controlSize(.large)
+                    .padding(.horizontal).padding(.bottom, 32)
             }
         }
         .task { await autoFillFromHealthKit() }
