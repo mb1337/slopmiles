@@ -30,7 +30,12 @@ struct ContentView: View {
             } else {
                 // Singleton models are seeded in SlopMilesApp.task;
                 // this placeholder shows briefly on first launch.
-                ProgressView()
+                VStack(spacing: 16) {
+                    Image(systemName: "figure.run.circle.fill")
+                        .font(.system(size: 56))
+                        .foregroundStyle(.blue)
+                    ProgressView()
+                }
             }
         }
     }
