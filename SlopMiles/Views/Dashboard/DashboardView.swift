@@ -59,6 +59,8 @@ struct DashboardView: View {
                             }
                         }
                         .padding()
+                        .frame(maxWidth: 700)
+                        .frame(maxWidth: .infinity)
                         .animation(.default, value: currentWeek?.workoutsGenerated)
                     }
                 } else {
