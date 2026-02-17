@@ -44,3 +44,9 @@ struct ContentView: View {
         .animation(.default, value: isFullyOnboarded)
     }
 }
+
+#Preview {
+    ContentView()
+        .environment(PreviewData.appState)
+        .modelContainer(PreviewData.container)
+}

@@ -43,3 +43,10 @@ private struct EquipmentEditForm: View {
         .navigationTitle("Equipment & Facilities")
     }
 }
+
+#Preview {
+    NavigationStack {
+        EquipmentEditView()
+    }
+    .modelContainer(PreviewData.container)
+}

@@ -217,3 +217,11 @@ private struct ProfileEditForm: View {
         }
     }
 }
+
+#Preview {
+    NavigationStack {
+        ProfileEditView()
+    }
+    .environment(PreviewData.appState)
+    .modelContainer(PreviewData.container)
+}

@@ -270,3 +270,9 @@ private struct OpenRouterModelListView: View {
         .presentationDetents([.medium, .large])
     }
 }
+
+#Preview {
+    SettingsView()
+        .environment(PreviewData.appState)
+        .modelContainer(PreviewData.container)
+}

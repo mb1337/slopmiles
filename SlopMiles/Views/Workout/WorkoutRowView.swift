@@ -56,3 +56,8 @@ struct CompletionStatusIcon: View {
         .contentTransition(.symbolEffect(.replace))
     }
 }
+
+#Preview {
+    WorkoutRowView(workout: PreviewData.sampleWorkout, unitPref: .imperial)
+        .modelContainer(PreviewData.container)
+}

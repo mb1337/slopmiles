@@ -143,6 +143,14 @@ struct GeneratePlanView: View {
     }
 }
 
+#Preview {
+    NavigationStack {
+        GeneratePlanView()
+    }
+    .environment(PreviewData.appState)
+    .modelContainer(PreviewData.container)
+}
+
 struct GenerationProgressView: View {
     let status: GenerationStatus
     private var isInProgress: Bool {

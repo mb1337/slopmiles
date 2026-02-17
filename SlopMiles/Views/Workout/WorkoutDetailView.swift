@@ -171,3 +171,11 @@ struct WorkoutDetailView: View {
         .sensoryFeedback(.error, trigger: showError) { _, new in new }
     }
 }
+
+#Preview {
+    NavigationStack {
+        WorkoutDetailView(workout: PreviewData.sampleWorkout)
+    }
+    .environment(PreviewData.appState)
+    .modelContainer(PreviewData.container)
+}

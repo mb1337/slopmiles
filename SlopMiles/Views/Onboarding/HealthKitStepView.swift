@@ -38,3 +38,8 @@ struct HealthKitStepView: View {
         .padding()
     }
 }
+
+#Preview {
+    HealthKitStepView(onContinue: {})
+        .environment(PreviewData.appState)
+}

@@ -38,3 +38,8 @@ struct LocationStepView: View {
         .padding()
     }
 }
+
+#Preview {
+    LocationStepView(onContinue: {})
+        .environment(PreviewData.appState)
+}

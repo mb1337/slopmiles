@@ -116,3 +116,9 @@ struct APIKeyStepView: View {
         isValidating = false
     }
 }
+
+#Preview {
+    APIKeyStepView(onContinue: {})
+        .environment(PreviewData.appState)
+        .modelContainer(PreviewData.container)
+}

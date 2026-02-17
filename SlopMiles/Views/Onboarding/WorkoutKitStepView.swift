@@ -35,3 +35,8 @@ struct WorkoutKitStepView: View {
         .padding()
     }
 }
+
+#Preview {
+    WorkoutKitStepView(onComplete: {})
+        .environment(PreviewData.appState)
+}

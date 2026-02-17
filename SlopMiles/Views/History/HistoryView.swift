@@ -62,3 +62,9 @@ struct HistoryView: View {
         isLoading = false
     }
 }
+
+#Preview {
+    HistoryView()
+        .environment(PreviewData.appState)
+        .modelContainer(PreviewData.container)
+}

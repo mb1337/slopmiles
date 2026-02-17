@@ -166,3 +166,9 @@ struct ProfileStepView: View {
         if let rhr = Int(restingHR) { p.restingHeartRate = rhr }
     }
 }
+
+#Preview {
+    ProfileStepView(onContinue: {})
+        .environment(PreviewData.appState)
+        .modelContainer(PreviewData.container)
+}

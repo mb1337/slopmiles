@@ -270,3 +270,11 @@ private struct ChangeStartDateSheet: View {
         .presentationDetents([.medium])
     }
 }
+
+#Preview {
+    NavigationStack {
+        PlanDetailView(plan: PreviewData.samplePlan)
+    }
+    .environment(PreviewData.appState)
+    .modelContainer(PreviewData.container)
+}

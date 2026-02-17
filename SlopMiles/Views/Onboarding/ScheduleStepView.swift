@@ -159,3 +159,8 @@ struct DayScheduleRow: View {
         .background(.fill.quaternary, in: RoundedRectangle(cornerRadius: 12))
     }
 }
+
+#Preview {
+    ScheduleStepView(onContinue: {})
+        .modelContainer(PreviewData.container)
+}

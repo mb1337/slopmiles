@@ -54,3 +54,10 @@ private struct ScheduleEditForm: View {
         }
     }
 }
+
+#Preview {
+    NavigationStack {
+        ScheduleEditView()
+    }
+    .modelContainer(PreviewData.container)
+}

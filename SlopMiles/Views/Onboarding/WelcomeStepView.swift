@@ -53,3 +53,7 @@ private struct FeatureRow: View {
         .accessibilityElement(children: .combine)
     }
 }
+
+#Preview {
+    WelcomeStepView(onContinue: {})
+}

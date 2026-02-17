@@ -300,3 +300,9 @@ enum RaceDistance: String, CaseIterable {
         }
     }
 }
+
+#Preview {
+    VDOTCalculatorSheet(profile: PreviewData.sampleProfile)
+        .environment(PreviewData.appState)
+        .modelContainer(PreviewData.container)
+}

@@ -32,3 +32,9 @@ struct MainTabView: View {
         }
     }
 }
+
+#Preview {
+    MainTabView()
+        .environment(PreviewData.appState)
+        .modelContainer(PreviewData.container)
+}

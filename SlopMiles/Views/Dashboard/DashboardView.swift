@@ -346,3 +346,9 @@ private struct ActivePlanNoWeekCard: View {
     }
 }
 
+#Preview {
+    DashboardView()
+        .environment(PreviewData.appState)
+        .modelContainer(PreviewData.container)
+}
+

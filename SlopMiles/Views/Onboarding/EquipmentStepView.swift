@@ -76,3 +76,8 @@ private struct EquipmentToggle: View {
             .background(.fill.quaternary, in: RoundedRectangle(cornerRadius: 12))
     }
 }
+
+#Preview {
+    EquipmentStepView(onContinue: {})
+        .modelContainer(PreviewData.container)
+}

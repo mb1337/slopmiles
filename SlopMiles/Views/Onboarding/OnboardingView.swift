@@ -65,3 +65,9 @@ struct OnboardingView: View {
         }
     }
 }
+
+#Preview {
+    OnboardingView()
+        .environment(PreviewData.appState)
+        .modelContainer(PreviewData.container)
+}

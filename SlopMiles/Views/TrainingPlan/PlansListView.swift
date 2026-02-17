@@ -108,3 +108,9 @@ struct PlansListView: View {
         }
     }
 }
+
+#Preview {
+    PlansListView()
+        .environment(PreviewData.appState)
+        .modelContainer(PreviewData.container)
+}
