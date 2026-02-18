@@ -16,6 +16,9 @@ struct ContentView: View {
               settings.hasCompletedOnboarding else {
             return false
         }
+        if ProcessInfo.processInfo.arguments.contains("--uitesting") {
+            return true
+        }
         return keychain.hasKey(settings.provider.keychainKey)
     }
 

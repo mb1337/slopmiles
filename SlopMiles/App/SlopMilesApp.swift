@@ -8,6 +8,8 @@ struct SlopMilesApp: App {
     @State private var appState = AppState()
     @AppStorage("appearanceMode") private var appearanceMode: AppearanceMode = .system
 
+    private static let isUITesting = ProcessInfo.processInfo.arguments.contains("--uitesting")
+
     var sharedModelContainer: ModelContainer = {
         let schema = Schema([
             TrainingPlan.self,
@@ -22,8 +24,8 @@ struct SlopMilesApp: App {
         ])
         let modelConfiguration = ModelConfiguration(
             schema: schema,
-            isStoredInMemoryOnly: false,
-            cloudKitDatabase: .automatic
+            isStoredInMemoryOnly: isUITesting,
+            cloudKitDatabase: isUITesting ? .none : .automatic
         )
         do {
             return try ModelContainer(for: schema, configurations: [modelConfiguration])
@@ -40,8 +42,28 @@ struct SlopMilesApp: App {
                 .preferredColorScheme(appearanceMode.colorScheme)
                 .task {
                     ensureSingletonModelsExist()
-                    await appState.healthKitService.restoreAuthorizationStatus()
+                    if Self.isUITesting {
+                        seedUITestData()
+                    } else {
+                        await appState.healthKitService.restoreAuthorizationStatus()
+                    }
                 }
+        }
+    }
+
+    private func seedUITestData() {
+        let args = ProcessInfo.processInfo.arguments
+        let context = sharedModelContainer.mainContext
+
+        if args.contains("--skip-onboarding") {
+            let descriptor = FetchDescriptor<AISettings>()
+            if let settings = try? context.fetch(descriptor).first {
+                settings.hasCompletedOnboarding = true
+            }
+        }
+
+        if args.contains("--with-sample-data") {
+            PreviewData.seedSampleData(into: context)
         }
     }
 

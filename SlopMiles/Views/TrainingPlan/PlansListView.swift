@@ -16,6 +16,7 @@ struct PlansListView: View {
                     ContentUnavailableView { Label("No Plans", systemImage: "calendar.badge.plus") }
                         description: { Text("Generate your first training plan with your AI coach.") }
                         actions: { NavigationLink("Generate Plan") { GeneratePlanView() }.buttonStyle(.borderedProminent) }
+                        .accessibilityIdentifier(AccessibilityID.Plans.emptyState)
                 } else {
                     List {
                         ForEach(plans) { plan in
@@ -74,8 +75,9 @@ struct PlansListView: View {
             } message: {
                 Text("Delete \u{201C}\(planToDelete?.name ?? "")\u{201D}? This cannot be undone.")
             }
+            .accessibilityIdentifier(AccessibilityID.Plans.list)
             .navigationTitle("Plans")
-            .toolbar { ToolbarItem(placement: .primaryAction) { NavigationLink { GeneratePlanView() } label: { Image(systemName: "plus") } } }
+            .toolbar { ToolbarItem(placement: .primaryAction) { NavigationLink { GeneratePlanView() } label: { Image(systemName: "plus") }.accessibilityIdentifier(AccessibilityID.Plans.addButton) } }
             .navigationDestination(for: TrainingPlan.self) { PlanDetailView(plan: $0) }
             .onChange(of: appState.planGenerationManager.completedPlan) { _, plan in
                 if let plan {

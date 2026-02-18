@@ -39,6 +39,7 @@ struct DashboardView: View {
                         VStack(spacing: 20) {
                             if let week = currentWeek {
                                 CurrentPlanCard(plan: plan, week: week, unitPref: unitPref)
+                                    .accessibilityIdentifier(AccessibilityID.Dashboard.currentPlanCard)
 
                                 if !week.workoutsGenerated {
                                     WeekGeneratingCard(
@@ -53,6 +54,7 @@ struct DashboardView: View {
                                             NextWorkoutCard(workout: workout, unitPref: unitPref)
                                         }
                                         .buttonStyle(.plain)
+                                        .accessibilityIdentifier(AccessibilityID.Dashboard.nextWorkoutCard)
                                     }
                                     WeekOverviewCard(week: week, unitPref: unitPref)
                                 }
@@ -73,7 +75,9 @@ struct DashboardView: View {
                     } actions: {
                         NavigationLink("Create Plan") { GeneratePlanView() }
                             .buttonStyle(.borderedProminent)
+                            .accessibilityIdentifier(AccessibilityID.Dashboard.createPlanButton)
                     }
+                    .accessibilityIdentifier(AccessibilityID.Dashboard.noPlanView)
                 }
             }
             .navigationDestination(for: PlannedWorkout.self) { WorkoutDetailView(workout: $0) }

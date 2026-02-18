@@ -54,16 +54,19 @@ struct SettingsView: View {
                         } label: {
                             LabeledContent("Runner Profile", value: profile.experienceLevel.displayName)
                         }
+                        .accessibilityIdentifier(AccessibilityID.Settings.profileRow)
                         NavigationLink {
                             ScheduleEditView()
                         } label: {
                             LabeledContent("Weekly Schedule", value: "\(schedules.first?.availableDays.count ?? 0) days")
                         }
+                        .accessibilityIdentifier(AccessibilityID.Settings.scheduleRow)
                         NavigationLink {
                             EquipmentEditView()
                         } label: {
                             Text("Equipment & Facilities")
                         }
+                        .accessibilityIdentifier(AccessibilityID.Settings.equipmentRow)
                         Picker("First Day of Week", selection: Binding(
                             get: { profile.firstDayOfWeekRaw },
                             set: { newValue in

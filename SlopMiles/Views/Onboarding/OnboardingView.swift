@@ -18,6 +18,7 @@ struct OnboardingView: View {
                     Image(systemName: "chevron.left")
                         .font(.body.weight(.semibold))
                 }
+                .accessibilityIdentifier(AccessibilityID.Onboarding.backButton)
                 .opacity(currentStep > 0 ? 1 : 0)
                 .disabled(currentStep == 0)
 

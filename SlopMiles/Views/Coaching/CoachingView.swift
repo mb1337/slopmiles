@@ -108,6 +108,7 @@ struct CoachingView: View {
                 .textFieldStyle(.plain)
                 .lineLimit(1...5)
                 .onSubmit { send() }
+                .accessibilityIdentifier(AccessibilityID.Coaching.messageInput)
 
             Button {
                 send()
@@ -117,6 +118,7 @@ struct CoachingView: View {
                     .foregroundStyle(canSend ? AnyShapeStyle(Theme.accentGradient) : AnyShapeStyle(.quaternary))
             }
             .disabled(!canSend)
+            .accessibilityIdentifier(AccessibilityID.Coaching.sendButton)
         }
         .padding(.horizontal)
         .padding(.vertical, 8)

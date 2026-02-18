@@ -43,3 +43,15 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.slopmiles.app.tests
         GENERATE_INFOPLIST_FILE: YES
+
+  SlopMilesUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - SlopMilesUITests
+    dependencies:
+      - target: SlopMiles
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.slopmiles.app.uitests
+        GENERATE_INFOPLIST_FILE: YES

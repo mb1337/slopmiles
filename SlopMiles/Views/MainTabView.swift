@@ -10,18 +10,23 @@ struct MainTabView: View {
             Tab("Dashboard", systemImage: "house.fill", value: .dashboard) {
                 DashboardView()
             }
+            .accessibilityIdentifier(AccessibilityID.Tab.dashboard)
             Tab("Plans", systemImage: "calendar", value: .plans) {
                 PlansListView()
             }
+            .accessibilityIdentifier(AccessibilityID.Tab.plans)
             Tab("Coach", systemImage: "message.fill", value: .coach) {
                 CoachingView()
             }
+            .accessibilityIdentifier(AccessibilityID.Tab.coach)
             Tab("History", systemImage: "clock.fill", value: .history) {
                 HistoryView()
             }
+            .accessibilityIdentifier(AccessibilityID.Tab.history)
             Tab("Settings", systemImage: "gear", value: .settings) {
                 SettingsView()
             }
+            .accessibilityIdentifier(AccessibilityID.Tab.settings)
         }
         .tint(Theme.accent)
         .onAppear {

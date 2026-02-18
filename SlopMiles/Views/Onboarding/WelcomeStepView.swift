@@ -33,6 +33,7 @@ struct WelcomeStepView: View {
                     .padding(.vertical, 14)
                     .background(Theme.accentGradient, in: RoundedRectangle(cornerRadius: 14))
             }
+            .accessibilityIdentifier(AccessibilityID.Onboarding.getStartedButton)
             .padding(.bottom, 32)
         }
         .padding()

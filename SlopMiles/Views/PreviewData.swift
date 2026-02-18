@@ -24,19 +24,19 @@ enum PreviewData {
             cloudKitDatabase: .none
         )
         let container = try! ModelContainer(for: schema, configurations: [config])
-        let context = container.mainContext
+        seedSampleData(into: container.mainContext)
+        return container
+    }()
 
-        // Singleton models
+    /// Insert sample singleton models and training plan into the given context.
+    /// Used by both SwiftUI previews and UI test launch arguments.
+    static func seedSampleData(into context: ModelContext) {
         context.insert(sampleProfile)
         context.insert(sampleSettings)
         context.insert(sampleSchedule)
         context.insert(sampleEquipment)
-
-        // Training plan with weeks and workouts
         context.insert(samplePlan)
-
-        return container
-    }()
+    }
 
     // MARK: - AppState
 

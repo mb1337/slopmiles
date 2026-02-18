@@ -11,6 +11,9 @@ xcodebuild build -project SlopMiles.xcodeproj -scheme SlopMiles \
 xcodebuild test -project SlopMiles.xcodeproj -scheme SlopMiles \
   -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.2' \
   -only-testing:SlopMilesTests
+xcodebuild test -project SlopMiles.xcodeproj -scheme SlopMiles \
+  -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.2' \
+  -only-testing:SlopMilesUITests
 ```
 
 ## Tech Stack
