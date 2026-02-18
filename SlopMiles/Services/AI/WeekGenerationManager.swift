@@ -23,8 +23,11 @@ final class WeekGenerationManager {
         equipment: RunnerEquipment,
         settings: AISettings,
         aiService: AIService,
+        coachingService: CoachingService,
         context: ModelContext,
-        workoutKitService: WorkoutKitService
+        healthKitService: HealthKitService,
+        workoutKitService: WorkoutKitService,
+        conversation: CoachingConversation
     ) {
         guard case .idle = status else { return }
 
@@ -40,33 +43,25 @@ final class WeekGenerationManager {
         status = .generating(weekNumber: currentWeek.weekNumber)
         generationTask = Task {
             do {
-                let weatherData = await Self.fetchWeatherIfAvailable(profile: profile)
-                let responseText = try await aiService.generateWeekWorkouts(
-                    plan: plan, week: currentWeek,
-                    profile: profile, schedule: schedule, equipment: equipment,
-                    settings: settings, performanceData: performanceData,
-                    weatherData: weatherData
+                try Task.checkCancellation()
+                await coachingService.generateWeekWorkouts(
+                    week: currentWeek,
+                    plan: plan,
+                    performanceData: performanceData,
+                    conversation: conversation,
+                    settings: settings,
+                    context: context,
+                    healthKitService: healthKitService,
+                    workoutKitService: workoutKitService
                 )
-                let parseContext = PlanParseContext(
-                    peakVolume: profile.volumeType == .time ? profile.peakWeeklyVolumeMinutes : profile.peakWeeklyMileageKm,
-                    volumeType: profile.volumeType,
-                    vdot: profile.vdot,
-                    schedule: schedule
-                )
-                try ResponseParser.parseWeekWorkouts(
-                    from: responseText, week: currentWeek,
-                    planStartDate: plan.startDate, context: context,
-                    parseContext: parseContext
-                )
-                currentWeek.workoutsGenerated = true
-                try context.save()
-                do {
-                    try await workoutKitService.scheduleWeek(currentWeek)
-                } catch {
-                    logger.error("Auto-schedule to Watch failed: \(error.localizedDescription)")
+                // Check if generation succeeded (workoutsGenerated set by set_week_workouts tool)
+                if currentWeek.workoutsGenerated {
+                    status = .idle
+                    logger.info("Generated workouts for week \(currentWeek.weekNumber) via coaching agent")
+                } else {
+                    status = .failed("Coaching agent did not generate workouts")
+                    logger.error("Coaching agent did not call set_week_workouts")
                 }
-                status = .idle
-                logger.info("Generated workouts for week \(currentWeek.weekNumber)")
             } catch is CancellationError {
                 status = .idle
             } catch {
@@ -83,9 +78,11 @@ final class WeekGenerationManager {
         schedule: WeeklySchedule,
         equipment: RunnerEquipment,
         settings: AISettings,
-        aiService: AIService,
+        coachingService: CoachingService,
         context: ModelContext,
-        workoutKitService: WorkoutKitService
+        healthKitService: HealthKitService,
+        workoutKitService: WorkoutKitService,
+        conversation: CoachingConversation
     ) {
         // Delete existing workouts for this week
         for workout in week.sortedWorkouts {
@@ -101,33 +98,23 @@ final class WeekGenerationManager {
         status = .generating(weekNumber: week.weekNumber)
         generationTask = Task {
             do {
-                let weatherData = await Self.fetchWeatherIfAvailable(profile: profile)
-                let responseText = try await aiService.generateWeekWorkouts(
-                    plan: plan, week: week,
-                    profile: profile, schedule: schedule, equipment: equipment,
-                    settings: settings, performanceData: performanceData,
-                    weatherData: weatherData
+                try Task.checkCancellation()
+                await coachingService.generateWeekWorkouts(
+                    week: week,
+                    plan: plan,
+                    performanceData: performanceData,
+                    conversation: conversation,
+                    settings: settings,
+                    context: context,
+                    healthKitService: healthKitService,
+                    workoutKitService: workoutKitService
                 )
-                let parseContext = PlanParseContext(
-                    peakVolume: profile.volumeType == .time ? profile.peakWeeklyVolumeMinutes : profile.peakWeeklyMileageKm,
-                    volumeType: profile.volumeType,
-                    vdot: profile.vdot,
-                    schedule: schedule
-                )
-                try ResponseParser.parseWeekWorkouts(
-                    from: responseText, week: week,
-                    planStartDate: plan.startDate, context: context,
-                    parseContext: parseContext
-                )
-                week.workoutsGenerated = true
-                try context.save()
-                do {
-                    try await workoutKitService.scheduleWeek(week)
-                } catch {
-                    logger.error("Auto-schedule to Watch failed: \(error.localizedDescription)")
+                if week.workoutsGenerated {
+                    status = .idle
+                    logger.info("Regenerated workouts for week \(week.weekNumber) via coaching agent")
+                } else {
+                    status = .failed("Coaching agent did not generate workouts")
                 }
-                status = .idle
-                logger.info("Regenerated workouts for week \(week.weekNumber)")
             } catch is CancellationError {
                 status = .idle
             } catch {
@@ -144,16 +131,19 @@ final class WeekGenerationManager {
         schedule: WeeklySchedule,
         equipment: RunnerEquipment,
         settings: AISettings,
-        aiService: AIService,
+        coachingService: CoachingService,
         context: ModelContext,
-        workoutKitService: WorkoutKitService
+        healthKitService: HealthKitService,
+        workoutKitService: WorkoutKitService,
+        conversation: CoachingConversation
     ) {
         status = .idle
         regenerateWeek(
             week: week, plan: plan,
             profile: profile, schedule: schedule, equipment: equipment,
-            settings: settings, aiService: aiService, context: context,
-            workoutKitService: workoutKitService
+            settings: settings, coachingService: coachingService, context: context,
+            healthKitService: healthKitService, workoutKitService: workoutKitService,
+            conversation: conversation
         )
     }
 
@@ -161,15 +151,6 @@ final class WeekGenerationManager {
         generationTask?.cancel()
         generationTask = nil
         status = .idle
-    }
-
-    // MARK: - Weather Pre-fetch
-
-    private static func fetchWeatherIfAvailable(profile: UserProfile) async -> [String: JSONValue]? {
-        guard let lat = profile.homeLatitude, let lon = profile.homeLongitude else { return nil }
-        let forecast = await WeatherTool.getForecast(latitude: lat, longitude: lon, days: 7)
-        guard forecast["error"] == nil else { return nil }
-        return forecast
     }
 
     // MARK: - Week Boundary Calculation

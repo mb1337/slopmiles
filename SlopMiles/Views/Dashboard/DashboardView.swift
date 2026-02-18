@@ -10,6 +10,8 @@ struct DashboardView: View {
     @Query private var schedules: [WeeklySchedule]
     @Query private var equipmentList: [RunnerEquipment]
     @Query private var aiSettings: [AISettings]
+    @Query(sort: \CoachingConversation.updatedAt, order: .reverse)
+    private var conversations: [CoachingConversation]
 
     private var activePlan: TrainingPlan? {
         plans.first { $0.isActive }
@@ -100,6 +102,9 @@ struct DashboardView: View {
         let workouts = week.sortedWorkouts
         guard !workouts.isEmpty else { return }
 
+        // Snapshot completion statuses before matching
+        let statusesBefore = Dictionary(uniqueKeysWithValues: workouts.map { ($0.id, $0.completionStatus) })
+
         // Determine date range for the week's workouts
         let dates = workouts.map(\.scheduledDate)
         guard let earliest = dates.min(), let latest = dates.max() else { return }
@@ -118,6 +123,33 @@ struct DashboardView: View {
             plannedWorkouts: workouts, hkWorkouts: hkWorkouts
         )
         WorkoutMatcher.applyMatches(matches)
+
+        // Detect newly completed workouts and trigger coaching feedback
+        guard let settings = aiSettings.first else { return }
+        for workout in workouts {
+            let wasBefore = statusesBefore[workout.id]
+            if workout.completionStatus == .completed && wasBefore != .completed {
+                let conversation = getOrCreateConversation()
+                await appState.coachingService.handleWorkoutCompletion(
+                    workout: workout,
+                    conversation: conversation,
+                    settings: settings,
+                    context: modelContext,
+                    healthKitService: appState.healthKitService,
+                    workoutKitService: appState.workoutKitService
+                )
+            }
+        }
+    }
+
+    private func getOrCreateConversation() -> CoachingConversation {
+        if let existing = conversations.first {
+            return existing
+        }
+        let new = CoachingConversation()
+        modelContext.insert(new)
+        try? modelContext.save()
+        return new
     }
 
     private func triggerAutoGeneration() {
@@ -133,8 +165,11 @@ struct DashboardView: View {
             equipment: equipment,
             settings: settings,
             aiService: appState.aiService,
+            coachingService: appState.coachingService,
             context: modelContext,
-            workoutKitService: appState.workoutKitService
+            healthKitService: appState.healthKitService,
+            workoutKitService: appState.workoutKitService,
+            conversation: getOrCreateConversation()
         )
     }
 }

@@ -11,6 +11,8 @@ struct PlanDetailView: View {
     @Query private var equipmentList: [RunnerEquipment]
     @Query private var aiSettings: [AISettings]
     @Query(sort: \TrainingPlan.createdAt, order: .reverse) private var allPlans: [TrainingPlan]
+    @Query(sort: \CoachingConversation.updatedAt, order: .reverse)
+    private var conversations: [CoachingConversation]
     @State private var selectedWorkout: PlannedWorkout?
     @State private var errorMessage: String?
     @State private var showError = false
@@ -206,11 +208,24 @@ struct PlanDetailView: View {
               let equipment = equipmentList.first,
               let settings = aiSettings.first else { return }
 
+        let conversation: CoachingConversation
+        if let existing = conversations.first {
+            conversation = existing
+        } else {
+            let new = CoachingConversation()
+            modelContext.insert(new)
+            try? modelContext.save()
+            conversation = new
+        }
+
         appState.weekGenerationManager.regenerateWeek(
             week: week, plan: plan,
             profile: profile, schedule: schedule, equipment: equipment,
-            settings: settings, aiService: appState.aiService, context: modelContext,
-            workoutKitService: appState.workoutKitService
+            settings: settings, coachingService: appState.coachingService,
+            context: modelContext,
+            healthKitService: appState.healthKitService,
+            workoutKitService: appState.workoutKitService,
+            conversation: conversation
         )
     }
 }

@@ -16,6 +16,7 @@ enum PreviewData {
             WeeklySchedule.self,
             RunnerEquipment.self,
             AISettings.self,
+            CoachingConversation.self,
         ])
         let config = ModelConfiguration(
             schema: schema,

@@ -17,6 +17,7 @@ struct SlopMilesApp: App {
             WeeklySchedule.self,
             RunnerEquipment.self,
             AISettings.self,
+            CoachingConversation.self,
         ])
         let modelConfiguration = ModelConfiguration(
             schema: schema,

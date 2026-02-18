@@ -13,6 +13,9 @@ struct MainTabView: View {
             Tab("Plans", systemImage: "calendar", value: .plans) {
                 PlansListView()
             }
+            Tab("Coach", systemImage: "message.fill", value: .coach) {
+                CoachingView()
+            }
             Tab("History", systemImage: "clock.fill", value: .history) {
                 HistoryView()
             }
