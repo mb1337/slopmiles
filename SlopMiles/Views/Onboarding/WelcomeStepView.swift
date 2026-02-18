@@ -9,7 +9,7 @@ struct WelcomeStepView: View {
             Spacer()
             Image(systemName: "figure.run.circle.fill")
                 .font(.system(size: iconSize))
-                .foregroundStyle(.blue)
+                .foregroundStyle(Theme.accentGradient)
             VStack(spacing: 12) {
                 Text("Slop Miles")
                     .font(.largeTitle.bold())
@@ -25,12 +25,24 @@ struct WelcomeStepView: View {
             }
             .padding(.horizontal, 24)
             Spacer()
-            Button("Get Started", action: onContinue)
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
-                .padding(.bottom, 32)
+            Button(action: onContinue) {
+                Text("Get Started")
+                    .font(.headline)
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 14)
+                    .background(Theme.accentGradient, in: RoundedRectangle(cornerRadius: 14))
+            }
+            .padding(.bottom, 32)
         }
         .padding()
+        .background(
+            LinearGradient(
+                colors: [Theme.accent.opacity(0.08), .clear],
+                startPoint: .top, endPoint: .center
+            )
+            .ignoresSafeArea()
+        )
     }
 }
 
@@ -43,7 +55,7 @@ private struct FeatureRow: View {
         HStack(spacing: 16) {
             Image(systemName: icon)
                 .font(.title2)
-                .foregroundStyle(.blue)
+                .foregroundStyle(Theme.accentGradient)
                 .frame(width: 32)
             VStack(alignment: .leading, spacing: 2) {
                 Text(title).font(.subheadline.bold())

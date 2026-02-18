@@ -20,7 +20,7 @@ struct WorkoutRowView: View {
 
     var body: some View {
         HStack {
-            Image(systemName: workout.workoutType.iconName).foregroundStyle(.blue).frame(width: 28)
+            Image(systemName: workout.workoutType.iconName).foregroundStyle(Theme.workoutColor(workout.workoutType)).frame(width: 28)
             VStack(alignment: .leading, spacing: 2) {
                 Text(workout.name).font(.subheadline)
                 HStack(spacing: 8) {

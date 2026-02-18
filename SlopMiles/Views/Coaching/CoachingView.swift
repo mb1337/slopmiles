@@ -114,6 +114,7 @@ struct CoachingView: View {
             } label: {
                 Image(systemName: "arrow.up.circle.fill")
                     .font(.title2)
+                    .foregroundStyle(canSend ? AnyShapeStyle(Theme.accentGradient) : AnyShapeStyle(.quaternary))
             }
             .disabled(!canSend)
         }

@@ -27,6 +27,7 @@ struct OnboardingView: View {
             .padding(.top, 8)
 
             ProgressView(value: Double(currentStep), total: Double(totalSteps))
+                .tint(Theme.accent)
                 .padding(.horizontal)
                 .padding(.top, 4)
 

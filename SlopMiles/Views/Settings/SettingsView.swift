@@ -6,11 +6,21 @@ struct SettingsView: View {
     @Query private var aiSettings: [AISettings]
     @Query private var profiles: [UserProfile]
     @Query private var schedules: [WeeklySchedule]
+    @AppStorage("appearanceMode") private var appearanceMode: AppearanceMode = .system
 
     var body: some View {
         NavigationStack {
             if let settings = aiSettings.first, let profile = profiles.first {
                 List {
+                    Section("Appearance") {
+                        Picker("Mode", selection: $appearanceMode) {
+                            ForEach(AppearanceMode.allCases, id: \.self) { mode in
+                                Text(mode.displayName).tag(mode)
+                            }
+                        }
+                        .pickerStyle(.segmented)
+                    }
+
                     Section("AI Provider") {
                         Picker("Provider", selection: Binding(
                             get: { settings.provider },

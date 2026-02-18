@@ -35,7 +35,7 @@ struct ContentView: View {
                 VStack(spacing: 16) {
                     Image(systemName: "figure.run.circle.fill")
                         .font(.system(size: 56))
-                        .foregroundStyle(.blue)
+                        .foregroundStyle(Theme.accentGradient)
                     ProgressView()
                 }
                 .transition(.opacity)

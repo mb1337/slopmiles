@@ -6,6 +6,7 @@ import SwiftData
 @main
 struct SlopMilesApp: App {
     @State private var appState = AppState()
+    @AppStorage("appearanceMode") private var appearanceMode: AppearanceMode = .system
 
     var sharedModelContainer: ModelContainer = {
         let schema = Schema([
@@ -36,6 +37,7 @@ struct SlopMilesApp: App {
             ContentView()
                 .environment(appState)
                 .modelContainer(sharedModelContainer)
+                .preferredColorScheme(appearanceMode.colorScheme)
                 .task {
                     ensureSingletonModelsExist()
                     await appState.healthKitService.restoreAuthorizationStatus()

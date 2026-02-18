@@ -20,7 +20,7 @@ struct WorkoutDetailView: View {
         List {
             Section {
                 HStack {
-                    Image(systemName: workout.workoutType.iconName).font(.title2).foregroundStyle(.blue)
+                    Image(systemName: workout.workoutType.iconName).font(.title2).foregroundStyle(Theme.workoutColor(workout.workoutType))
                     VStack(alignment: .leading) {
                         Text(workout.workoutType.displayName).font(.caption).foregroundStyle(.secondary)
                         Text(DateFormatters.shortDate(from: workout.scheduledDate)).font(.caption).foregroundStyle(.secondary)

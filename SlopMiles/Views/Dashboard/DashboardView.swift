@@ -214,7 +214,7 @@ private struct WeekGeneratingCard: View {
         }
         .frame(maxWidth: .infinity)
         .padding()
-        .background(.fill.quaternary, in: RoundedRectangle(cornerRadius: 16))
+        .themedCard()
     }
 }
 
@@ -223,15 +223,34 @@ private struct CurrentPlanCard: View {
     let week: TrainingWeek
     let unitPref: UnitPreference
 
+    private var completed: Int {
+        week.sortedWorkouts.filter { $0.completionStatus == .completed }.count
+    }
+
+    private var total: Int {
+        week.sortedWorkouts.filter { $0.workoutType != .rest }.count
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
+            // Gradient accent strip
+            Theme.accentGradient
+                .frame(height: 4)
+                .clipShape(Capsule())
+
             HStack {
-                Text(plan.name).font(.headline)
+                Text(plan.name).font(.title3.bold())
                 Spacer()
-                Text("Week \(week.weekNumber) of \(plan.totalWeeks)").font(.caption).foregroundStyle(.secondary)
+                if week.workoutsGenerated && total > 0 {
+                    WeekProgressRing(completed: completed, total: total)
+                }
             }
+
+            Text("Week \(week.weekNumber) of \(plan.totalWeeks)")
+                .font(.caption).foregroundStyle(.secondary)
+
             if !week.theme.isEmpty {
-                Text(week.theme).font(.subheadline).foregroundStyle(.blue)
+                Text(week.theme).font(.subheadline).foregroundStyle(Theme.accent)
             }
             HStack(spacing: 20) {
                 if plan.volumeType == .time {
@@ -240,16 +259,37 @@ private struct CurrentPlanCard: View {
                     VStack(spacing: 4) { Text(UnitConverter.formatDistance(week.totalDistanceKm, unit: unitPref)).font(.headline); Text(week.workoutsGenerated ? "Distance" : "Target").font(.caption2).foregroundStyle(.secondary) }
                 }
                 if week.workoutsGenerated {
-                    VStack(spacing: 4) { Text("\(week.sortedWorkouts.filter { $0.workoutType != .rest }.count)").font(.headline); Text("Workouts").font(.caption2).foregroundStyle(.secondary) }
-                    let completed = week.sortedWorkouts.filter { $0.completionStatus == .completed }.count
-                    let total = week.sortedWorkouts.filter { $0.workoutType != .rest }.count
+                    VStack(spacing: 4) { Text("\(total)").font(.headline); Text("Workouts").font(.caption2).foregroundStyle(.secondary) }
                     VStack(spacing: 4) { Text("\(completed)/\(total)").font(.headline); Text("Done").font(.caption2).foregroundStyle(.secondary) }
                 }
             }
         }
         .accessibilityElement(children: .combine)
         .padding()
-        .background(.fill.quaternary, in: RoundedRectangle(cornerRadius: 16))
+        .themedCard()
+    }
+}
+
+private struct WeekProgressRing: View {
+    let completed: Int
+    let total: Int
+
+    private var progress: Double {
+        total > 0 ? Double(completed) / Double(total) : 0
+    }
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .stroke(.quaternary, lineWidth: 4)
+            Circle()
+                .trim(from: 0, to: progress)
+                .stroke(Theme.accentGradient, style: StrokeStyle(lineWidth: 4, lineCap: .round))
+                .rotationEffect(.degrees(-90))
+            Text("\(completed)/\(total)")
+                .font(.system(size: 10, weight: .bold, design: .rounded))
+        }
+        .frame(width: 36, height: 36)
     }
 }
 
@@ -257,25 +297,35 @@ private struct NextWorkoutCard: View {
     let workout: PlannedWorkout
     let unitPref: UnitPreference
 
+    private var workoutColor: Color { Theme.workoutColor(workout.workoutType) }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Image(systemName: workout.workoutType.iconName).foregroundStyle(.blue)
-                Text("Next Workout").font(.caption.bold()).foregroundStyle(.secondary)
-                Spacer()
-                Text(DateFormatters.shortDate(from: workout.scheduledDate)).font(.caption).foregroundStyle(.secondary)
+        HStack(spacing: 0) {
+            // Left accent bar
+            RoundedRectangle(cornerRadius: 2)
+                .fill(workoutColor)
+                .frame(width: 4)
+                .padding(.vertical, 8)
+
+            VStack(alignment: .leading, spacing: 12) {
+                HStack {
+                    Image(systemName: workout.workoutType.iconName).foregroundStyle(workoutColor)
+                    Text("Next Workout").font(.caption.bold()).foregroundStyle(.secondary)
+                    Spacer()
+                    Text(DateFormatters.shortDate(from: workout.scheduledDate)).font(.caption).foregroundStyle(.secondary)
+                }
+                Text(workout.name).font(.title3.bold())
+                HStack(spacing: 16) {
+                    if workout.distanceKm > 0 { Label(UnitConverter.formatDistance(workout.distanceKm, unit: unitPref), systemImage: "ruler").font(.subheadline) }
+                    if workout.durationMinutes > 0 { Label(UnitConverter.formatDuration(minutes: workout.durationMinutes), systemImage: "clock").font(.subheadline) }
+                    if let pace = workout.targetPaceMinPerKm { Label(UnitConverter.formatPace(pace, unit: unitPref), systemImage: "gauge.with.needle").font(.subheadline) }
+                }
+                .foregroundStyle(.secondary)
             }
-            Text(workout.name).font(.title3.bold())
-            HStack(spacing: 16) {
-                if workout.distanceKm > 0 { Label(UnitConverter.formatDistance(workout.distanceKm, unit: unitPref), systemImage: "ruler").font(.subheadline) }
-                if workout.durationMinutes > 0 { Label(UnitConverter.formatDuration(minutes: workout.durationMinutes), systemImage: "clock").font(.subheadline) }
-                if let pace = workout.targetPaceMinPerKm { Label(UnitConverter.formatPace(pace, unit: unitPref), systemImage: "gauge.with.needle").font(.subheadline) }
-            }
-            .foregroundStyle(.secondary)
+            .padding()
         }
         .accessibilityElement(children: .combine)
-        .padding()
-        .background(.fill.quaternary, in: RoundedRectangle(cornerRadius: 16))
+        .themedCard()
     }
 }
 
@@ -311,10 +361,15 @@ private struct WeekOverviewCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("This Week").font(.headline)
-            ForEach(week.sortedWorkouts) { workout in
+            ForEach(Array(week.sortedWorkouts.enumerated()), id: \.element.id) { index, workout in
+                if index > 0 {
+                    Divider()
+                }
                 NavigationLink(value: workout) {
                     HStack {
-                        Image(systemName: workout.workoutType.iconName).foregroundStyle(.blue).frame(width: 24)
+                        Image(systemName: workout.workoutType.iconName)
+                            .foregroundStyle(Theme.workoutColor(workout.workoutType))
+                            .frame(width: 24)
                         VStack(alignment: .leading) {
                             Text(workout.name).font(.subheadline)
                             Text(dayLabel(for: workout)).font(.caption).foregroundStyle(.secondary)
@@ -349,7 +404,7 @@ private struct WeekOverviewCard: View {
             }
         }
         .padding()
-        .background(.fill.quaternary, in: RoundedRectangle(cornerRadius: 16))
+        .themedCard()
         .alert("Scheduling Error", isPresented: $showError) {
             Button("OK") {}
         } message: {
@@ -377,7 +432,7 @@ private struct ActivePlanNoWeekCard: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding()
-        .background(.fill.quaternary, in: RoundedRectangle(cornerRadius: 16))
+        .themedCard()
     }
 }
 

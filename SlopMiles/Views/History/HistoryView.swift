@@ -26,7 +26,7 @@ struct HistoryView: View {
                 } else {
                     List(workouts, id: \.uuid) { workout in
                         HStack {
-                            Image(systemName: "figure.run").foregroundStyle(.blue)
+                            Image(systemName: "figure.run").foregroundStyle(Theme.accent)
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(DateFormatters.shortDate(from: workout.startDate)).font(.subheadline)
                                 HStack(spacing: 8) {

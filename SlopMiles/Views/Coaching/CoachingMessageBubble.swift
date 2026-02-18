@@ -10,7 +10,7 @@ struct CoachingMessageBubble: View {
                 Spacer(minLength: 60)
                 Text(message.content)
                     .padding(12)
-                    .background(.blue, in: RoundedRectangle(cornerRadius: 16))
+                    .background(Theme.accentGradient, in: RoundedRectangle(cornerRadius: 16))
                     .foregroundStyle(.white)
             }
 
@@ -18,7 +18,7 @@ struct CoachingMessageBubble: View {
             HStack {
                 Text(LocalizedStringKey(message.content))
                     .padding(12)
-                    .background(.fill.quaternary, in: RoundedRectangle(cornerRadius: 16))
+                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16))
                 Spacer(minLength: 60)
             }
 
@@ -26,9 +26,9 @@ struct CoachingMessageBubble: View {
             HStack(spacing: 6) {
                 Image(systemName: "wrench.and.screwdriver")
                     .font(.caption2)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Theme.accent)
                 Text(toolDisplayName(message.toolName ?? message.content))
-                    .font(.caption)
+                    .font(.caption.monospaced())
                     .italic()
                     .foregroundStyle(.secondary)
                 Spacer()

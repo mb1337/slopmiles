@@ -23,6 +23,7 @@ struct MainTabView: View {
                 SettingsView()
             }
         }
+        .tint(Theme.accent)
         .onAppear {
             // Restore the persisted tab on launch
             if let restored = AppState.AppTab(rawValue: storedTab) {

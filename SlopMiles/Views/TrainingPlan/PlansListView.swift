@@ -28,7 +28,7 @@ struct PlansListView: View {
                                                 .font(.caption2.bold())
                                                 .padding(.horizontal, 8)
                                                 .padding(.vertical, 2)
-                                                .background(.blue, in: Capsule())
+                                                .background(Theme.accentGradient, in: Capsule())
                                                 .foregroundStyle(.white)
                                         }
                                     }
