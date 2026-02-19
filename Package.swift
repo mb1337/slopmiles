@@ -11,7 +11,7 @@ let package = Package(
         .target(
             name: "SlopMiles",
             dependencies: [
-                .product(name: "VDOTCalc", package: "vdot-calc-swift"),
+                .product(name: "VDotCalculator", package: "vdot-calc-swift"),
             ],
             path: "SlopMiles"
         ),
