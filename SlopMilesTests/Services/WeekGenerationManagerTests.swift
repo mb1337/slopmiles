@@ -150,3 +150,122 @@ struct WeekGenerationManagerTests {
         manager.cancel()
     }
 }
+
+@Suite("CalendarService Tests")
+@MainActor
+struct CalendarServiceTests {
+    private func makeCalendar() -> Calendar {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        return calendar
+    }
+
+    private func makeDate(
+        year: Int = 2026,
+        month: Int = 2,
+        day: Int = 16,
+        hour: Int,
+        minute: Int,
+        calendar: Calendar
+    ) -> Date {
+        let components = DateComponents(
+            timeZone: calendar.timeZone,
+            year: year,
+            month: month,
+            day: day,
+            hour: hour,
+            minute: minute
+        )
+        return calendar.date(from: components)!
+    }
+
+    @Test("resolvedStartDate uses schedule window when provided")
+    func resolvedStartDateUsesScheduleWindow() {
+        let calendar = makeCalendar()
+        let workout = PlannedWorkout(
+            name: "Tempo",
+            workoutType: .tempo,
+            scheduledDate: makeDate(hour: 9, minute: 30, calendar: calendar)
+        )
+        let schedule = WeeklySchedule()
+        schedule.setTimeWindows(
+            for: 2,
+            windows: [WeeklySchedule.TimeWindow(startMinutes: 6 * 60 + 15, endMinutes: 7 * 60)]
+        )
+
+        let service = CalendarService()
+        let resolved = service.resolvedStartDate(
+            for: workout,
+            schedule: schedule,
+            existingEventStartDate: nil,
+            calendar: calendar
+        )
+        let components = calendar.dateComponents([.hour, .minute], from: resolved)
+        #expect(components.hour == 6)
+        #expect(components.minute == 15)
+    }
+
+    @Test("resolvedStartDate preserves workout time when schedule is missing")
+    func resolvedStartDatePreservesWorkoutTimeWithoutSchedule() {
+        let calendar = makeCalendar()
+        let workout = PlannedWorkout(
+            name: "Easy",
+            workoutType: .easy,
+            scheduledDate: makeDate(hour: 17, minute: 45, calendar: calendar)
+        )
+
+        let service = CalendarService()
+        let resolved = service.resolvedStartDate(
+            for: workout,
+            schedule: nil,
+            existingEventStartDate: nil,
+            calendar: calendar
+        )
+        let components = calendar.dateComponents([.hour, .minute], from: resolved)
+        #expect(components.hour == 17)
+        #expect(components.minute == 45)
+    }
+
+    @Test("resolvedStartDate preserves existing event time when workout time is unset")
+    func resolvedStartDateUsesExistingEventTimeWhenWorkoutTimeUnset() {
+        let calendar = makeCalendar()
+        let workout = PlannedWorkout(
+            name: "Long Run",
+            workoutType: .long,
+            scheduledDate: makeDate(hour: 0, minute: 0, calendar: calendar)
+        )
+        let existingStart = makeDate(year: 2026, month: 2, day: 14, hour: 18, minute: 20, calendar: calendar)
+
+        let service = CalendarService()
+        let resolved = service.resolvedStartDate(
+            for: workout,
+            schedule: nil,
+            existingEventStartDate: existingStart,
+            calendar: calendar
+        )
+        let components = calendar.dateComponents([.hour, .minute], from: resolved)
+        #expect(components.hour == 18)
+        #expect(components.minute == 20)
+    }
+
+    @Test("resolvedStartDate defaults to 7:00 AM only when no time is available")
+    func resolvedStartDateFallsBackToSevenAM() {
+        let calendar = makeCalendar()
+        let workout = PlannedWorkout(
+            name: "Recovery",
+            workoutType: .recovery,
+            scheduledDate: makeDate(hour: 0, minute: 0, calendar: calendar)
+        )
+
+        let service = CalendarService()
+        let resolved = service.resolvedStartDate(
+            for: workout,
+            schedule: nil,
+            existingEventStartDate: nil,
+            calendar: calendar
+        )
+        let components = calendar.dateComponents([.hour, .minute], from: resolved)
+        #expect(components.hour == 7)
+        #expect(components.minute == 0)
+    }
+}

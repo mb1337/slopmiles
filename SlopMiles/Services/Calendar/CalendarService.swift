@@ -91,33 +91,24 @@ final class CalendarService {
         guard let calendar = findOrCreateCalendar() else { return }
 
         let event: EKEvent
+        let existingEventStartDate: Date?
         if let existingID = workout.calendarEventID,
            let existing = eventStore.event(withIdentifier: existingID) {
             event = existing
+            existingEventStartDate = existing.startDate
         } else {
             event = EKEvent(eventStore: eventStore)
             event.calendar = calendar
+            existingEventStartDate = nil
         }
 
         event.title = workout.name.isEmpty ? workout.workoutType.displayName : workout.name
 
-        // Determine start time from schedule or default to 7:00 AM
-        let cal = Calendar.current
-        let dayOfWeek = cal.component(.weekday, from: workout.scheduledDate)
-        var startDate = workout.scheduledDate
-
-        if let schedule, let window = schedule.timeWindows(for: dayOfWeek).first {
-            let hour = window.startMinutes / 60
-            let minute = window.startMinutes % 60
-            if let adjusted = cal.date(bySettingHour: hour, minute: minute, second: 0, of: workout.scheduledDate) {
-                startDate = adjusted
-            }
-        } else {
-            // Default to 7:00 AM
-            if let adjusted = cal.date(bySettingHour: 7, minute: 0, second: 0, of: workout.scheduledDate) {
-                startDate = adjusted
-            }
-        }
+        let startDate = resolvedStartDate(
+            for: workout,
+            schedule: schedule,
+            existingEventStartDate: existingEventStartDate
+        )
 
         event.startDate = startDate
 
@@ -176,6 +167,41 @@ final class CalendarService {
         } catch {
             logger.error("Failed to save calendar event: \(error.localizedDescription)")
         }
+    }
+
+    func resolvedStartDate(
+        for workout: PlannedWorkout,
+        schedule: WeeklySchedule? = nil,
+        existingEventStartDate: Date? = nil,
+        calendar: Calendar = .current
+    ) -> Date {
+        let dayOfWeek = calendar.component(.weekday, from: workout.scheduledDate)
+        if let schedule, let window = schedule.timeWindows(for: dayOfWeek).first {
+            let hour = window.startMinutes / 60
+            let minute = window.startMinutes % 60
+            if let adjusted = calendar.date(bySettingHour: hour, minute: minute, second: 0, of: workout.scheduledDate) {
+                return adjusted
+            }
+        }
+
+        if let existingEventStartDate {
+            let time = calendar.dateComponents([.hour, .minute], from: existingEventStartDate)
+            if let hour = time.hour, let minute = time.minute,
+               let adjusted = calendar.date(bySettingHour: hour, minute: minute, second: 0, of: workout.scheduledDate) {
+                return adjusted
+            }
+        }
+
+        if hasExplicitClockTime(workout.scheduledDate, calendar: calendar) {
+            return workout.scheduledDate
+        }
+
+        return calendar.date(bySettingHour: 7, minute: 0, second: 0, of: workout.scheduledDate) ?? workout.scheduledDate
+    }
+
+    private func hasExplicitClockTime(_ date: Date, calendar: Calendar) -> Bool {
+        let components = calendar.dateComponents([.hour, .minute, .second], from: date)
+        return (components.hour ?? 0) != 0 || (components.minute ?? 0) != 0 || (components.second ?? 0) != 0
     }
 
     func syncWeek(_ week: TrainingWeek, schedule: WeeklySchedule? = nil) {
