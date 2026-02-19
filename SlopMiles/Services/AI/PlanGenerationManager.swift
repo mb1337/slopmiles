@@ -124,8 +124,12 @@ final class PlanGenerationManager {
                     calendarService.syncWeek(week1, schedule: schedule)
                 }
 
-                NotificationService.scheduleWeeklyReminder(firstDayOfWeek: profile.firstDayOfWeek)
-                _ = await NotificationService.requestAuthorization()
+                let notificationsAuthorized = await NotificationService.requestAuthorization()
+                if notificationsAuthorized {
+                    NotificationService.scheduleWeeklyReminder(firstDayOfWeek: profile.firstDayOfWeek)
+                } else {
+                    logger.info("Skipping weekly reminder scheduling because notification permission is not granted")
+                }
 
                 completedPlan = plan
                 logger.info("Plan generation completed successfully")

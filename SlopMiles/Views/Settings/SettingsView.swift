@@ -71,7 +71,11 @@ struct SettingsView: View {
                             get: { profile.firstDayOfWeekRaw },
                             set: { newValue in
                                 profile.firstDayOfWeekRaw = newValue
-                                NotificationService.scheduleWeeklyReminder(firstDayOfWeek: profile.firstDayOfWeek)
+                                Task {
+                                    if await NotificationService.requestAuthorization() {
+                                        NotificationService.scheduleWeeklyReminder(firstDayOfWeek: profile.firstDayOfWeek)
+                                    }
+                                }
                             }
                         )) {
                             Text("System Default").tag(0)
