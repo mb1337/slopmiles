@@ -138,7 +138,8 @@ struct CoachingView: View {
                 settings: currentSettings,
                 context: modelContext,
                 healthKitService: appState.healthKitService,
-                workoutKitService: appState.workoutKitService
+                workoutKitService: appState.workoutKitService,
+                calendarService: appState.calendarService
             )
         }
     }

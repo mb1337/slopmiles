@@ -140,7 +140,8 @@ struct DashboardView: View {
                     settings: settings,
                     context: modelContext,
                     healthKitService: appState.healthKitService,
-                    workoutKitService: appState.workoutKitService
+                    workoutKitService: appState.workoutKitService,
+                    calendarService: appState.calendarService
                 )
             }
         }
@@ -173,6 +174,7 @@ struct DashboardView: View {
             context: modelContext,
             healthKitService: appState.healthKitService,
             workoutKitService: appState.workoutKitService,
+            calendarService: appState.calendarService,
             conversation: getOrCreateConversation()
         )
     }

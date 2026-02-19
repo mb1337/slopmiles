@@ -11,6 +11,7 @@ final class AppState {
     let healthKitService = HealthKitService()
     let locationService = LocationService()
     let workoutKitService = WorkoutKitService()
+    let calendarService = CalendarService()
     let weekGenerationManager = WeekGenerationManager()
     let planGenerationManager = PlanGenerationManager()
     let openRouterModelService = OpenRouterModelService()

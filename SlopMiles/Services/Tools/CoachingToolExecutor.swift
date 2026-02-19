@@ -11,7 +11,8 @@ final class CoachingToolExecutor {
         _ toolCall: ToolCall,
         context: ModelContext,
         healthKitService: HealthKitService,
-        workoutKitService: WorkoutKitService
+        workoutKitService: WorkoutKitService,
+        calendarService: CalendarService
     ) async -> (id: String, result: String) {
         logger.info("Executing tool: \(toolCall.name, privacy: .public)")
         do {
@@ -28,13 +29,13 @@ final class CoachingToolExecutor {
             case "get_runner_profile":
                 result = try getRunnerProfile(context: context)
             case "update_workout":
-                result = try updateWorkout(args: toolCall.arguments, context: context)
+                result = try updateWorkout(args: toolCall.arguments, context: context, calendarService: calendarService)
             case "swap_workout_dates":
-                result = try swapWorkoutDates(args: toolCall.arguments, context: context)
+                result = try swapWorkoutDates(args: toolCall.arguments, context: context, calendarService: calendarService)
             case "skip_workout":
-                result = try skipWorkout(args: toolCall.arguments, context: context)
+                result = try skipWorkout(args: toolCall.arguments, context: context, calendarService: calendarService)
             case "set_week_workouts":
-                result = try await setWeekWorkouts(args: toolCall.arguments, context: context, workoutKitService: workoutKitService)
+                result = try await setWeekWorkouts(args: toolCall.arguments, context: context, workoutKitService: workoutKitService, calendarService: calendarService)
             default:
                 result = "{\"error\": \"Unknown tool: \(toolCall.name)\"}"
             }
@@ -334,7 +335,7 @@ final class CoachingToolExecutor {
 
     // MARK: - Write Tools
 
-    private func updateWorkout(args: [String: JSONValue], context: ModelContext) throws -> String {
+    private func updateWorkout(args: [String: JSONValue], context: ModelContext, calendarService: CalendarService) throws -> String {
         guard let idStr = args["workout_id"]?.stringValue,
               let workoutId = UUID(uuidString: idStr) else {
             return "{\"error\": \"workout_id is required and must be a valid UUID\"}"
@@ -373,6 +374,7 @@ final class CoachingToolExecutor {
         }
 
         try? context.save()
+        calendarService.syncWorkout(workout)
 
         let dateFormatter = ISO8601DateFormatter()
         dateFormatter.formatOptions = [.withFullDate]
@@ -393,7 +395,7 @@ final class CoachingToolExecutor {
         return jsonString(result)
     }
 
-    private func swapWorkoutDates(args: [String: JSONValue], context: ModelContext) throws -> String {
+    private func swapWorkoutDates(args: [String: JSONValue], context: ModelContext, calendarService: CalendarService) throws -> String {
         guard let idStrA = args["workout_id_a"]?.stringValue,
               let idA = UUID(uuidString: idStrA),
               let idStrB = args["workout_id_b"]?.stringValue,
@@ -414,6 +416,8 @@ final class CoachingToolExecutor {
         workoutB.scheduledDate = tempDate
 
         try? context.save()
+        calendarService.syncWorkout(workoutA)
+        calendarService.syncWorkout(workoutB)
 
         let dateFormatter = ISO8601DateFormatter()
         dateFormatter.formatOptions = [.withFullDate]
@@ -427,7 +431,7 @@ final class CoachingToolExecutor {
         return jsonString(result)
     }
 
-    private func skipWorkout(args: [String: JSONValue], context: ModelContext) throws -> String {
+    private func skipWorkout(args: [String: JSONValue], context: ModelContext, calendarService: CalendarService) throws -> String {
         guard let idStr = args["workout_id"]?.stringValue,
               let workoutId = UUID(uuidString: idStr) else {
             return "{\"error\": \"workout_id is required and must be a valid UUID\"}"
@@ -444,6 +448,7 @@ final class CoachingToolExecutor {
         }
 
         try? context.save()
+        calendarService.removeWorkoutEvent(workout)
 
         return jsonString([
             "status": "skipped",
@@ -452,7 +457,7 @@ final class CoachingToolExecutor {
         ] as [String: Any])
     }
 
-    private func setWeekWorkouts(args: [String: JSONValue], context: ModelContext, workoutKitService: WorkoutKitService) async throws -> String {
+    private func setWeekWorkouts(args: [String: JSONValue], context: ModelContext, workoutKitService: WorkoutKitService, calendarService: CalendarService) async throws -> String {
         guard let weekNumber = args["week_number"]?.intValue else {
             return "{\"error\": \"week_number is required\"}"
         }
@@ -502,6 +507,9 @@ final class CoachingToolExecutor {
         } catch {
             logger.error("Watch scheduling failed: \(error.localizedDescription)")
         }
+
+        // Sync to calendar
+        calendarService.syncWeek(week, schedule: schedule)
 
         // Build confirmation response
         let workouts = week.sortedWorkouts

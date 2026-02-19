@@ -27,6 +27,7 @@ final class PlanGenerationManager {
         aiService: AIService,
         healthKitService: HealthKitService,
         workoutKitService: WorkoutKitService,
+        calendarService: CalendarService,
         context: ModelContext
     ) {
         guard !isGenerating else { return }
@@ -104,6 +105,7 @@ final class PlanGenerationManager {
                               let weekEnd = cal.date(byAdding: .weekOfYear, value: 1, to: weekStart) else { continue }
                         if now >= weekStart && now < weekEnd {
                             try? await workoutKitService.unscheduleWeek(week)
+                            calendarService.removeWeekEvents(week)
                             break
                         }
                     }
@@ -119,6 +121,7 @@ final class PlanGenerationManager {
                     } catch {
                         logger.error("Auto-schedule to Watch failed: \(error.localizedDescription)")
                     }
+                    calendarService.syncWeek(week1, schedule: schedule)
                 }
 
                 NotificationService.scheduleWeeklyReminder(firstDayOfWeek: profile.firstDayOfWeek)

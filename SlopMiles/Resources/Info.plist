@@ -30,5 +30,7 @@
     <string>Slop Miles saves scheduled workouts to your health data.</string>
     <key>NSLocationWhenInUseUsageDescription</key>
     <string>Slop Miles uses your location to check weather conditions for workout scheduling.</string>
+    <key>NSCalendarsFullAccessUsageDescription</key>
+    <string>Slop Miles creates and updates calendar events for your scheduled workouts so they appear in your calendar.</string>
 </dict>
 </plist>

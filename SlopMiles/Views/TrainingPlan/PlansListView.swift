@@ -4,6 +4,7 @@ import SwiftData
 struct PlansListView: View {
     @Query(sort: \TrainingPlan.createdAt, order: .reverse) private var plans: [TrainingPlan]
     @Query private var profiles: [UserProfile]
+    @Query private var schedules: [WeeklySchedule]
     @Environment(AppState.self) private var appState
     @Environment(\.modelContext) private var modelContext
     @State private var planToDelete: TrainingPlan?
@@ -98,6 +99,7 @@ struct PlansListView: View {
         if let oldPlan = plans.first(where: { $0.isActive }),
            let oldWeek = appState.weekGenerationManager.findCurrentWeek(in: oldPlan, now: Date(), firstDayOfWeek: firstDayOfWeek) {
             try? await appState.workoutKitService.unscheduleWeek(oldWeek)
+            appState.calendarService.removeWeekEvents(oldWeek)
         }
 
         TrainingPlan.setActivePlan(newPlan, in: modelContext)
@@ -107,6 +109,7 @@ struct PlansListView: View {
         if let newWeek = appState.weekGenerationManager.findCurrentWeek(in: newPlan, now: Date(), firstDayOfWeek: firstDayOfWeek),
            newWeek.workoutsGenerated {
             try? await appState.workoutKitService.scheduleWeek(newWeek)
+            appState.calendarService.syncWeek(newWeek, schedule: schedules.first)
         }
     }
 }

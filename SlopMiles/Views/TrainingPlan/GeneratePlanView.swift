@@ -114,6 +114,7 @@ struct GeneratePlanView: View {
                             aiService: appState.aiService,
                             healthKitService: appState.healthKitService,
                             workoutKitService: appState.workoutKitService,
+                            calendarService: appState.calendarService,
                             context: modelContext
                         )
                     }.disabled(manager.isGenerating || goalDescription.isEmpty)

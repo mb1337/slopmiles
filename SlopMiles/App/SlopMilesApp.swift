@@ -46,6 +46,7 @@ struct SlopMilesApp: App {
                         seedUITestData()
                     } else {
                         await appState.healthKitService.restoreAuthorizationStatus()
+                        appState.calendarService.checkAuthorizationStatus()
                     }
                 }
         }

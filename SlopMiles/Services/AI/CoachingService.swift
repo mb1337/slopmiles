@@ -32,7 +32,8 @@ final class CoachingService {
         settings: AISettings,
         context: ModelContext,
         healthKitService: HealthKitService,
-        workoutKitService: WorkoutKitService
+        workoutKitService: WorkoutKitService,
+        calendarService: CalendarService
     ) async {
         let userMessage = CoachingMessage(role: .user, content: text)
         conversation.appendMessage(userMessage)
@@ -50,7 +51,8 @@ final class CoachingService {
             conversation: conversation,
             context: context,
             healthKitService: healthKitService,
-            workoutKitService: workoutKitService
+            workoutKitService: workoutKitService,
+            calendarService: calendarService
         )
     }
 
@@ -60,7 +62,8 @@ final class CoachingService {
         settings: AISettings,
         context: ModelContext,
         healthKitService: HealthKitService,
-        workoutKitService: WorkoutKitService
+        workoutKitService: WorkoutKitService,
+        calendarService: CalendarService
     ) async {
         let prompt = CoachingPromptBuilder.workoutCompletionPrompt(workout: workout)
         let userMessage = CoachingMessage(role: .user, content: prompt)
@@ -79,7 +82,8 @@ final class CoachingService {
             conversation: conversation,
             context: context,
             healthKitService: healthKitService,
-            workoutKitService: workoutKitService
+            workoutKitService: workoutKitService,
+            calendarService: calendarService
         )
     }
 
@@ -91,7 +95,8 @@ final class CoachingService {
         settings: AISettings,
         context: ModelContext,
         healthKitService: HealthKitService,
-        workoutKitService: WorkoutKitService
+        workoutKitService: WorkoutKitService,
+        calendarService: CalendarService
     ) async {
         let prompt = CoachingPromptBuilder.weekGenerationPrompt(
             week: week, plan: plan, performanceData: performanceData
@@ -112,7 +117,8 @@ final class CoachingService {
             conversation: conversation,
             context: context,
             healthKitService: healthKitService,
-            workoutKitService: workoutKitService
+            workoutKitService: workoutKitService,
+            calendarService: calendarService
         )
     }
 
@@ -128,6 +134,7 @@ final class CoachingService {
         context: ModelContext,
         healthKitService: HealthKitService,
         workoutKitService: WorkoutKitService,
+        calendarService: CalendarService,
         maxRounds: Int = 10
     ) async {
         var messages = messages
@@ -209,7 +216,8 @@ final class CoachingService {
                         toolCall,
                         context: context,
                         healthKitService: healthKitService,
-                        workoutKitService: workoutKitService
+                        workoutKitService: workoutKitService,
+                        calendarService: calendarService
                     )
 
                     // Record the tool result in conversation

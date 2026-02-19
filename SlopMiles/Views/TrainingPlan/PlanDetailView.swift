@@ -163,6 +163,7 @@ struct PlanDetailView: View {
         if let oldPlan = allPlans.first(where: { $0.isActive }),
            let oldWeek = appState.weekGenerationManager.findCurrentWeek(in: oldPlan, now: Date(), firstDayOfWeek: firstDayOfWeek) {
             try? await appState.workoutKitService.unscheduleWeek(oldWeek)
+            appState.calendarService.removeWeekEvents(oldWeek)
         }
 
         TrainingPlan.setActivePlan(newPlan, in: modelContext)
@@ -172,6 +173,7 @@ struct PlanDetailView: View {
         if let newWeek = appState.weekGenerationManager.findCurrentWeek(in: newPlan, now: Date(), firstDayOfWeek: firstDayOfWeek),
            newWeek.workoutsGenerated {
             try? await appState.workoutKitService.scheduleWeek(newWeek)
+            appState.calendarService.syncWeek(newWeek, schedule: schedules.first)
         }
     }
 
@@ -197,6 +199,7 @@ struct PlanDetailView: View {
             Task {
                 for (workout, oldDate) in reschedulePairs {
                     try? await appState.workoutKitService.rescheduleWorkout(workout, from: oldDate)
+                    appState.calendarService.syncWorkout(workout)
                 }
             }
         }
@@ -225,6 +228,7 @@ struct PlanDetailView: View {
             context: modelContext,
             healthKitService: appState.healthKitService,
             workoutKitService: appState.workoutKitService,
+            calendarService: appState.calendarService,
             conversation: conversation
         )
     }

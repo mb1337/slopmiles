@@ -27,6 +27,7 @@ final class WeekGenerationManager {
         context: ModelContext,
         healthKitService: HealthKitService,
         workoutKitService: WorkoutKitService,
+        calendarService: CalendarService,
         conversation: CoachingConversation
     ) {
         guard case .idle = status else { return }
@@ -52,7 +53,8 @@ final class WeekGenerationManager {
                     settings: settings,
                     context: context,
                     healthKitService: healthKitService,
-                    workoutKitService: workoutKitService
+                    workoutKitService: workoutKitService,
+                    calendarService: calendarService
                 )
                 // Check if generation succeeded (workoutsGenerated set by set_week_workouts tool)
                 if currentWeek.workoutsGenerated {
@@ -82,6 +84,7 @@ final class WeekGenerationManager {
         context: ModelContext,
         healthKitService: HealthKitService,
         workoutKitService: WorkoutKitService,
+        calendarService: CalendarService,
         conversation: CoachingConversation
     ) {
         // Delete existing workouts for this week
@@ -107,7 +110,8 @@ final class WeekGenerationManager {
                     settings: settings,
                     context: context,
                     healthKitService: healthKitService,
-                    workoutKitService: workoutKitService
+                    workoutKitService: workoutKitService,
+                    calendarService: calendarService
                 )
                 if week.workoutsGenerated {
                     status = .idle
@@ -135,6 +139,7 @@ final class WeekGenerationManager {
         context: ModelContext,
         healthKitService: HealthKitService,
         workoutKitService: WorkoutKitService,
+        calendarService: CalendarService,
         conversation: CoachingConversation
     ) {
         status = .idle
@@ -143,6 +148,7 @@ final class WeekGenerationManager {
             profile: profile, schedule: schedule, equipment: equipment,
             settings: settings, coachingService: coachingService, context: context,
             healthKitService: healthKitService, workoutKitService: workoutKitService,
+            calendarService: calendarService,
             conversation: conversation
         )
     }

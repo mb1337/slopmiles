@@ -117,6 +117,7 @@ final class PlannedWorkout {
     var targetPaceMinPerKm: Double?
     var completionStatusRaw: String = WorkoutCompletionStatus.planned.rawValue
     var watchScheduleID: String?
+    var calendarEventID: String?
     var locationRaw: String = WorkoutLocation.outdoor.rawValue
     var notes: String = ""
     var linkedWorkoutsJSON: String = "[]"

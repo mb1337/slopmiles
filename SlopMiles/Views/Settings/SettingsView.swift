@@ -116,6 +116,23 @@ struct SettingsView: View {
                         }
                     }
 
+                    Section("Calendar") {
+                        HStack {
+                            Text("Calendar Sync"); Spacer()
+                            Label(appState.calendarService.isAuthorized ? "Connected" : "Not Connected",
+                                  systemImage: appState.calendarService.isAuthorized ? "checkmark.circle.fill" : "circle")
+                                .foregroundStyle(appState.calendarService.isAuthorized ? .green : .secondary)
+                        }
+                        if !appState.calendarService.isAuthorized {
+                            Button("Enable Calendar Sync") {
+                                Task { await appState.calendarService.requestAuthorization() }
+                            }
+                        }
+                        if let error = appState.calendarService.authorizationError {
+                            Text(error).font(.caption).foregroundStyle(.red)
+                        }
+                    }
+
                     Section("About") {
                         LabeledContent("Version", value: "1.0.0")
                         LabeledContent("License", value: "MIT")
