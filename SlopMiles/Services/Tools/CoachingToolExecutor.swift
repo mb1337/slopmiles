@@ -470,6 +470,14 @@ final class CoachingToolExecutor {
             return "{\"error\": \"Week \(weekNumber) not found in active plan\"}"
         }
 
+        // Clean up external schedules/events before deleting local workouts.
+        do {
+            try await workoutKitService.unscheduleWeek(week)
+        } catch {
+            logger.error("Watch unscheduling failed before replacing week workouts: \(error.localizedDescription)")
+        }
+        calendarService.removeWeekEvents(week)
+
         // Delete existing workouts for this week
         for workout in week.sortedWorkouts {
             for step in workout.sortedSteps {

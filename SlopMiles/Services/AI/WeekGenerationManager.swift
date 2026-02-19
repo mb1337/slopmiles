@@ -87,20 +87,34 @@ final class WeekGenerationManager {
         calendarService: CalendarService,
         conversation: CoachingConversation
     ) {
-        // Delete existing workouts for this week
-        for workout in week.sortedWorkouts {
-            for step in workout.sortedSteps {
-                context.delete(step)
-            }
-            context.delete(workout)
-        }
-        week.workoutsGenerated = false
-
         let performanceData = buildPerformanceData(for: plan, upToWeek: week.weekNumber)
 
         status = .generating(weekNumber: week.weekNumber)
         generationTask = Task {
             do {
+                try Task.checkCancellation()
+
+                // Clean up external schedules/events before deleting local workouts.
+                do {
+                    try await workoutKitService.unscheduleWeek(week)
+                } catch {
+                    logger.error("Failed to unschedule existing week from Watch: \(error.localizedDescription)")
+                }
+                calendarService.removeWeekEvents(week)
+
+                for workout in week.sortedWorkouts {
+                    for step in workout.sortedSteps {
+                        context.delete(step)
+                    }
+                    context.delete(workout)
+                }
+                week.workoutsGenerated = false
+                do {
+                    try context.save()
+                } catch {
+                    logger.error("Failed saving deleted workouts before regeneration: \(error.localizedDescription)")
+                }
+
                 try Task.checkCancellation()
                 await coachingService.generateWeekWorkouts(
                     week: week,

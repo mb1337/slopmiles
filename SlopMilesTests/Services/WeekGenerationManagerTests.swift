@@ -72,7 +72,7 @@ struct WeekGenerationManagerTests {
     }
 
     @Test("regenerateWeek deletes existing workouts and steps before regeneration task runs")
-    func regenerateWeekDeletesExistingDataFirst() throws {
+    func regenerateWeekDeletesExistingDataFirst() async throws {
         let context = try Self.makeTestContext()
 
         let plan = TrainingPlan(
@@ -130,6 +130,16 @@ struct WeekGenerationManagerTests {
             calendarService: CalendarService(),
             conversation: CoachingConversation()
         )
+
+        let deadline = Date().addingTimeInterval(1.0)
+        while Date() < deadline {
+            let workouts = try context.fetch(FetchDescriptor<PlannedWorkout>())
+            let steps = try context.fetch(FetchDescriptor<PlannedWorkoutStep>())
+            if workouts.isEmpty && steps.isEmpty {
+                break
+            }
+            await Task.yield()
+        }
 
         let remainingWorkouts = try context.fetch(FetchDescriptor<PlannedWorkout>())
         let remainingSteps = try context.fetch(FetchDescriptor<PlannedWorkoutStep>())
