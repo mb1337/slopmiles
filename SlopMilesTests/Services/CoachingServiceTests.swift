@@ -23,8 +23,8 @@ struct CoachingServiceTests {
         return ModelContext(container)
     }
 
-    @Test("Cross-turn tool-use history drops assistant tool-call metadata")
-    func crossTurnToolUseHistoryDropsAssistantToolCallMetadata() async throws {
+    @Test("Cross-turn tool-use history preserves assistant tool-call metadata")
+    func crossTurnToolUseHistoryPreservesAssistantToolCallMetadata() async throws {
         let context = try Self.makeTestContext()
         let conversation = CoachingConversation()
         context.insert(conversation)
@@ -80,9 +80,9 @@ struct CoachingServiceTests {
 
         // Reconstructed history still contains a tool result...
         #expect(secondTurnMessages.contains(where: { $0.role == .tool }))
-        // ...but does not preserve the assistant tool-call metadata that produced it.
-        #expect(!secondTurnMessages.contains(where: { msg in
-            msg.role == .assistant && !(msg.toolCalls?.isEmpty ?? true)
+        // ...and now preserves the assistant tool-call metadata that produced it.
+        #expect(secondTurnMessages.contains(where: { msg in
+            msg.role == .assistant && msg.toolCalls == [toolCall]
         }))
     }
 }

@@ -194,11 +194,14 @@ final class CoachingService {
                     return
                 }
 
-                // Save assistant text if any
-                if !response.message.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    let textMessage = CoachingMessage(role: .assistant, content: response.message.content)
-                    conversation.appendMessage(textMessage)
-                }
+                // Persist the assistant tool-call envelope so multi-turn reconstruction
+                // keeps the tool call metadata tied to subsequent tool results.
+                let toolCallMessage = CoachingMessage(
+                    role: .assistantToolCall,
+                    content: response.message.content,
+                    toolCalls: toolCalls
+                )
+                conversation.appendMessage(toolCallMessage)
 
                 // Execute each tool call
                 for toolCall in toolCalls {
@@ -265,7 +268,11 @@ final class CoachingService {
             case .user:
                 aiMessages.append(.user(msg.content))
             case .assistant:
-                aiMessages.append(AIMessage(role: .assistant, content: msg.content))
+                aiMessages.append(AIMessage(role: .assistant, content: msg.content, toolCalls: msg.toolCalls))
+            case .assistantToolCall:
+                if let toolCalls = msg.toolCalls, !toolCalls.isEmpty {
+                    aiMessages.append(AIMessage(role: .assistant, content: msg.content, toolCalls: toolCalls))
+                }
             case .tool:
                 // Tool call records are part of the assistant message, skip them
                 // in the AI message reconstruction (the assistant message with toolCalls

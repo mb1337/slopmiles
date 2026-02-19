@@ -22,6 +22,9 @@ struct CoachingMessageBubble: View {
                 Spacer(minLength: 60)
             }
 
+        case .assistantToolCall:
+            EmptyView()
+
         case .tool:
             HStack(spacing: 6) {
                 Image(systemName: "wrench.and.screwdriver")

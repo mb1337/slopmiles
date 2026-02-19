@@ -48,18 +48,21 @@ struct CoachingMessage: Codable, Sendable, Identifiable {
     var timestamp: Date = Date()
     var toolName: String?
     var toolCallId: String?
+    var toolCalls: [ToolCall]?
 
     enum Role: String, Codable, Sendable {
         case user
         case assistant
+        case assistantToolCall
         case tool
         case toolResult
     }
 
-    init(role: Role, content: String, toolName: String? = nil, toolCallId: String? = nil) {
+    init(role: Role, content: String, toolName: String? = nil, toolCallId: String? = nil, toolCalls: [ToolCall]? = nil) {
         self.role = role
         self.content = content
         self.toolName = toolName
         self.toolCallId = toolCallId
+        self.toolCalls = toolCalls
     }
 }
