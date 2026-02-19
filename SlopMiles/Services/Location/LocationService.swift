@@ -28,15 +28,13 @@ final class LocationService {
 
     func requestLocationPermission() async {
         guard authorizationStatus == .notDetermined else { return }
-        manager.requestWhenInUseAuthorization()
-        await delegate.waitForPermission()
+        await delegate.requestPermission(using: manager)
         authorizationStatus = manager.authorizationStatus
     }
 
     func requestCurrentLocation() async -> CLLocation? {
         guard isAuthorized else { return nil }
-        manager.requestLocation()
-        return await delegate.waitForLocation()
+        return await delegate.requestLocation(using: manager)
     }
 
     func updateProfileLocation(_ profile: UserProfile) async {
@@ -47,21 +45,26 @@ final class LocationService {
     }
 }
 
-private final class LocationDelegate: NSObject, CLLocationManagerDelegate, @unchecked Sendable {
+@MainActor
+private final class LocationDelegate: NSObject, @preconcurrency CLLocationManagerDelegate {
     var onAuthorizationChange: ((CLAuthorizationStatus) -> Void)?
 
     private var permissionContinuation: CheckedContinuation<Void, Never>?
     private var locationContinuation: CheckedContinuation<CLLocation?, Never>?
 
-    func waitForPermission() async {
+    func requestPermission(using manager: CLLocationManager) async {
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            permissionContinuation?.resume()
             permissionContinuation = continuation
+            manager.requestWhenInUseAuthorization()
         }
     }
 
-    func waitForLocation() async -> CLLocation? {
+    func requestLocation(using manager: CLLocationManager) async -> CLLocation? {
         await withCheckedContinuation { (continuation: CheckedContinuation<CLLocation?, Never>) in
+            locationContinuation?.resume(returning: nil)
             locationContinuation = continuation
+            manager.requestLocation()
         }
     }
 
