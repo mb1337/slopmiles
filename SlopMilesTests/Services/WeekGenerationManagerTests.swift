@@ -1,10 +1,23 @@
 import Testing
 import Foundation
+import SwiftData
 @testable import SlopMiles
 
 @Suite("WeekGenerationManager Tests")
 @MainActor
 struct WeekGenerationManagerTests {
+    private static func makeTestContext() throws -> ModelContext {
+        let config = ModelConfiguration(isStoredInMemoryOnly: true)
+        let container = try ModelContainer(
+            for: TrainingPlan.self,
+            TrainingWeek.self,
+            PlannedWorkout.self,
+            PlannedWorkoutStep.self,
+            configurations: config
+        )
+        return ModelContext(container)
+    }
+
     // MARK: - findCurrentWeek
 
     @Test("findCurrentWeek returns correct week based on plan start date")
@@ -56,5 +69,74 @@ struct WeekGenerationManagerTests {
         } else {
             Issue.record("Expected .idle after cancel")
         }
+    }
+
+    @Test("regenerateWeek deletes existing workouts and steps before regeneration task runs")
+    func regenerateWeekDeletesExistingDataFirst() throws {
+        let context = try Self.makeTestContext()
+
+        let plan = TrainingPlan(
+            name: "Test Plan",
+            goalDescription: "Goal",
+            startDate: Date(),
+            endDate: Calendar.current.date(byAdding: .weekOfYear, value: 8, to: Date())!
+        )
+        let week = TrainingWeek(weekNumber: 1, theme: "Base", workoutsGenerated: true)
+        week.plan = plan
+
+        let workout = PlannedWorkout(
+            name: "Scheduled Workout",
+            workoutType: .tempo,
+            scheduledDate: Date(),
+            distanceKm: 8
+        )
+        workout.completionStatus = .scheduled
+        workout.watchScheduleID = "watch-id"
+        workout.calendarEventID = "calendar-id"
+        workout.week = week
+
+        let step = PlannedWorkoutStep(order: 0, stepType: .work, name: "Main Set", goalType: .distance, goalValue: 4000)
+        step.workout = workout
+
+        context.insert(plan)
+        context.insert(week)
+        context.insert(workout)
+        context.insert(step)
+
+        let mockProvider = MockAIProvider()
+        mockProvider.responses = [
+            AIResponse(
+                message: AIMessage(role: .assistant, content: ""),
+                stopReason: .endTurn,
+                usage: nil
+            ),
+        ]
+
+        let coachingService = CoachingService(keychainService: KeychainService())
+        coachingService.providerOverride = mockProvider
+
+        let manager = WeekGenerationManager()
+        manager.regenerateWeek(
+            week: week,
+            plan: plan,
+            profile: UserProfile(),
+            schedule: WeeklySchedule(),
+            equipment: RunnerEquipment(),
+            settings: AISettings(),
+            coachingService: coachingService,
+            context: context,
+            healthKitService: HealthKitService(),
+            workoutKitService: WorkoutKitService(),
+            calendarService: CalendarService(),
+            conversation: CoachingConversation()
+        )
+
+        let remainingWorkouts = try context.fetch(FetchDescriptor<PlannedWorkout>())
+        let remainingSteps = try context.fetch(FetchDescriptor<PlannedWorkoutStep>())
+        #expect(remainingWorkouts.isEmpty)
+        #expect(remainingSteps.isEmpty)
+        #expect(week.workoutsGenerated == false)
+
+        manager.cancel()
     }
 }

@@ -16,6 +16,8 @@ final class CoachingService {
 
     var status: Status = .idle
     var totalTokensUsed: Int = 0
+    /// Override for testing — when set, messaging methods use this provider instead of creating a real one.
+    var providerOverride: AIProvider?
 
     private var keychainService: KeychainService
     private let toolExecutor = CoachingToolExecutor()
@@ -38,7 +40,7 @@ final class CoachingService {
         let userMessage = CoachingMessage(role: .user, content: text)
         conversation.appendMessage(userMessage)
 
-        let provider = makeProvider(for: settings)
+        let provider = providerOverride ?? makeProvider(for: settings)
         let tools = toolsForProvider(settings.provider)
         let messages = buildAIMessages(from: conversation)
 
@@ -69,7 +71,7 @@ final class CoachingService {
         let userMessage = CoachingMessage(role: .user, content: prompt)
         conversation.appendMessage(userMessage)
 
-        let provider = makeProvider(for: settings)
+        let provider = providerOverride ?? makeProvider(for: settings)
         let tools = toolsForProvider(settings.provider)
         let messages = buildAIMessages(from: conversation)
 
@@ -104,7 +106,7 @@ final class CoachingService {
         let userMessage = CoachingMessage(role: .user, content: prompt)
         conversation.appendMessage(userMessage)
 
-        let provider = makeProvider(for: settings)
+        let provider = providerOverride ?? makeProvider(for: settings)
         let tools = toolsForProvider(settings.provider)
         let messages = buildAIMessages(from: conversation)
 
