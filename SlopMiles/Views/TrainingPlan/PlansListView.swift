@@ -98,7 +98,7 @@ struct PlansListView: View {
         // Unschedule old plan's current week
         if let oldPlan = plans.first(where: { $0.isActive }),
            let oldWeek = appState.weekGenerationManager.findCurrentWeek(in: oldPlan, now: Date(), firstDayOfWeek: firstDayOfWeek) {
-            try? await appState.workoutKitService.unscheduleWeek(oldWeek)
+            await appState.workoutKitService.unscheduleWeek(oldWeek)
             appState.calendarService.removeWeekEvents(oldWeek)
         }
 

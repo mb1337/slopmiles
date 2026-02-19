@@ -31,7 +31,7 @@ final class WorkoutKitService {
     }
 
     private nonisolated static func performAuthorizationRequest() async {
-        await WorkoutScheduler.shared.requestAuthorization()
+        _ = await WorkoutScheduler.shared.requestAuthorization()
     }
 
     func scheduleWorkout(_ workout: PlannedWorkout) async throws {
@@ -46,7 +46,7 @@ final class WorkoutKitService {
         workout.completionStatus = .scheduled
     }
 
-    func removeScheduledWorkout(_ workout: PlannedWorkout) async throws {
+    func removeScheduledWorkout(_ workout: PlannedWorkout) async {
         let plan = WorkoutMapper.mapToWorkoutPlan(workout)
 
         let dateComponents = Calendar.current.dateComponents(
@@ -54,29 +54,29 @@ final class WorkoutKitService {
             from: workout.scheduledDate
         )
 
-        try await Self.unscheduleWorkout(plan, at: dateComponents)
+        await Self.unscheduleWorkout(plan, at: dateComponents)
 
         workout.completionStatus = .planned
         workout.watchScheduleID = nil
     }
 
-    private nonisolated static func unscheduleWorkout(_ plan: WorkoutPlan, at dateComponents: DateComponents) async throws {
-        try await WorkoutScheduler.shared.remove(plan, at: dateComponents)
+    private nonisolated static func unscheduleWorkout(_ plan: WorkoutPlan, at dateComponents: DateComponents) async {
+        await WorkoutScheduler.shared.remove(plan, at: dateComponents)
     }
 
-    func rescheduleWorkout(_ workout: PlannedWorkout, from oldDate: Date) async throws {
+    func rescheduleWorkout(_ workout: PlannedWorkout, from oldDate: Date) async {
         let plan = WorkoutMapper.mapToWorkoutPlan(workout)
         let oldComponents = Calendar.current.dateComponents(
             [.year, .month, .day, .hour, .minute], from: oldDate)
-        try await Self.unscheduleWorkout(plan, at: oldComponents)
+        await Self.unscheduleWorkout(plan, at: oldComponents)
         let newComponents = Calendar.current.dateComponents(
             [.year, .month, .day, .hour, .minute], from: workout.scheduledDate)
         await WorkoutScheduler.shared.schedule(plan, at: newComponents)
     }
 
-    func unscheduleWeek(_ week: TrainingWeek) async throws {
+    func unscheduleWeek(_ week: TrainingWeek) async {
         for workout in week.sortedWorkouts where workout.completionStatus == .scheduled {
-            try await removeScheduledWorkout(workout)
+            await removeScheduledWorkout(workout)
         }
     }
 

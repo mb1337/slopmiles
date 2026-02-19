@@ -471,11 +471,7 @@ final class CoachingToolExecutor {
         }
 
         // Clean up external schedules/events before deleting local workouts.
-        do {
-            try await workoutKitService.unscheduleWeek(week)
-        } catch {
-            logger.error("Watch unscheduling failed before replacing week workouts: \(error.localizedDescription)")
-        }
+        await workoutKitService.unscheduleWeek(week)
         calendarService.removeWeekEvents(week)
 
         // Delete existing workouts for this week

@@ -104,7 +104,7 @@ final class PlanGenerationManager {
                         guard let weekStart = cal.date(byAdding: .weekOfYear, value: weekOffset, to: cal.startOfDay(for: oldPlan.startDate)),
                               let weekEnd = cal.date(byAdding: .weekOfYear, value: 1, to: weekStart) else { continue }
                         if now >= weekStart && now < weekEnd {
-                            try? await workoutKitService.unscheduleWeek(week)
+                            await workoutKitService.unscheduleWeek(week)
                             calendarService.removeWeekEvents(week)
                             break
                         }

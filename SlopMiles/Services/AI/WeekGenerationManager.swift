@@ -95,11 +95,7 @@ final class WeekGenerationManager {
                 try Task.checkCancellation()
 
                 // Clean up external schedules/events before deleting local workouts.
-                do {
-                    try await workoutKitService.unscheduleWeek(week)
-                } catch {
-                    logger.error("Failed to unschedule existing week from Watch: \(error.localizedDescription)")
-                }
+                await workoutKitService.unscheduleWeek(week)
                 calendarService.removeWeekEvents(week)
 
                 for workout in week.sortedWorkouts {
