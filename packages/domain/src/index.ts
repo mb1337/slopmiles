@@ -49,6 +49,12 @@ export type UnitPreference = (typeof UNIT_PREFERENCES)[number];
 export const VOLUME_MODES = ["time", "distance"] as const;
 export type VolumeMode = (typeof VOLUME_MODES)[number];
 
+export const GOAL_TYPES = ["race", "nonRace", "custom"] as const;
+export type GoalType = (typeof GOAL_TYPES)[number];
+
+export const PLAN_STATUSES = ["draft", "active", "completed", "abandoned"] as const;
+export type PlanStatus = (typeof PLAN_STATUSES)[number];
+
 export type TimeWindow = {
   start: string;
   end: string;

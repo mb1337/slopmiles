@@ -25,6 +25,10 @@ export const unitPreferences = ["system", "metric", "imperial"] as const;
 export const volumeModes = ["time", "distance"] as const;
 export const competitivenessLevels = ["conservative", "balanced", "aggressive"] as const;
 export const personalityPresets = ["cheerleader", "noNonsense", "nerd", "zen", "custom"] as const;
+export const goalTypes = ["race", "nonRace", "custom"] as const;
+export const planStatuses = ["draft", "active", "completed", "abandoned"] as const;
 
 export type Weekday = (typeof weekdays)[number];
 export type OnboardingStep = (typeof onboardingSteps)[number];
+export type GoalType = (typeof goalTypes)[number];
+export type PlanStatus = (typeof planStatuses)[number];

@@ -1,5 +1,6 @@
-import { mutationGeneric } from "convex/server";
 import { v } from "convex/values";
+import { mutation, type MutationCtx } from "./_generated/server";
+import type { Id } from "./_generated/dataModel";
 
 import {
   competitivenessLevels,
@@ -27,10 +28,10 @@ function nextStep(step: OnboardingStep): OnboardingStep {
   return onboardingSteps[index + 1] ?? "done";
 }
 
-async function ensureOnboardingState(ctx: any, userId: any) {
+async function ensureOnboardingState(ctx: MutationCtx, userId: Id<"users">) {
   let state = await ctx.db
     .query("onboardingStates")
-    .withIndex("by_user_id", (query: any) => query.eq("userId", userId))
+      .withIndex("by_user_id", (query) => query.eq("userId", userId))
     .unique();
 
   if (!state) {
@@ -50,7 +51,7 @@ async function ensureOnboardingState(ctx: any, userId: any) {
   return state;
 }
 
-async function advance(ctx: any, userId: any, completedStep: OnboardingStep) {
+async function advance(ctx: MutationCtx, userId: Id<"users">, completedStep: OnboardingStep) {
   const state = await ensureOnboardingState(ctx, userId);
   const complete = completedStep === "done";
 
@@ -61,7 +62,7 @@ async function advance(ctx: any, userId: any, completedStep: OnboardingStep) {
   });
 }
 
-export const completeStep = mutationGeneric({
+export const completeStep = mutation({
   args: {
     userId: v.id("users"),
     step: onboardingStepValidator,
@@ -71,7 +72,7 @@ export const completeStep = mutationGeneric({
   },
 });
 
-export const saveProfileBasics = mutationGeneric({
+export const saveProfileBasics = mutation({
   args: {
     userId: v.id("users"),
     name: v.string(),
@@ -90,7 +91,7 @@ export const saveProfileBasics = mutationGeneric({
   },
 });
 
-export const saveRunningSchedule = mutationGeneric({
+export const saveRunningSchedule = mutation({
   args: {
     userId: v.id("users"),
     preferredRunningDays: v.array(weekdayValidator),
@@ -133,7 +134,7 @@ export const saveRunningSchedule = mutationGeneric({
   },
 });
 
-export const saveTrackAccess = mutationGeneric({
+export const saveTrackAccess = mutation({
   args: {
     userId: v.id("users"),
     trackAccess: v.boolean(),
@@ -148,7 +149,7 @@ export const saveTrackAccess = mutationGeneric({
   },
 });
 
-export const saveCompetitiveness = mutationGeneric({
+export const saveCompetitiveness = mutation({
   args: {
     userId: v.id("users"),
     level: competitivenessValidator,
@@ -184,7 +185,7 @@ const presetDescriptions: Record<string, string> = {
   custom: "Custom coach voice.",
 };
 
-export const savePersonality = mutationGeneric({
+export const savePersonality = mutation({
   args: {
     userId: v.id("users"),
     preset: personalityPresetValidator,
@@ -194,7 +195,7 @@ export const savePersonality = mutationGeneric({
     const isCustom = args.preset === "custom";
     const description = isCustom
       ? args.customDescription?.trim() || "Custom coach voice."
-      : presetDescriptions[args.preset];
+      : (presetDescriptions[args.preset] ?? "Custom coach voice.");
 
     const existing = await ctx.db
       .query("personalities")
@@ -218,5 +219,20 @@ export const savePersonality = mutationGeneric({
     }
 
     await advance(ctx, args.userId, "personality");
+  },
+});
+
+export const saveHealthKitAuthorization = mutation({
+  args: {
+    userId: v.id("users"),
+    authorized: v.boolean(),
+  },
+  handler: async (ctx, args) => {
+    await ctx.db.patch(args.userId, {
+      healthKitAuthorized: args.authorized,
+      updatedAt: Date.now(),
+    });
+
+    await advance(ctx, args.userId, "healthKitAuthorization");
   },
 });

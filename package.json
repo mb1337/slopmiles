@@ -5,6 +5,7 @@
   "packageManager": "pnpm@10.16.1",
   "scripts": {
     "build": "turbo run build",
+    "convex:codegen": "convex codegen",
     "convex:dev": "convex dev",
     "dev": "turbo run dev --parallel",
     "dev:mobile": "pnpm --filter @slopmiles/mobile dev",

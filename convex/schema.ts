@@ -3,7 +3,9 @@ import { v } from "convex/values";
 
 import {
   competitivenessLevels,
+  goalTypes,
   onboardingSteps,
+  planStatuses,
   personalityPresets,
   unitPreferences,
   volumeModes,
@@ -16,6 +18,8 @@ const unitPreferenceValidator = v.union(...unitPreferences.map((unit) => v.liter
 const volumeModeValidator = v.union(...volumeModes.map((mode) => v.literal(mode)));
 const competitivenessValidator = v.union(...competitivenessLevels.map((level) => v.literal(level)));
 const personalityPresetValidator = v.union(...personalityPresets.map((preset) => v.literal(preset)));
+const goalTypeValidator = v.union(...goalTypes.map((goalType) => v.literal(goalType)));
+const planStatusValidator = v.union(...planStatuses.map((status) => v.literal(status)));
 
 export default defineSchema({
   users: defineTable({
@@ -62,4 +66,26 @@ export default defineSchema({
     description: v.string(),
     updatedAt: v.number(),
   }).index("by_user_id", ["userId"]),
+
+  goals: defineTable({
+    userId: v.id("users"),
+    type: goalTypeValidator,
+    label: v.string(),
+    targetDate: v.optional(v.number()),
+    goalTimeSeconds: v.optional(v.number()),
+    createdAt: v.number(),
+  }).index("by_user_id", ["userId"]),
+
+  trainingPlans: defineTable({
+    userId: v.id("users"),
+    goalId: v.id("goals"),
+    numberOfWeeks: v.number(),
+    volumeMode: volumeModeValidator,
+    peakWeekVolume: v.number(),
+    status: planStatusValidator,
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_user_id", ["userId"])
+    .index("by_user_id_status", ["userId", "status"]),
 });

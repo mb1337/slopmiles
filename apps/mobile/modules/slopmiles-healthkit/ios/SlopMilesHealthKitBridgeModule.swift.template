@@ -1,0 +1,50 @@
+import ExpoModulesCore
+import HealthKit
+
+public class SlopMilesHealthKitBridgeModule: Module {
+  public func definition() -> ModuleDefinition {
+    Name("SlopMilesHealthKitBridge")
+
+    AsyncFunction("requestAuthorization") { () async throws -> [String: Any] in
+      guard HKHealthStore.isHealthDataAvailable() else {
+        return [
+          "status": "unavailable",
+          "authorized": false,
+          "reason": "Health data is unavailable on this device"
+        ]
+      }
+
+      let healthStore = HKHealthStore()
+
+      guard
+        let workoutType = HKObjectType.workoutType(),
+        let heartRateType = HKObjectType.quantityType(forIdentifier: .heartRate),
+        let restingHeartRateType = HKObjectType.quantityType(forIdentifier: .restingHeartRate),
+        let dateOfBirthType = HKObjectType.characteristicType(forIdentifier: .dateOfBirth)
+      else {
+        return [
+          "status": "unavailable",
+          "authorized": false,
+          "reason": "Required HealthKit types are unavailable"
+        ]
+      }
+
+      let shareTypes: Set = [workoutType, heartRateType, restingHeartRateType]
+      let readTypes: Set = [workoutType, heartRateType, restingHeartRateType, dateOfBirthType]
+
+      return try await withCheckedThrowingContinuation { continuation in
+        healthStore.requestAuthorization(toShare: shareTypes, read: readTypes) { success, error in
+          if let error {
+            continuation.resume(throwing: error)
+            return
+          }
+
+          continuation.resume(returning: [
+            "status": success ? "authorized" : "denied",
+            "authorized": success
+          ])
+        }
+      }
+    }
+  }
+}

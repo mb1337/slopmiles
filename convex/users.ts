@@ -1,5 +1,5 @@
-import { mutationGeneric } from "convex/server";
 import { v } from "convex/values";
+import { mutation } from "./_generated/server";
 
 import type { Weekday } from "./constants";
 
@@ -13,7 +13,7 @@ const DEFAULT_DAYS: Weekday[] = [
   "sunday",
 ];
 
-export const bootstrapAnonymous = mutationGeneric({
+export const bootstrapAnonymous = mutation({
   args: {
     anonymousHandle: v.string(),
   },

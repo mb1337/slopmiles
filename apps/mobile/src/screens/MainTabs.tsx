@@ -1,0 +1,58 @@
+import { useState } from "react";
+import { Pressable, Text, View } from "react-native";
+import { type VolumeMode } from "@slopmiles/domain";
+import { SafeAreaView } from "react-native-safe-area-context";
+
+import { type Id } from "../convex";
+import { CoachScreen } from "./tabs/CoachScreen";
+import { DashboardScreen } from "./tabs/DashboardScreen";
+import { HistoryScreen } from "./tabs/HistoryScreen";
+import { PlanScreen } from "./tabs/PlanScreen";
+import { SettingsScreen } from "./tabs/SettingsScreen";
+import { styles } from "../styles";
+import type { Tab } from "../types";
+
+export function MainTabs({
+  userId,
+  userName,
+  defaultVolumeMode,
+}: {
+  userId: Id<"users">;
+  userName: string;
+  defaultVolumeMode: VolumeMode;
+}) {
+  const [activeTab, setActiveTab] = useState<Tab>("dashboard");
+
+  return (
+    <SafeAreaView style={styles.screen}>
+      <View style={styles.tabContent}>
+        {activeTab === "dashboard" ? (
+          <DashboardScreen userId={userId} userName={userName} onCreatePlanPress={() => setActiveTab("plan")} />
+        ) : null}
+        {activeTab === "plan" ? <PlanScreen userId={userId} defaultVolumeMode={defaultVolumeMode} /> : null}
+        {activeTab === "history" ? <HistoryScreen /> : null}
+        {activeTab === "coach" ? <CoachScreen /> : null}
+        {activeTab === "settings" ? <SettingsScreen /> : null}
+      </View>
+      <View style={styles.tabBar}>
+        {[
+          ["dashboard", "Dashboard"],
+          ["plan", "Plan"],
+          ["history", "History"],
+          ["coach", "Coach"],
+          ["settings", "Settings"],
+        ].map(([key, label]) => (
+          <Pressable
+            key={String(key)}
+            style={[styles.tabButton, activeTab === key ? styles.tabButtonActive : null]}
+            onPress={() => setActiveTab(key as Tab)}
+          >
+            <Text style={[styles.tabButtonText, activeTab === key ? styles.tabButtonTextActive : null]}>
+              {label}
+            </Text>
+          </Pressable>
+        ))}
+      </View>
+    </SafeAreaView>
+  );
+}
