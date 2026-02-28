@@ -49,7 +49,8 @@ export function HealthKitStep({
   return (
     <Panel title="HealthKit Authorization">
       <Text style={styles.bodyText}>
-        Allow access to running workouts, heart rate, and related health metrics for workout matching and coaching feedback.
+        Allow access to running workouts, route data, heart rate, resting heart rate, and date of birth so SlopMiles can
+        match workouts, import training history, and set safe default HR guidance.
       </Text>
       <PrimaryButton label="Allow HealthKit Access" onPress={onAuthorize} disabled={busy} />
       <SecondaryButton label="Continue without HealthKit" onPress={onSkip} disabled={busy} />

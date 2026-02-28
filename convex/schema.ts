@@ -88,4 +88,22 @@ export default defineSchema({
   })
     .index("by_user_id", ["userId"])
     .index("by_user_id_status", ["userId", "status"]),
+
+  healthKitWorkouts: defineTable({
+    userId: v.id("users"),
+    externalWorkoutId: v.string(),
+    startedAt: v.number(),
+    endedAt: v.number(),
+    durationSeconds: v.number(),
+    distanceMeters: v.optional(v.number()),
+    averageHeartRate: v.optional(v.number()),
+    maxHeartRate: v.optional(v.number()),
+    sourceName: v.optional(v.string()),
+    sourceBundleIdentifier: v.optional(v.string()),
+    importedAt: v.number(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_user_id", ["userId"])
+    .index("by_user_id_external_workout_id", ["userId", "externalWorkoutId"]),
 });

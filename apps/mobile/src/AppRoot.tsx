@@ -5,16 +5,23 @@ import { type CompetitivenessLevel, type OnboardingStep, type PersonalityPreset 
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { api } from "./convex";
+import {
+  requestHealthKitAuthorization,
+  seedRecentHealthKitImport,
+  type HealthKitPermissionResult,
+} from "./healthkit/bridge";
 import { MainTabs } from "./screens/MainTabs";
 import { OnboardingFlow } from "./screens/OnboardingFlow";
 import { styles } from "./styles";
-import type { SessionPayload } from "./types";
+import type { HealthKitSyncResult, SessionPayload } from "./types";
 
 const ANONYMOUS_HANDLE = "ios-anonymous-v1";
 
 export default function AppRoot() {
   const bootstrapAnonymous = useMutation(api.users.bootstrapAnonymous);
   const resetAppData = useMutation(api.users.resetAppData);
+  const setHealthKitAuthorizationStatus = useMutation(api.healthkit.setAuthorizationStatus);
+  const seedHealthKitImportWorkouts = useMutation(api.healthkit.seedImportWorkouts);
   const completeStep = useMutation(api.onboarding.completeStep);
   const saveHealthKitAuthorization = useMutation(api.onboarding.saveHealthKitAuthorization);
   const saveProfileBasics = useMutation(api.onboarding.saveProfileBasics);
@@ -60,17 +67,33 @@ export default function AppRoot() {
     };
   }, []);
 
-  const runMutation = async (fn: () => Promise<unknown>) => {
+  const runMutation = async <T,>(fn: () => Promise<T>): Promise<T | null> => {
     setSaving(true);
     setError(null);
     try {
-      await fn();
+      const result = await fn();
       await refresh();
+      return result;
     } catch (err) {
       setError(String(err));
+      return null;
     } finally {
       setSaving(false);
     }
+  };
+
+  const runMutationVoid = async (fn: () => Promise<unknown>): Promise<void> => {
+    await runMutation(fn);
+  };
+
+  const importHealthKitSeed = async (userId: SessionPayload["user"]["_id"]) => {
+    const payload = await seedRecentHealthKitImport();
+    return seedHealthKitImportWorkouts({
+      userId,
+      workouts: payload.workouts,
+      restingHeartRate: payload.restingHeartRate,
+      inferredMaxHeartRate: payload.inferredMaxHeartRate,
+    });
   };
 
   const resetApp = async () => {
@@ -99,7 +122,57 @@ export default function AppRoot() {
         userId={session.user._id}
         userName={session.user.name}
         defaultVolumeMode={session.user.volumePreference}
+        healthKitAuthorized={session.user.healthKitAuthorized}
         onResetApp={resetApp}
+        onSyncHealthKit={async () => {
+          const permission = await requestHealthKitAuthorization();
+
+          const result = await runMutation(async () => {
+            await setHealthKitAuthorizationStatus({
+              userId: session.user._id,
+              authorized: permission.authorized,
+            });
+
+            if (!permission.authorized) {
+              return {
+                status: permission.status,
+                authorized: false,
+                processedCount: 0,
+                insertedCount: 0,
+                updatedCount: 0,
+                reason: permission.reason,
+              } satisfies HealthKitSyncResult;
+            }
+
+            let importResult: { processedCount: number; insertedCount: number; updatedCount: number } | null = null;
+            let importError: string | undefined;
+            try {
+              importResult = await importHealthKitSeed(session.user._id);
+            } catch (error) {
+              importError = String(error);
+            }
+
+            return {
+              status: permission.status,
+              authorized: true,
+              processedCount: importResult?.processedCount ?? 0,
+              insertedCount: importResult?.insertedCount ?? 0,
+              updatedCount: importResult?.updatedCount ?? 0,
+              reason: importError,
+            } satisfies HealthKitSyncResult;
+          });
+
+          return (
+            result ?? {
+              status: permission.status,
+              authorized: permission.authorized,
+              processedCount: 0,
+              insertedCount: 0,
+              updatedCount: 0,
+              reason: permission.reason,
+            }
+          );
+        }}
       />
     );
   }
@@ -110,23 +183,31 @@ export default function AppRoot() {
       saving={saving}
       error={error}
       onCompleteStep={(step: OnboardingStep) =>
-        runMutation(async () => {
+        runMutationVoid(async () => {
           await completeStep({
             userId: session.user._id,
             step,
           });
         })
       }
-      onSaveHealthKitAuthorization={(authorized) =>
-        runMutation(async () => {
+      onSaveHealthKitAuthorization={(permission: HealthKitPermissionResult) =>
+        runMutationVoid(async () => {
           await saveHealthKitAuthorization({
             userId: session.user._id,
-            authorized,
+            authorized: permission.authorized,
           });
+
+          if (permission.authorized) {
+            try {
+              await importHealthKitSeed(session.user._id);
+            } catch (error) {
+              setError(`HealthKit connected, but initial import failed: ${String(error)}`);
+            }
+          }
         })
       }
       onSaveProfileBasics={(value) =>
-        runMutation(async () => {
+        runMutationVoid(async () => {
           await saveProfileBasics({
             userId: session.user._id,
             name: value.name,
@@ -136,7 +217,7 @@ export default function AppRoot() {
         })
       }
       onSaveRunningSchedule={(value) =>
-        runMutation(async () => {
+        runMutationVoid(async () => {
           await saveRunningSchedule({
             userId: session.user._id,
             preferredRunningDays: value.preferredRunningDays,
@@ -147,7 +228,7 @@ export default function AppRoot() {
         })
       }
       onSaveTrackAccess={(trackAccess) =>
-        runMutation(async () => {
+        runMutationVoid(async () => {
           await saveTrackAccess({
             userId: session.user._id,
             trackAccess,
@@ -155,7 +236,7 @@ export default function AppRoot() {
         })
       }
       onSaveCompetitiveness={(level: CompetitivenessLevel) =>
-        runMutation(async () => {
+        runMutationVoid(async () => {
           await saveCompetitiveness({
             userId: session.user._id,
             level,
@@ -163,7 +244,7 @@ export default function AppRoot() {
         })
       }
       onSavePersonality={(value: { preset: PersonalityPreset; customDescription?: string }) =>
-        runMutation(async () => {
+        runMutationVoid(async () => {
           await savePersonality({
             userId: session.user._id,
             preset: value.preset,

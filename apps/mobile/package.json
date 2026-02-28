@@ -9,6 +9,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@kingstinct/react-native-healthkit": "^13.2.3",
     "@babel/runtime": "^7.28.6",
     "@slopmiles/domain": "workspace:*",
     "convex": "^1.32.0",
@@ -17,8 +18,8 @@
     "react": "^19.1.0",
     "react-dom": "19.1.0",
     "react-native": "0.81.5",
-    "react-native-safe-area-context": "~5.6.2",
-    "slopmiles-healthkit": "file:./modules/slopmiles-healthkit"
+    "react-native-nitro-modules": "^0.34.1",
+    "react-native-safe-area-context": "~5.6.2"
   },
   "devDependencies": {
     "@types/react": "^19.1.17",

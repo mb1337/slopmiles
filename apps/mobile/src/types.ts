@@ -16,6 +16,7 @@ export type SessionPayload = {
     unitPreference: UnitPreference;
     volumePreference: VolumeMode;
     trackAccess: boolean;
+    healthKitAuthorized: boolean;
   };
   runningSchedule: {
     preferredRunningDays: Weekday[];
@@ -35,6 +36,15 @@ export type SessionPayload = {
     description: string;
     isPreset: boolean;
   };
+};
+
+export type HealthKitSyncResult = {
+  status: "authorized" | "denied" | "notDetermined" | "unavailable";
+  authorized: boolean;
+  processedCount: number;
+  insertedCount: number;
+  updatedCount: number;
+  reason?: string;
 };
 
 export type Tab = "dashboard" | "plan" | "history" | "coach" | "settings";

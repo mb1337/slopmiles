@@ -20,7 +20,7 @@ import {
   StepCard,
   TrackAccessStep,
 } from "../components/onboardingSteps";
-import { requestHealthKitAuthorization } from "../healthkit/bridge";
+import { requestHealthKitAuthorization, type HealthKitPermissionResult } from "../healthkit/bridge";
 import { styles } from "../styles";
 import type { SessionPayload } from "../types";
 
@@ -40,7 +40,7 @@ export function OnboardingFlow({
   saving: boolean;
   error: string | null;
   onCompleteStep: (step: OnboardingStep) => Promise<void>;
-  onSaveHealthKitAuthorization: (authorized: boolean) => Promise<void>;
+  onSaveHealthKitAuthorization: (permission: HealthKitPermissionResult) => Promise<void>;
   onSaveProfileBasics: (value: {
     name: string;
     unitPreference: UnitPreference;
@@ -84,9 +84,15 @@ export function OnboardingFlow({
             busy={saving}
             onAuthorize={async () => {
               const permission = await requestHealthKitAuthorization();
-              await onSaveHealthKitAuthorization(permission.authorized);
+              await onSaveHealthKitAuthorization(permission);
             }}
-            onSkip={() => onSaveHealthKitAuthorization(false)}
+            onSkip={() =>
+              onSaveHealthKitAuthorization({
+                status: "denied",
+                authorized: false,
+                reason: "User skipped HealthKit authorization.",
+              })
+            }
           />
         ) : null}
 

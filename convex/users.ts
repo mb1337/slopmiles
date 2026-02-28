@@ -211,6 +211,14 @@ export const resetAppData = mutation({
       await ctx.db.delete(personality._id);
     }
 
+    const healthKitWorkouts = await ctx.db
+      .query("healthKitWorkouts")
+      .withIndex("by_user_id", (query) => query.eq("userId", args.userId))
+      .collect();
+    for (const workout of healthKitWorkouts) {
+      await ctx.db.delete(workout._id);
+    }
+
     const now = Date.now();
     await ctx.db.patch(args.userId, {
       name: "Runner",

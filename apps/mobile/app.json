@@ -10,6 +10,16 @@
       "resizeMode": "contain",
       "backgroundColor": "#f7f4ed"
     },
+    "plugins": [
+      [
+        "@kingstinct/react-native-healthkit",
+        {
+          "NSHealthShareUsageDescription": "SlopMiles reads running workouts, heart rate, routes, date of birth, and resting heart rate to personalize coaching.",
+          "NSHealthUpdateUsageDescription": "SlopMiles can write completed coaching workouts to Health when enabled.",
+          "background": true
+        }
+      ]
+    ],
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.slopmiles.app",

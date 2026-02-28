@@ -10,18 +10,22 @@ import { HistoryScreen } from "./tabs/HistoryScreen";
 import { PlanScreen } from "./tabs/PlanScreen";
 import { SettingsScreen } from "./tabs/SettingsScreen";
 import { styles } from "../styles";
-import type { Tab } from "../types";
+import type { HealthKitSyncResult, Tab } from "../types";
 
 export function MainTabs({
   userId,
   userName,
   defaultVolumeMode,
+  healthKitAuthorized,
   onResetApp,
+  onSyncHealthKit,
 }: {
   userId: Id<"users">;
   userName: string;
   defaultVolumeMode: VolumeMode;
+  healthKitAuthorized: boolean;
   onResetApp: () => Promise<void>;
+  onSyncHealthKit: () => Promise<HealthKitSyncResult>;
 }) {
   const [activeTab, setActiveTab] = useState<Tab>("dashboard");
 
@@ -34,7 +38,13 @@ export function MainTabs({
         {activeTab === "plan" ? <PlanScreen userId={userId} defaultVolumeMode={defaultVolumeMode} /> : null}
         {activeTab === "history" ? <HistoryScreen /> : null}
         {activeTab === "coach" ? <CoachScreen /> : null}
-        {activeTab === "settings" ? <SettingsScreen onResetApp={onResetApp} /> : null}
+        {activeTab === "settings" ? (
+          <SettingsScreen
+            healthKitAuthorized={healthKitAuthorized}
+            onResetApp={onResetApp}
+            onSyncHealthKit={onSyncHealthKit}
+          />
+        ) : null}
       </View>
       <View style={styles.tabBar}>
         {[
