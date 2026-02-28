@@ -1,0 +1,20 @@
+{
+  "name": "slopmiles",
+  "private": true,
+  "version": "0.0.0",
+  "packageManager": "pnpm@10.16.1",
+  "scripts": {
+    "build": "turbo run build",
+    "convex:dev": "convex dev",
+    "dev": "turbo run dev --parallel",
+    "dev:mobile": "pnpm --filter @slopmiles/mobile dev",
+    "dev:web": "pnpm --filter @slopmiles/web dev",
+    "typecheck": "turbo run typecheck"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.28",
+    "convex": "^1.32.0",
+    "turbo": "^2.8.12",
+    "typescript": "^5.9.3"
+  }
+}

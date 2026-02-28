@@ -1,0 +1,24 @@
+{
+  "name": "@slopmiles/mobile",
+  "version": "0.0.0",
+  "private": true,
+  "main": "index.js",
+  "scripts": {
+    "dev": "expo start",
+    "ios": "expo run:ios",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@babel/runtime": "^7.28.6",
+    "@slopmiles/domain": "workspace:*",
+    "convex": "^1.32.0",
+    "expo": "^52.0.49",
+    "expo-status-bar": "~2.0.1",
+    "react": "^18.3.1",
+    "react-native": "0.76.9"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.28",
+    "typescript": "^5.9.3"
+  }
+}

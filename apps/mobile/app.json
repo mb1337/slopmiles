@@ -1,0 +1,18 @@
+{
+  "expo": {
+    "name": "SlopMiles",
+    "slug": "slopmiles",
+    "scheme": "slopmiles",
+    "version": "0.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "resizeMode": "contain",
+      "backgroundColor": "#f7f4ed"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.slopmiles.app"
+    }
+  }
+}
