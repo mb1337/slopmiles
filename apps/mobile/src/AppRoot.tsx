@@ -14,6 +14,7 @@ const ANONYMOUS_HANDLE = "ios-anonymous-v1";
 
 export default function AppRoot() {
   const bootstrapAnonymous = useMutation(api.users.bootstrapAnonymous);
+  const resetAppData = useMutation(api.users.resetAppData);
   const completeStep = useMutation(api.onboarding.completeStep);
   const saveHealthKitAuthorization = useMutation(api.onboarding.saveHealthKitAuthorization);
   const saveProfileBasics = useMutation(api.onboarding.saveProfileBasics);
@@ -72,6 +73,17 @@ export default function AppRoot() {
     }
   };
 
+  const resetApp = async () => {
+    if (!session) {
+      return;
+    }
+
+    await resetAppData({
+      userId: session.user._id,
+    });
+    await refresh();
+  };
+
   if (loading || !session) {
     return (
       <SafeAreaView style={styles.screenCenter}>
@@ -87,6 +99,7 @@ export default function AppRoot() {
         userId={session.user._id}
         userName={session.user.name}
         defaultVolumeMode={session.user.volumePreference}
+        onResetApp={resetApp}
       />
     );
   }

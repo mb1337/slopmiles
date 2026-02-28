@@ -16,10 +16,12 @@ export function MainTabs({
   userId,
   userName,
   defaultVolumeMode,
+  onResetApp,
 }: {
   userId: Id<"users">;
   userName: string;
   defaultVolumeMode: VolumeMode;
+  onResetApp: () => Promise<void>;
 }) {
   const [activeTab, setActiveTab] = useState<Tab>("dashboard");
 
@@ -32,7 +34,7 @@ export function MainTabs({
         {activeTab === "plan" ? <PlanScreen userId={userId} defaultVolumeMode={defaultVolumeMode} /> : null}
         {activeTab === "history" ? <HistoryScreen /> : null}
         {activeTab === "coach" ? <CoachScreen /> : null}
-        {activeTab === "settings" ? <SettingsScreen /> : null}
+        {activeTab === "settings" ? <SettingsScreen onResetApp={onResetApp} /> : null}
       </View>
       <View style={styles.tabBar}>
         {[
