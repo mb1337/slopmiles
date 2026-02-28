@@ -1,8 +1,13 @@
-# SlopMiles — AI Running Coach for iOS
+# SlopMiles — AI Running Coach (iOS First, Web Companion)
 
 ## Overview
 
-SlopMiles is an iOS application that provides personalized AI running coaching. Users select a competitiveness level and coach personality, import their training history from HealthKit, set goals, and receive dynamically generated training plans. The coach monitors performance, gives feedback, adjusts plans in real time, and conducts end-of-plan assessments.
+SlopMiles is an AI running coach product delivered in two clients: an iOS app first, followed by a web companion. Users select a competitiveness level and coach personality, import their training history from HealthKit on iOS, set goals, and receive dynamically generated training plans. The coach monitors performance, gives feedback, adjusts plans in real time, and conducts end-of-plan assessments.
+
+**Delivery sequence:**
+- **Phase 1 (primary):** iOS app built with React Native + native iOS modules for HealthKit integration.
+- **Phase 2 (companion):** Web app built with React + Vite on the same Convex backend; web does not import workouts.
+- **Android:** Deferred (out of current scope).
 
 ---
 
@@ -195,7 +200,7 @@ Strength and core work is an optional component of any training plan. During pla
 The user may select multiple options (e.g., dumbbells + exercise bands). Equipment selection is stored on the plan so the coach can tailor exercises accordingly.
 
 **How strength fits into the plan:**
-- Strength workouts are generally scheduled on hard running days — following a "hard days hard, easy days easy" polarization. Pairing strength with quality running sessions (tempo, intervals) keeps easy days truly easy for recovery.
+- Strength workouts are scheduled on hard running days by default — following a "hard days hard, easy days easy" polarization. If hard-day placement is not feasible for a given week, strength may be placed on a rest day as a fallback; easy running days remain protected for recovery.
 - Strength workouts are short (15–30 minutes) and focused on runner-relevant movements: hip stability, single-leg strength, core anti-rotation, posterior chain.
 - The coach periodizes strength alongside running: heavier/harder strength in base-building phases, lighter maintenance strength during race-specific phases, and reduced or no strength during taper.
 - Strength volume is not counted toward the plan's running volume (peak week volume and weekly volume percentages refer to running only).
@@ -208,7 +213,7 @@ The user may select multiple options (e.g., dumbbells + exercise bands). Equipme
 
 The user specifies which days of the week they are available to run and how many running days per week they prefer. This is stored on the user profile and used as a primary scheduling constraint during weekly detail generation.
 
-- **Available days** — A set of weekdays the user can run (e.g., Mon, Tue, Thu, Sat, Sun). Defaults to all seven days if not configured.
+- **Available days** (`RunningSchedule.preferredRunningDays`) — A set of weekdays the user can run (e.g., Mon, Tue, Thu, Sat, Sun). Defaults to all seven days if not configured.
 - **Preferred days per week** — The target number of running days (e.g., 5). Must be ≤ the number of available days. The coach uses this to decide how many sessions to schedule.
 - **Preferred long run day** (optional) — The day of the week the user prefers for their long run (e.g., Saturday). Must be one of the available days. If not set, the coach chooses based on the overall schedule.
 - **Preferred quality days** (optional) — A ranked list of days the user prefers for hard efforts like tempo, intervals, or repetitions (e.g., 1st: Tuesday, 2nd: Thursday, 3rd: Saturday). Must be a subset of the available days. The ranking matters: the week's most important quality session (e.g., the key workout for the training phase) is placed on the first-choice day, the second-most-important on the second-choice day, and so on. If not set, the coach places quality sessions where they fit best with adequate recovery spacing.
@@ -305,7 +310,7 @@ Race paces and training zones serve different purposes: training zones target sp
 A VDOT service (see §3.8) handles all VDOT-related calculations:
 - **Race → VDOT** — given a race distance and finish time, returns the corresponding VDOT value.
 - **VDOT → Paces** — given a VDOT, returns concrete pace ranges for each zone (E, M, T, I, R) in the user's preferred unit.
-- **VDOT → Race Predictions** — given a VDOT, returns predicted finish times for standard race distances (5K, 10K, Half Marathon, Marathon).
+- **VDOT → Race Predictions** — given a VDOT and race distance, returns a predicted finish time for that distance (including standard presets and supported custom distances).
 
 The coach and UI reference zones generically; the app resolves zones to concrete paces via the VDOT service for display in the user's resolved unit (e.g., "Easy: 5:30–6:00 /km" or "Easy: 8:51–9:39 /mi"). Race predictions are shown alongside the user's current VDOT on the Dashboard and History screens.
 
@@ -637,7 +642,7 @@ UserProfile
   calendarIdentifier: String?   // iCloud calendar for sync
 ```
 
-**Separate related records** — To minimize CloudKit conflict blast radius (see §3.9), the following sub-objects are stored as separate SwiftData entities with a one-to-one relationship to `UserProfile`, rather than as flat fields:
+**Separate related records** — To minimize cross-client conflict blast radius in Convex (see §3.9), the following sub-objects are stored as separate records with a one-to-one relationship to `UserProfile`, rather than as flat fields:
 
 ```
 RunningSchedule                    // separate record to isolate schedule edits from other profile changes
@@ -649,10 +654,12 @@ RunningSchedule                    // separate record to isolate schedule edits 
   availabilityWindows: [Weekday: [TimeWindow]]  // optional time windows per day (see §1.8); empty array = any time
 ```
 
+`preferredRunningDays` is the canonical stored field name for day-level availability ("available days").
+
 `Competitiveness` (§2.2) and `Personality` (§2.3) are already separate entities with their own records. `vdotHistory` is stored as individual `VDOTRecord` child records (see below).
 
 ```
-VDOTRecord                         // append-only child record; avoids array-level CloudKit conflicts
+VDOTRecord                         // append-only child record; avoids array-level overwrite conflicts
   id: UUID
   userId: UUID
   date: Date
@@ -759,6 +766,8 @@ Race
   planId: UUID?                    // nil for standalone race results (entered during onboarding or in Settings); set when the race is part of a training plan
   distance: Double               // always stored in meters (e.g., 5000, 21097.5, 42195); presets populate known values, custom distances entered by user
   label: String                  // display name (e.g., "5K", "Half Marathon", "15K", "50 Miles"); auto-generated for presets, user-provided for custom
+  displayDistanceValue: Double?  // optional native display value as entered/framed by user (e.g., 50)
+  displayDistanceUnit: .meters | .kilometers | .miles | nil  // optional native display unit for preserving race-distance framing
   date: Date
   goalTime: TimeInterval?
   actualTime: TimeInterval?
@@ -766,6 +775,8 @@ Race
 ```
 
 Standalone races (where `planId` is nil) are race results entered outside the context of a training plan — during onboarding (§1.5 step 6) or via Settings → Race Results. They serve as VDOT data points and historical records. When a race is added to an active plan (§1.6), `planId` is set to that plan's ID.
+
+When provided, `displayDistanceValue` + `displayDistanceUnit` preserve race-native distance framing for UI labels while canonical `distance` remains meter-based for deterministic calculations.
 
 ### 2.7 Training Week
 
@@ -782,6 +793,8 @@ TrainingWeek
   coachNotes: String?
   generated: Bool               // false until detailed workouts are generated
 ```
+
+`TrainingWeek.workouts` and `TrainingWeek.strengthWorkouts` are read-model collections for week-level fetches. Persisted workout/strength-workout records are keyed by `weekId` and may be stored separately to avoid large-document overwrite conflicts.
 
 ### 2.8 Workout
 
@@ -880,9 +893,19 @@ WorkoutFeedback
   elevationDescent: Double?        // meters; from HealthKit route data
   averageHeartRate: Double?        // bpm; from HealthKit (nil if HR data unavailable)
   maxHeartRate: Double?            // bpm; from HealthKit
+  recordedLapSummaries: [RecordedLapSummary]?  // imported recorded laps only (no synthetic splits)
   segmentComparisons: [SegmentComparison]?  // planned vs actual by segment/rep for completed structured workouts
   coachCommentary: String
   adjustmentsMade: [String]     // description of any plan changes triggered
+```
+
+```
+RecordedLapSummary
+  order: Int
+  distance: Double               // meters
+  duration: TimeInterval         // seconds
+  averageHeartRate: Double?      // bpm
+  maxHeartRate: Double?          // bpm
 ```
 
 ```
@@ -936,7 +959,7 @@ ChatMessage
   timestamp: Date
 ```
 
-**Retention policy:** All conversations and messages are persisted in SwiftData and synced via CloudKit. Messages are small text records and are retained indefinitely — no pruning or archival. The UI scopes conversations by plan (via `Conversation.planId`), so only the relevant plan's conversations are loaded into memory at a time. What gets sent to the AI as context is a separate concern managed by the context windowing strategy (see §5.2–5.3); the underlying message data is always preserved.
+**Retention policy:** All conversations and messages are persisted in Convex and synced in real time to signed-in clients. Messages are small text records and are retained indefinitely — no pruning or archival. The UI scopes conversations by plan (via `Conversation.planId`), so only the relevant plan's conversations are loaded into memory at a time. What gets sent to the AI as context is a separate concern managed by the context windowing strategy (see §5.0.1); the underlying message data is always preserved.
 
 ### 2.16 Plan Assessment
 
@@ -971,6 +994,8 @@ Course
 
 ```
 OnboardingState
+  id: UUID
+  userId: UUID
   currentStep: OnboardingStep   // the next step to present on launch; advances as each step is completed
   isComplete: Bool              // true after the user finishes the final step; onboarding is never shown again
 ```
@@ -981,7 +1006,7 @@ OnboardingState
 
 ### 2.19 Data Lifecycle, Retention, Deletion, and Portability
 
-SlopMiles stores user data in SwiftData and syncs via CloudKit private database. There is no shared/public feed of user health data.
+SlopMiles stores primary user data in Convex. iOS and web clients may keep local caches for responsiveness/offline UX, but Convex is the source of truth. There is no shared/public feed of user health data.
 
 **Retention policy by entity (default: retained until user deletion):**
 
@@ -1004,13 +1029,13 @@ SlopMiles stores user data in SwiftData and syncs via CloudKit private database.
 **Portability/export expectations:**
 
 - Settings includes an **Export My Data** action that produces a JSON export package containing user-owned app data (profile, plans, workouts, races, check-ins, chat, assessments, and VDOT history).
-- Export is generated on-device and shared through the standard iOS share sheet.
-- Export package does not include CloudKit metadata, internal diagnostics, or private AI prompt templates.
+- On iOS, export is generated locally and shared through the standard share sheet. On web, export is generated and downloaded as a JSON file.
+- Export package does not include Convex internal metadata, internal diagnostics, or private AI prompt templates.
 
 **User-facing privacy disclosures (shown in onboarding + Settings > Privacy):**
 
 - What is read from HealthKit and why (training analysis, matching, HR context).
-- What is synced to CloudKit private storage and that sync is tied to the user's Apple ID.
+- What is synced to Convex and which account identity is used for that sync.
 - That AI calls are used for coaching outputs and include only the minimum context needed per call type.
 - How to export data and how to perform full deletion via Reset App.
 
@@ -1021,34 +1046,25 @@ SlopMiles stores user data in SwiftData and syncs via CloudKit private database.
 ### 3.1 High-Level Components
 
 ```
-┌─────────────────────────────────────────────┐
-│                   UI Layer                  │
-│                  (SwiftUI)                  │
-├─────────────────────────────────────────────┤
-│                Coach Engine                 │
-│  ┌───────────┐ ┌──────────┐                 │
-│  │   Plan    │ │ Feedback │                 │
-│  │ Generator │ │  Engine  │                 │
-│  └───────────┘ └──────────┘                 │
-├─────────────────────────────────────────────┤
-│              Integration Layer              │
-│  ┌──────────┐ ┌───────────┐ ┌────────────┐  │
-│  │HealthKit │ │WorkoutKit │ │  Calendar  │  │
-│  │  Import  │ │  Sync     │ │  Sync      │  │
-│  └──────────┘ └───────────┘ └────────────┘  │
-│  ┌──────────┐ ┌───────────┐                 │
-│  │ Weather  │ │   VDOT    │                 │
-│  │  Service │ │  Service  │                 │
-│  └──────────┘ └───────────┘                 │
-├─────────────────────────────────────────────┤
-│              Persistence Layer              │
-│         (SwiftData + CloudKit sync)         │
-└─────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────┐
+│                        Client Layer                         │
+│  iOS App: React Native + native iOS modules (HealthKit)    │
+│  Web Companion: React + Vite (no workout import)            │
+├─────────────────────────────────────────────────────────────┤
+│                    Convex Backend Layer                     │
+│  Queries/Mutations, AI Actions, Job Queue, Auth, Realtime   │
+├─────────────────────────────────────────────────────────────┤
+│                    Domain / Coach Layer                     │
+│  Plan Generator, Feedback Engine, Validators, Matching      │
+├─────────────────────────────────────────────────────────────┤
+│                    Integration Adapters                     │
+│  HealthKit Import (iOS), Calendar, Open-Meteo, VDOT Service │
+└─────────────────────────────────────────────────────────────┘
 ```
 
 ### 3.2 Coach Engine
 
-The coach engine wraps AI interactions. All AI calls go through a single service that:
+The coach engine wraps AI interactions. All AI calls go through a single backend service (implemented as Convex actions) that:
 - Constructs prompts from the competitiveness level, personality, user profile, plan context, and recent data.
 - Sends structured requests to the AI backend.
 - Parses structured responses (JSON) for plan generation, feedback, and assessments.
@@ -1063,9 +1079,9 @@ Every AI call can fail (network error, timeout, malformed response). The app han
 |---|---|---|---|
 | **Plan generation** (§5.1) | User's inputs are preserved; no proposal is created. | Error banner in the Review step: "Couldn't reach your coach — check your connection." Retry button below the banner. | User taps Retry. They can also go back and edit inputs without losing them. |
 | **Weekly detail generation** (§5.2) | Week stays `generated: false`. | Week card shows volume target and emphasis from the plan outline, but no individual workouts. Inline retry button: "Generate workouts." | User taps Retry, or the app auto-retries on next foreground launch if connectivity is available. |
-| **Workout feedback** (§5.3) | Workout is still matched; check-in data is saved locally. | Feedback section on Workout Detail shows "Coach feedback pending." | Auto-retries in background. No user action needed — feedback appears when available. |
+| **Workout feedback** (§5.3) | Workout is still matched; check-in data is persisted in Convex immediately (with local optimistic state). | Feedback section on Workout Detail shows "Coach feedback pending." | Auto-retries in background. No user action needed — feedback appears when available. |
 | **End-of-plan assessment** (§5.4) | Plan still transitions to `.completed`. | Assessment card on Dashboard and Coach tab shows "Assessment pending" with a Retry button. | User taps Retry, or the app auto-retries on next launch. |
-| **Skip response** (§5.5) | Skip is recorded locally (status → `.skipped`, reason saved). Remaining workouts are unchanged. | Coach commentary area shows "Coach response pending." The skip itself is confirmed immediately. | Auto-retries. Week adjustments apply when the response arrives. |
+| **Skip response** (§5.5) | Skip is persisted in Convex immediately (status → `.skipped`, reason saved) with local optimistic confirmation. Remaining workouts are unchanged. | Coach commentary area shows "Coach response pending." The skip itself is confirmed immediately. | Auto-retries. Week adjustments apply when the response arrives. |
 | **Injury/illness** (§5.6) | User's activation intent is noted but the plan is **not** modified without AI confirmation. | Coach chat shows a connectivity error message with Retry. The plan continues as-is until the coach responds. | User retries from the Coach tab. |
 | **Goal change** (§5.7) | No plan changes are made. | Coach chat shows a connectivity error with Retry. Current goal remains active. | User retries from the Coach tab. |
 | **Coach chat** (ad-hoc) | Message is not sent. | Message shows "Failed to send" with a Retry indicator (tap to resend). | User taps the failed message to retry. |
@@ -1074,7 +1090,7 @@ Every AI call can fail (network error, timeout, malformed response). The app han
 - Local state changes (skip recording, workout matching, check-in saving, plan completion) are never blocked by AI failures. The AI enriches these events but is not a prerequisite for them.
 - Calls that don't require user review (feedback, skip response, assessment) auto-retry on connectivity restoration or next app foreground — up to 3 attempts with exponential backoff, then surface a manual Retry.
 - Calls that produce plan-altering proposals (plan generation, weekly detail, injury, goal change) require explicit user-initiated Retry — the app does not silently modify the plan in the background.
-- All pending AI requests are persisted locally so they survive app termination.
+- All pending AI requests are persisted in Convex so they survive app termination and multi-device usage.
 
 **AI Call Rate Limiting & Cost Management:**
 
@@ -1091,12 +1107,20 @@ The app manages AI call volume through debouncing, batching, and prioritization:
 
 ### 3.3 HealthKit Integration
 
+HealthKit import is supported in the iOS app only. The web companion does not import workouts and operates on data already synced to Convex.
+
 **Read:**
-- Running workouts (distance, duration, route, heart rate).
+- Running workouts (distance, duration, heart rate, recorded laps/splits, route when available).
 - Elevation data (ascent, descent, and per-segment grade from route samples) for grade-adjusted pace calculation (see §1.15).
 - Historical training data for plan generation context.
 - Date of birth (used to calculate default max heart rate via 220 − age).
 - Resting heart rate (updated automatically; used for HR zone calculation and as a fitness/fatigue indicator).
+
+**Import profile (summary-first):**
+- SlopMiles imports summary workout records, not raw per-sample sensor streams.
+- For each imported workout, persist summary metrics (`distance`, `duration`, `averageHeartRate`, `maxHeartRate`) plus timestamps/source metadata for idempotent ingest.
+- Persist per-split metrics only for recorded laps that exist in the source workout. Each recorded lap stores `distance`, `duration`, `averageHeartRate`, and `maxHeartRate` when available.
+- If a workout has no recorded laps, do not synthesize splits; store only workout-level summary metrics.
 
 **Workout Matching:**
 - After a HealthKit workout appears, attempt automatic match to a planned workout.
@@ -1106,9 +1130,10 @@ The app manages AI call volume through debouncing, batching, and prioritization:
 - Request only necessary HealthKit types.
 - Handle authorization denial gracefully with clear explanation of reduced functionality.
 
-### 3.4 WorkoutKit Integration
+### 3.4 WorkoutKit Integration (Post-MVP)
 
-- Schedule planned workouts to Apple Watch via WorkoutKit.
+- WorkoutKit sync is planned but not required for initial iOS release.
+- When enabled, schedule planned workouts to Apple Watch via WorkoutKit.
 - Include workout structure (segments, pace targets) so the watch can guide the user during the run.
 - **Auto-sync** — upcoming workouts (next 7 days) are automatically synced to the Watch whenever weekly detail is generated or workouts are modified (including reschedules, bumps, skip-triggered adjustments, and coach-initiated changes). The sync window refreshes daily.
 - **Manual push** — the "Push to Watch" action on Workout Detail (§4.2) allows the user to manually sync a specific workout on demand — useful for workouts outside the 7-day auto-sync window or to force an immediate update after a change.
@@ -1121,7 +1146,7 @@ The app registers an `HKObserverQuery` for `.workoutType()` and calls `healthSto
 
 1. Runs an `HKAnchoredObjectQuery` from the last stored anchor to fetch only new/changed workout samples.
 2. Performs workout matching (§1.13) against planned workouts.
-3. Queues AI feedback generation (§5.3) for matched workouts at background priority.
+3. Enqueues AI feedback generation (§5.3) in the backend job queue at background priority.
 4. Calls the observer query's completion handler to signal processing is finished.
 
 The anchored query approach ensures no workouts are missed — if multiple workouts land while the app is suspended, the next wake processes all unprocessed samples from the stored anchor.
@@ -1141,14 +1166,14 @@ The anchored query approach ensures no workouts are missed — if multiple worko
 
 ### 3.7 Weather Service
 
-- Fetch a weekly weather outlook (daily high temperature and humidity) for the user's location using WeatherKit.
+- Fetch a weekly weather outlook (daily high temperature and humidity) for the user's location using Open-Meteo via a Convex weather action.
 - Weather data is provided to the coach as input during weekly detail generation (§5.2).
 - The coach uses weather data to adjust pace expectations and add heat/humidity guidance in workout notes — the app does not enforce pace changes automatically.
-- Requires location access (Core Location). Location permission is requested on first weekly detail generation (not during onboarding, to reduce permission fatigue). The prompt explains that location is used only for weather data to tailor workout guidance. If denied, the coach generates workouts without weather context. The user can enable location access later in system Settings.
+- Requires device location access. Location permission is requested on first weekly detail generation (not during onboarding, to reduce permission fatigue). The prompt explains that location is used only for weather data to tailor workout guidance. If denied, the coach generates workouts without weather context. The user can enable location access later in system Settings.
 
 ### 3.8 VDOT Service
 
-A VDOT calculator service provides all VDOT-related computations. The service is implemented as a local library bundled with the app — there are no network dependencies. The app accesses it through an abstracted interface so the implementation can be swapped or tested independently.
+A VDOT calculator service provides all VDOT-related computations. The service is implemented as a shared library (used by backend and clients as needed) with no third-party network dependency for the calculations themselves. The app accesses it through an abstracted interface so the implementation can be swapped or tested independently.
 
 **Endpoints:**
 - **Race → VDOT** — accepts a race distance and finish time, returns a VDOT value.
@@ -1163,27 +1188,28 @@ A VDOT calculator service provides all VDOT-related computations. The service is
 - Called to resolve race pace targets (e.g., "10K pace") to concrete paces — the race prediction endpoint provides finish time for the distance, and the app derives pace from finish time ÷ distance.
 - The coach AI does not call this service directly — the app resolves paces before display. The AI references zones generically (E, M, T, I, R) and race paces by distance label (e.g., "10K pace") in its outputs.
 
-### 3.9 CloudKit Conflict Resolution
+### 3.9 Convex Consistency and Conflict Handling
 
-SwiftData with CloudKit sync uses last-writer-wins at the record level (based on CloudKit server timestamp). Rather than fighting this default, the data model is designed to minimize meaningful conflicts:
+Convex is the source of truth for shared state across iOS and web. Data mutations execute as backend functions with transactional guarantees, so conflict handling is defined at the function and schema level rather than by client-side merge behavior.
 
-**Low-risk entities (last-writer-wins is safe):**
-- **ChatMessage, WorkoutFeedback, PlanAssessment** — coach-generated content is produced on a single device and is append-only or write-once. Conflicts don't arise in practice.
-- **WorkoutCheckIn** — check-ins are submitted once from whichever device the user is on. Edits are rare and last-writer-wins is acceptable.
-- **TrainingWeek, Workout, StrengthWorkout** — detailed workouts are generated by a single AI call and written atomically. Status transitions (planned → completed/skipped) happen on one device because they're triggered by HealthKit matching or user action on the device in hand.
-- **Race** — added or edited infrequently. `actualTime` and `vdotFromResult` are write-once after a race.
-- **Course** — user-managed, edited infrequently. Last-writer-wins is fine.
-- **OnboardingState** — progresses linearly on a single device. If onboarding somehow runs on two devices simultaneously, last-writer-wins produces a valid (if slightly disorienting) result — the user just re-does a step.
+**Core consistency model:**
+- All state-changing operations run through Convex mutations; each mutation is atomic.
+- Plan/workout lifecycle transitions are validated server-side before write.
+- AI outputs are validated/corrected/rejected server-side before persistence (see §5.0.3).
 
-**Moderate-risk entities (mitigated by design):**
-- **UserProfile** — the most likely candidate for concurrent edits (e.g., changing personality on the phone while changing units on the iPad). Because SwiftData syncs at the record level, a profile change on one device overwrites the entire record, including fields the user didn't touch. **Mitigation:** the app stores profile sub-objects (competitiveness, personality, running schedule, equipment) as separate related records rather than flat fields on a single `UserProfile` record. This narrows the blast radius of a last-writer-wins conflict — changing personality on one device won't overwrite a running schedule change on another.
-- **TrainingPlan** — `status` transitions (draft → active, active → completed/abandoned) are inherently single-device actions. The moderate risk is `peakWeekVolume` being adjusted by the coach on one device while the user views the plan on another, but coach-initiated adjustments are triggered by user interaction on a single device, so this is low-risk in practice. `peakVolumeHistory` and `goalHistory` are append-only arrays — **mitigation:** store these as separate child records rather than inline arrays so appends from different devices don't overwrite each other.
+**Conflict mitigation by data shape:**
+- Keep append-only history (`VDOTRecord`, `PeakVolumeChange`, `GoalChange`, messages) as child records rather than mutable arrays.
+- Keep high-churn profile domains (`RunningSchedule`, `Competitiveness`, `Personality`) in separate related records to reduce overwrite surface.
+- Use write-once semantics where appropriate (`matchedHealthKitId`, race `actualTime`, `vdotFromResult`).
 
-**General principles:**
-- Prefer append-only child records over mutable arrays on parent records. This turns array-level conflicts into harmless concurrent inserts.
-- Write-once fields (e.g., `vdotFromResult`, `actualTime`, `matchedHealthKitId`) are naturally conflict-free — they go from nil to a value once.
-- AI-generated content is always produced in response to a user action on a single device. The app does not trigger AI calls from multiple devices simultaneously for the same entity.
-- If a user observes stale data after a sync (e.g., a workout status that briefly reverts), the next foreground sync resolves it. No user-facing conflict resolution UI is needed.
+**Idempotency and duplicate protection:**
+- External workout ingest uses deterministic idempotency keys (`source + externalWorkoutId`) to prevent duplicate inserts across retries.
+- AI job queue entries use deterministic keys per entity + call type to drop duplicate queued work.
+
+**Cross-client behavior (iOS + web):**
+- Clients subscribe to Convex queries for realtime updates.
+- Optimistic UI is allowed, but server mutation results are authoritative.
+- If two clients issue conflicting edits, server-side validation + transaction ordering determine the final state; rejected writes are surfaced to the initiating client with actionable errors.
 
 ### 3.10 Audit and Telemetry Boundaries for Health Data
 
@@ -1212,7 +1238,7 @@ Telemetry must be privacy-minimizing by default and must not exfiltrate raw heal
 
 ## 4. User Interface
 
-Navigation is tab-based.
+The iOS app is the primary experience and uses tab-based navigation. The web companion mirrors core plan/history/coach/settings surfaces on desktop/mobile web, but does not support workout import.
 
 ### 4.1 Tab Structure
 
@@ -1255,7 +1281,7 @@ Navigation is tab-based.
 - **Segment comparison table** — for completed structured workouts, show planned vs actual per segment and per rep (when applicable). Example: `400m reps planned at 75s` displayed alongside actual split times such as `76, 75, 77, 74`; inferred/merged reps are visibly labeled. For time-based reps (for example, `5 x 5:00`), display planned pace vs actual pace per rep and also show actual rep distance.
 - **Check-in section** — after a workout is matched, the check-in inputs (RPE, effort modifiers, notes) are accessible here. If the user dismissed the check-in sheet (see §1.14), they can complete it inline. If already submitted, values are shown and editable.
 - Coach feedback section (populated after check-in submission or after timeout).
-- Actions: reschedule, bump (see §1.22), skip (see §1.18), push to Watch, add to calendar.
+- Actions: reschedule, bump (see §1.22), skip (see §1.18), push to Watch (when enabled), add to calendar.
 - **Skip flow** — tapping "Skip" presents a reason picker (schedule conflict, fatigue, soreness, weather, custom). After confirmation, the coach responds with adjusted plan for the rest of the week.
 
 #### Coach Chat
@@ -1268,7 +1294,7 @@ Navigation is tab-based.
 #### New Plan Flow
 1. **Set Goal** — pick a preset goal or enter a custom one (see §1.4). For race presets, optionally set a goal time and target date.
 2. **Strength Training** — toggle whether to include strength/core workouts. If enabled, select available equipment (multi-select from §1.7 equipment options). Defaults to the user's saved equipment from their profile; can be changed per plan.
-3. **Import History** — show summary of recent HealthKit data being used for context. If HealthKit is not authorized, this step shows an informational message explaining that the coach will build the plan without training history and offers a link to authorize HealthKit in Settings. The user can proceed without it.
+3. **Import History** — iOS shows summary of recent HealthKit data being used for context. If HealthKit is not authorized, this step shows an informational message explaining that the coach will build the plan without training history and offers a link to authorize HealthKit in Settings. The user can proceed without it. On web, this step is informational only: imports are managed on iOS, and web uses already-synced data.
 4. **Review Coach Proposal** — the coach presents: duration, peak volume, weekly volume profile, and rationale. If strength is enabled, the proposal includes a note on how strength sessions will be distributed.
 5. **Adjust Peak Volume** — user can override the coach's suggested peak volume.
 6. **Confirm** — if no active plan exists, the plan moves directly to `.active` and the first week detail is generated. If an active plan already exists (see §6 rule 9), the plan is saved as `.draft` — the user is informed that it can be activated after the current plan is completed or abandoned.
@@ -1285,18 +1311,18 @@ Navigation is tab-based.
 - Running Schedule: preferred running days, target days per week, preferred long run day, preferred quality days (ranked), and optional availability windows (see §1.8).
 - Courses: add, edit, and delete measured courses (see §1.17). Each course has a name, distance with unit, surface type, and optional notes.
 - Competitiveness and Personality: change at any time (applies to future interactions).
-- Integrations: HealthKit status, WorkoutKit toggle, calendar picker.
+- Integrations: HealthKit status (iOS), WorkoutKit toggle (optional/post-MVP), calendar picker.
 - Race Results: manage race history used for VDOT calculation.
 - Data Management:
   - **Export My Data** — creates a user-readable JSON package (see §2.19) for portability.
   - **Reset App** — deletes all local data (profile, plans, workouts, conversations, assessments, VDOT history, and pending AI jobs) and restarts onboarding. Requires confirmation with a destructive action prompt. This is a full reset — there is no selective deletion of individual plans or workouts outside of plan abandonment (§1.21).
 
-**Reset App CloudKit semantics:**
+**Reset App sync semantics (Convex-backed):**
 
-- Reset queues deletion of all app-owned records in the user's CloudKit private database and writes a local "reset in progress" marker immediately.
-- Local wipe happens immediately on the initiating device; other devices converge after CloudKit sync. Until convergence, another device may briefly show stale data.
+- Reset queues deletion of all app-owned records in Convex and writes a local "reset in progress" marker immediately.
+- Local wipe happens immediately on the initiating device; other clients converge after next successful sync. Until convergence, another client may briefly show stale cached data.
 - During this eventual-consistency window, stale records are treated as read-only snapshots and are removed on next successful sync; they must not recreate deleted state.
-- If a secondary device is offline during reset, it clears stale data the next time it comes online and receives the CloudKit deletions.
+- If a secondary client is offline during reset, it clears stale data the next time it comes online and receives the remote deletions.
 
 ---
 
@@ -1352,25 +1378,25 @@ As plans grow, the full history of weeks, workouts, feedback, and check-ins can 
 
 ### 5.0.2 Schema Evolution
 
-The structured JSON contracts in §5.1–5.7 define expected AI output formats. These schemas are embedded in the prompts the app constructs — the AI does not maintain its own notion of schema version. The prompt and the parser ship together in the same app binary, so they always agree on the current format.
+The structured JSON contracts in §5.1–5.7 define expected AI output formats. These schemas are embedded in the prompts the app constructs — the AI does not maintain its own notion of schema version. The prompt builder and parser/validator are versioned together in the backend codebase so they always agree on the active format.
 
 **Response parsing** is defensive: required fields are validated, unknown fields are ignored, and missing optional fields fall back to sensible defaults. This tolerates minor AI response variations without hard failures.
 
-**Pending requests across app updates:** AI requests are persisted locally for retry (see §3.2). When the app launches after an update that changes a prompt schema, not-yet-sent requests are discarded and re-queued with current prompts — input data (plan context, user profile) is re-gathered fresh. In-flight requests (sent, awaiting response) are accepted if they parse successfully under the current parser; if parsing fails, the request is re-queued.
+**Pending requests across app/backend updates:** AI requests are persisted in the backend queue for retry (see §3.2). When prompt/schema revisions change, not-yet-sent requests are discarded and re-queued with current prompts — input data (plan context, user profile) is re-gathered fresh. In-flight requests (sent, awaiting response) are accepted if they parse successfully under the current parser; if parsing fails, the request is re-queued.
 
-**No stored AI response JSON:** AI responses are parsed into SwiftData model objects (workouts, feedback, assessments) immediately on receipt. Raw response JSON is not persisted. Schema changes therefore require no data migration — only the prompt template and response parser are updated together. Changes to the underlying SwiftData entities are handled separately via SwiftData's standard migration support.
+**No stored AI response JSON:** AI responses are parsed into application model records (workouts, feedback, assessments) immediately on receipt. Raw response JSON is not persisted. Schema changes therefore require no data migration — only the prompt template and response parser are updated together. Changes to persisted entities are handled through normal Convex schema/code migrations.
 
-**App-local contract governance (no backend schema versioning required):**
+**Contract governance (backend-driven):**
 
-- Each AI call type (§5.1–§5.7) has a single canonical app-side schema definition (typed DTO + validator). The prompt's expected JSON and the parser both derive from this canonical definition to avoid drift.
-- Persisted pending AI requests include app-local metadata: `promptRevision` and `schemaRevision` strings set at enqueue time.
-- On app launch after update, queued requests whose revision metadata does not match the current app revisions are discarded and re-queued with current prompts and freshly gathered inputs.
+- Each AI call type (§5.1–§5.7) has a single canonical backend schema definition (typed DTO + validator). The prompt's expected JSON and the parser both derive from this canonical definition to avoid drift.
+- Persisted pending AI requests include revision metadata: `promptRevision` and `schemaRevision` strings set at enqueue time.
+- When backend revisions change, queued requests whose revision metadata does not match current revisions are discarded and re-queued with current prompts and freshly gathered inputs.
 - In-flight responses are still parsed defensively under the current parser; parse failures trigger re-queue with current revisions.
 - Add contract tests per call type with representative fixtures: valid, missing required fields, unknown fields, wrong enum values, and malformed nested objects. Unknown fields are ignored; required field failures reject and re-queue.
 
 ### 5.0.3 Deterministic Guardrails, Rejection, and Correction
 
-AI proposes coaching outputs; the app remains the source of truth for all enforceable rules. The app never writes AI output directly to SwiftData without deterministic validation.
+AI proposes coaching outputs; the app remains the source of truth for all enforceable rules. The system never writes AI output directly to persistent storage without deterministic validation.
 
 **Deterministic app responsibilities (must enforce):**
 
@@ -1435,13 +1461,13 @@ This policy ensures AI is always advisory and never bypasses deterministic produ
 - Current VDOT.
 - Competitiveness level and personality system prompt.
 - Volume mode (time or distance).
-- Preferred running days, target days per week, preferred long run day, preferred quality days (ranked), and availability windows (see §1.8).
+- Available days (`RunningSchedule.preferredRunningDays`), target days per week, preferred long run day, preferred quality days (ranked), and availability windows (see §1.8).
 - Whether strength training is enabled, and available equipment list.
 
 For race goals, `numberOfWeeks` is computed deterministically by the app from the plan start date and race date and passed as an input constraint — the AI does not propose it. The AI may comment on timeline adequacy in its `rationale` but cannot override the week count. For non-race goals, `numberOfWeeks` is proposed by the AI based on the goal and training context.
 
 **Expected output (structured JSON):**
-- `numberOfWeeks`: Int
+- `numberOfWeeks`: Int (required for non-race goals; omitted or ignored for race goals where app-computed weeks are authoritative)
 - `peakWeekVolume`: Double
 - `weeklyVolumeProfile`: { weekNumber: percentOfPeak }
 - `weeklyEmphasis`: { weekNumber: emphasisLabel }
@@ -1455,13 +1481,13 @@ For race goals, `numberOfWeeks` is computed deterministically by the app from th
 - Previous weeks' data, tiered per §5.0.1: full detail for the last 2 weeks, per-week summaries for weeks 3–8 back, and aggregate stats for older weeks.
 - Current VDOT.
 - Competitiveness level and personality system prompt.
-- User's preferred running days, target days per week, preferred long run day, preferred quality days (ranked), and availability windows (see §1.8).
+- User's available days (`RunningSchedule.preferredRunningDays`), target days per week, preferred long run day, preferred quality days (ranked), and availability windows (see §1.8).
 - Weekly availability override for this week, if set (see §1.8) — takes precedence over profile defaults. Includes the user's note if provided.
 - User's calendar availability (if provided).
 - User's track access preference.
 - User's available courses (names, distances, units, surfaces — see §1.17).
 - Races scheduled during this week (if any).
-- Weather outlook for the week (temperature highs, humidity) from a weather API. Used by the coach to adjust paces and add heat/humidity guidance in workout notes.
+- Weather outlook for the week (temperature highs, humidity) from Open-Meteo via the Convex weather action. Used by the coach to adjust paces and add heat/humidity guidance in workout notes.
 - Whether strength is enabled, available equipment, and current training phase (for periodization).
 
 **Expected output (structured JSON):**
@@ -1478,7 +1504,7 @@ For race goals, `numberOfWeeks` is computed deterministically by the app from th
 
 **Input to AI:**
 - Planned workout (full detail).
-- Actual workout data from HealthKit (splits, total distance/duration).
+- Actual workout data from HealthKit (recorded laps/splits with avg/max HR when available, plus total distance/duration).
 - Deterministic segment comparison output (planned vs actual by segment/rep, including inferred flags for missed/extra lap boundaries).
 - Grade-adjusted pace (GAP) computed from elevation data (see §1.15). When available, the coach uses GAP rather than raw pace to evaluate effort compliance.
 - Elevation summary (total ascent/descent in meters).
@@ -1583,7 +1609,7 @@ For race goals, `numberOfWeeks` is computed deterministically by the app from th
 
 10. **Track workouts can be converted to time-based or course-based on demand.** When a workout is tagged `.track`, the user can request a time-based alternative or a course-based alternative (if they have a suitable course defined). The coach converts distance intervals to time equivalents using the user's current VDOT paces for the relevant zone (e.g., 4×800m → 4×3min), or maps them to a user's course (e.g., 4×800m → 4×1km on Park Path). Users without track access see workouts generated as course-based (when a suitable course exists) or time-based by default.
 
-11. **Strength training is optional and equipment-aware.** Strength workouts are only generated when the user opts in during plan creation. Exercises are constrained to the user's selected equipment. Strength sessions are scheduled on hard running days or rest days to keep easy days easy. Strength volume does not count toward running volume metrics. The coach periodizes strength intensity alongside the running plan (heavier in base phases, lighter near races, minimal during taper).
+11. **Strength training is optional and equipment-aware.** Strength workouts are only generated when the user opts in during plan creation. Exercises are constrained to the user's selected equipment. Strength sessions are scheduled on hard running days by default, with rest-day placement as fallback; easy running days stay easy. Strength volume does not count toward running volume metrics. The coach periodizes strength intensity alongside the running plan (heavier in base phases, lighter near races, minimal during taper).
 
 12. **Skipped workouts are handled gracefully.** When a user proactively skips a workout (see §1.18), the coach adjusts the remaining week rather than ignoring the gap. Skipped workouts are tracked separately from missed workouts — a skip is an intentional decision, a miss is an unexplained absence. The coach never guilt-trips a skip; it acknowledges the reason and adapts.
 
@@ -1615,11 +1641,15 @@ For race goals, `numberOfWeeks` is computed deterministically by the app from th
 
 26. **Retention is explicit and reset-driven.** Core user data (including chat, assessments, and VDOT history) is retained until user deletion via Reset App; operational diagnostics are short-lived and pruned on schedule (see §2.19).
 
-27. **Reset App is a full delete with eventual multi-device convergence.** Reset immediately clears local data on the initiating device and propagates CloudKit deletions to other devices asynchronously; stale remote snapshots must never resurrect deleted records (see Settings in §4.2).
+27. **Reset App is a full delete with eventual multi-device convergence.** Reset immediately clears local data on the initiating client and propagates backend deletions to other clients asynchronously; stale remote snapshots must never resurrect deleted records (see Settings in §4.2).
 
-28. **Portability is supported via on-device export.** Users can export their app-owned data as JSON from Settings. Export excludes internal diagnostics and infrastructure metadata (see §2.19).
+28. **Portability is supported via client-side export.** Users can export their app-owned data as JSON from Settings (share sheet on iOS, file download on web). Export excludes internal diagnostics and infrastructure metadata (see §2.19).
 
 29. **Health telemetry is strictly bounded.** Operational telemetry may include reliability and coarse usage metadata, but must exclude raw health samples, detailed workout payloads, chat content, and full AI prompt/response bodies (see §3.10).
+
+30. **Workout import is iOS-only in the current scope.** HealthKit import runs in the iOS app. The web companion does not perform workout import and relies on data already synced to backend storage.
+
+31. **Import is summary-first and lap-aware.** Imported workouts store summary metrics (distance, duration, avg HR, max HR) and include per-split avg/max HR only for recorded laps present in source data. The system must not synthesize pseudo-splits when recorded laps are absent.
 
 ---
 
@@ -1627,17 +1657,18 @@ For race goals, `numberOfWeeks` is computed deterministically by the app from th
 
 | Requirement | Detail |
 |---|---|
-| **Platform** | iOS 26+, Apple Watch integration via WorkoutKit |
-| **UI Framework** | SwiftUI with Liquid Glass materials |
-| **Persistence** | SwiftData with CloudKit sync |
-| **Health Data** | HealthKit (read: workouts, heart rate, route) |
-| **Watch Scheduling** | WorkoutKit (schedule structured workouts) |
-| **Calendar** | EventKit (iCloud calendar read/write) |
-| **Weather** | WeatherKit (weekly forecast: temperature, humidity) + Core Location |
-| **AI Backend** | TBD — API service for coach engine |
-| **VDOT Service** | Local library (abstracted interface) — race→VDOT, pace→VDOT, VDOT→paces, VDOT→race predictions |
+| **Platform** | iOS first (primary app) + web companion; Android deferred |
+| **Mobile Framework** | React Native (TypeScript) with native iOS bridge modules where required |
+| **Web Framework** | React + Vite (TypeScript) |
+| **Backend/Persistence** | Convex (database, queries/mutations, actions, realtime sync, auth) |
+| **Health Data** | HealthKit on iOS only (summary import: workout totals + recorded lap split metrics) |
+| **Watch Scheduling** | WorkoutKit (optional, post-MVP) |
+| **Calendar** | EventKit (iCloud calendar read/write, iOS) |
+| **Weather** | Open-Meteo (weekly forecast: temperature, humidity) via Convex weather action + device location permission |
+| **AI Backend** | Convex actions + external LLM API provider |
+| **VDOT Service** | Shared library (abstracted interface) — race→VDOT, pace→VDOT, VDOT→paces, VDOT→race predictions |
 | **Units** | Support km and mi; defaults to the device's Measurement System (`Locale.measurementSystem`), overridable per user in Settings. Distance-mode planning uses canonical meter storage for deterministic calculations; track workouts always display meters; course segments preserve course-native units. |
-| **Offline** | Core plan viewing and workout logging work offline; AI features require connectivity |
+| **Offline** | iOS supports local cached viewing/logging with deferred sync; web is online-first; AI features require connectivity |
 
 ---
 

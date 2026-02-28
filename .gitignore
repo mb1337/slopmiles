@@ -1,0 +1,22 @@
+.build/
+.claude/
+.DS_Store
+node_modules/
+.pnpm-store/
+.turbo/
+coverage/
+dist/
+build/
+.env
+.env.*
+!.env.example
+
+# Expo / React Native
+apps/mobile/.expo/
+apps/mobile/.expo-shared/
+apps/mobile/android/
+apps/mobile/ios/
+
+# Convex generated artifacts
+convex/.convex/
+convex/_generated/
