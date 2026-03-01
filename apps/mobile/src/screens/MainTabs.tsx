@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Pressable, Text, View } from "react-native";
-import { type VolumeMode } from "@slopmiles/domain";
+import { type UnitPreference, type VolumeMode } from "@slopmiles/domain";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { type Id } from "../convex";
@@ -15,18 +15,22 @@ import type { HealthKitSyncResult, Tab } from "../types";
 export function MainTabs({
   userId,
   userName,
+  unitPreference,
   defaultVolumeMode,
   healthKitAuthorized,
   currentVDOT,
   onResetApp,
+  onUpdateUnitPreference,
   onSyncHealthKit,
 }: {
   userId: Id<"users">;
   userName: string;
+  unitPreference: UnitPreference;
   defaultVolumeMode: VolumeMode;
   healthKitAuthorized: boolean;
   currentVDOT: number | null;
   onResetApp: () => Promise<void>;
+  onUpdateUnitPreference: (unitPreference: UnitPreference) => Promise<void>;
   onSyncHealthKit: () => Promise<HealthKitSyncResult>;
 }) {
   const [activeTab, setActiveTab] = useState<Tab>("dashboard");
@@ -43,12 +47,14 @@ export function MainTabs({
           />
         ) : null}
         {activeTab === "plan" ? <PlanScreen userId={userId} defaultVolumeMode={defaultVolumeMode} /> : null}
-        {activeTab === "history" ? <HistoryScreen userId={userId} /> : null}
+        {activeTab === "history" ? <HistoryScreen userId={userId} unitPreference={unitPreference} /> : null}
         {activeTab === "coach" ? <CoachScreen /> : null}
         {activeTab === "settings" ? (
           <SettingsScreen
+            unitPreference={unitPreference}
             healthKitAuthorized={healthKitAuthorized}
             onResetApp={onResetApp}
+            onUpdateUnitPreference={onUpdateUnitPreference}
             onSyncHealthKit={onSyncHealthKit}
           />
         ) : null}

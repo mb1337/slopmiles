@@ -1,29 +1,17 @@
 import { ScrollView, Text, View } from "react-native";
 import { useQuery } from "convex/react";
+import type { UnitPreference } from "@slopmiles/domain";
 
 import { api, type Id } from "../../convex";
 import { Panel } from "../../components/common";
 import { styles } from "../../styles";
+import { formatDistanceForDisplay } from "../../units";
 
 function formatDuration(seconds: number): string {
   const rounded = Math.max(0, Math.round(seconds));
   const minutes = Math.floor(rounded / 60);
   const remainingSeconds = rounded % 60;
   return `${minutes}:${String(remainingSeconds).padStart(2, "0")}`;
-}
-
-function formatDistance(distanceMeters?: number): string {
-  if (typeof distanceMeters !== "number") {
-    return "-";
-  }
-
-  const roundedMeters = Math.round(distanceMeters);
-
-  if (roundedMeters < 1000) {
-    return `${roundedMeters} m`;
-  }
-
-  return `${(roundedMeters / 1000).toFixed(2)} km`;
 }
 
 function formatHeartRate(heartRate?: number): string {
@@ -38,7 +26,13 @@ function formatWorkoutDate(timestamp: number): string {
   });
 }
 
-export function HistoryScreen({ userId }: { userId: Id<"users"> }) {
+export function HistoryScreen({
+  userId,
+  unitPreference,
+}: {
+  userId: Id<"users">;
+  unitPreference: UnitPreference;
+}) {
   const importedWorkouts = useQuery(api.healthkit.listImportedWorkouts, {
     userId,
     limit: 40,
@@ -60,7 +54,7 @@ export function HistoryScreen({ userId }: { userId: Id<"users"> }) {
           <View key={String(workout._id)} style={styles.historyWorkoutBlock}>
             <Text style={styles.historyWorkoutTitle}>{formatWorkoutDate(workout.startedAt)}</Text>
             <Text style={styles.helperText}>
-              {formatDistance(workout.distanceMeters)} · {formatDuration(workout.durationSeconds)} · Avg HR{" "}
+              {formatDistanceForDisplay(workout.distanceMeters, unitPreference)} · {formatDuration(workout.durationSeconds)} · Avg HR{" "}
               {formatHeartRate(workout.averageHeartRate)}
             </Text>
             {workout.intervalChains?.length ? (
@@ -70,7 +64,7 @@ export function HistoryScreen({ userId }: { userId: Id<"users"> }) {
                     <Text style={styles.historyChainTitle}>Chain {chain.chainIndex}</Text>
                     <Text style={styles.helperText}>
                       {chain.intervalCount} intervals · {formatDuration(chain.durationSeconds)} ·{" "}
-                      {formatDistance(chain.distanceMeters)}
+                      {formatDistanceForDisplay(chain.distanceMeters, unitPreference)}
                     </Text>
                     {chain.intervals.map((interval, index) => (
                       <View
@@ -81,7 +75,7 @@ export function HistoryScreen({ userId }: { userId: Id<"users"> }) {
                           {interval.type === "lap" ? "Lap" : "Segment"} {index + 1}
                         </Text>
                         <Text style={styles.historyIntervalValue}>
-                          {formatDistance(interval.distanceMeters)} · {formatDuration(interval.durationSeconds)} ·{" "}
+                          {formatDistanceForDisplay(interval.distanceMeters, unitPreference)} · {formatDuration(interval.durationSeconds)} ·{" "}
                           {formatHeartRate(interval.averageHeartRate)}
                         </Text>
                       </View>

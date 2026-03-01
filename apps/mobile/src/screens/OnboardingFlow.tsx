@@ -145,6 +145,7 @@ export function OnboardingFlow({
         {session.onboardingState.currentStep === "establishVDOT" ? (
           <EstablishVdotStep
             historyWorkouts={historyWorkouts}
+            unitPreference={session.user.unitPreference}
             busy={saving}
             onSubmitFromHistory={onSaveVdotFromHistory}
             onSubmitManual={onSaveVdotFromManual}

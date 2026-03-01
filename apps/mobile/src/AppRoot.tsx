@@ -20,6 +20,7 @@ const ANONYMOUS_HANDLE = "ios-anonymous-v1";
 export default function AppRoot() {
   const bootstrapAnonymous = useMutation(api.users.bootstrapAnonymous);
   const resetAppData = useMutation(api.users.resetAppData);
+  const updateUnitPreference = useMutation(api.users.updateUnitPreference);
   const setHealthKitAuthorizationStatus = useMutation(api.healthkit.setAuthorizationStatus);
   const seedHealthKitImportWorkouts = useMutation(api.healthkit.seedImportWorkouts);
   const completeStep = useMutation(api.onboarding.completeStep);
@@ -123,10 +124,19 @@ export default function AppRoot() {
       <MainTabs
         userId={session.user._id}
         userName={session.user.name}
+        unitPreference={session.user.unitPreference}
         defaultVolumeMode={session.user.volumePreference}
         healthKitAuthorized={session.user.healthKitAuthorized}
         currentVDOT={session.user.currentVDOT ?? null}
         onResetApp={resetApp}
+        onUpdateUnitPreference={(unitPreference) =>
+          runMutationVoid(async () => {
+            await updateUnitPreference({
+              userId: session.user._id,
+              unitPreference,
+            });
+          })
+        }
         onSyncHealthKit={async () => {
           const permission = await requestHealthKitAuthorization();
 

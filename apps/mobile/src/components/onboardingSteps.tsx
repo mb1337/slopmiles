@@ -16,6 +16,7 @@ import {
 
 import { styles } from "../styles";
 import type { Id } from "../convex";
+import { defaultDistanceInputUnit, formatDistanceForDisplay } from "../units";
 import { ChoiceRow, Counter, Panel, PrimaryButton, SecondaryButton, TagGrid } from "./common";
 
 type ImportedWorkoutSummary = {
@@ -62,14 +63,6 @@ function formatDuration(totalSeconds: number): string {
   }
 
   return `${minutes}:${String(remainder).padStart(2, "0")}`;
-}
-
-function formatDistance(distanceMeters: number): string {
-  if (distanceMeters >= 1000) {
-    return `${(distanceMeters / 1000).toFixed(2)} km`;
-  }
-
-  return `${Math.round(distanceMeters)} m`;
 }
 
 function toMeters(distance: number, unit: "km" | "mi" | "m"): number {
@@ -130,12 +123,14 @@ export function HealthKitStep({
 
 export function EstablishVdotStep({
   historyWorkouts,
+  unitPreference,
   busy,
   onSubmitFromHistory,
   onSubmitManual,
   onSkip,
 }: {
   historyWorkouts: ImportedWorkoutSummary[] | undefined;
+  unitPreference: UnitPreference;
   busy: boolean;
   onSubmitFromHistory: (workoutId: Id<"healthKitWorkouts">) => void;
   onSubmitManual: (value: { distanceMeters: number; timeSeconds: number }) => void;
@@ -144,7 +139,7 @@ export function EstablishVdotStep({
   const [entryMode, setEntryMode] = useState<"history" | "manual">("history");
   const [selectedWorkoutId, setSelectedWorkoutId] = useState<Id<"healthKitWorkouts"> | null>(null);
   const [manualDistance, setManualDistance] = useState("5");
-  const [manualUnit, setManualUnit] = useState<"km" | "mi" | "m">("km");
+  const [manualUnit, setManualUnit] = useState<"km" | "mi" | "m">(() => defaultDistanceInputUnit(unitPreference));
   const [hours, setHours] = useState("0");
   const [minutes, setMinutes] = useState("25");
   const [seconds, setSeconds] = useState("0");
@@ -224,7 +219,7 @@ export function EstablishVdotStep({
               >
                 <Text style={styles.historyWorkoutTitle}>{new Date(workout.startedAt).toLocaleDateString()}</Text>
                 <Text style={styles.helperText}>
-                  {formatDistance(workout.distanceMeters ?? 0)} · {formatDuration(workout.durationSeconds)} · VDOT{" "}
+                  {formatDistanceForDisplay(workout.distanceMeters, unitPreference)} · {formatDuration(workout.durationSeconds)} · VDOT{" "}
                   {workout.calculatedVdot.toFixed(1)}
                 </Text>
               </Pressable>

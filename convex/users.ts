@@ -2,7 +2,9 @@ import { v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
 import { mutation, type MutationCtx } from "./_generated/server";
 
-import type { Weekday } from "./constants";
+import { unitPreferences, type Weekday } from "./constants";
+
+const unitPreferenceValidator = v.union(...unitPreferences.map((unit) => v.literal(unit)));
 
 const DEFAULT_DAYS: Weekday[] = [
   "monday",
@@ -236,5 +238,18 @@ export const resetAppData = mutation({
     await ensureOnboardingState(ctx, args.userId, now);
     await ensureCompetitiveness(ctx, args.userId, now);
     await ensurePersonality(ctx, args.userId, now);
+  },
+});
+
+export const updateUnitPreference = mutation({
+  args: {
+    userId: v.id("users"),
+    unitPreference: unitPreferenceValidator,
+  },
+  handler: async (ctx, args) => {
+    await ctx.db.patch(args.userId, {
+      unitPreference: args.unitPreference,
+      updatedAt: Date.now(),
+    });
   },
 });
