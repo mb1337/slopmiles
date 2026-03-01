@@ -17,6 +17,7 @@ export type SessionPayload = {
     volumePreference: VolumeMode;
     trackAccess: boolean;
     healthKitAuthorized: boolean;
+    currentVDOT?: number | null;
   };
   runningSchedule: {
     preferredRunningDays: Weekday[];

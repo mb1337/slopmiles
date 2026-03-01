@@ -17,6 +17,7 @@ export function MainTabs({
   userName,
   defaultVolumeMode,
   healthKitAuthorized,
+  currentVDOT,
   onResetApp,
   onSyncHealthKit,
 }: {
@@ -24,6 +25,7 @@ export function MainTabs({
   userName: string;
   defaultVolumeMode: VolumeMode;
   healthKitAuthorized: boolean;
+  currentVDOT: number | null;
   onResetApp: () => Promise<void>;
   onSyncHealthKit: () => Promise<HealthKitSyncResult>;
 }) {
@@ -33,7 +35,12 @@ export function MainTabs({
     <SafeAreaView style={styles.screen}>
       <View style={styles.tabContent}>
         {activeTab === "dashboard" ? (
-          <DashboardScreen userId={userId} userName={userName} onCreatePlanPress={() => setActiveTab("plan")} />
+          <DashboardScreen
+            userId={userId}
+            userName={userName}
+            currentVDOT={currentVDOT}
+            onCreatePlanPress={() => setActiveTab("plan")}
+          />
         ) : null}
         {activeTab === "plan" ? <PlanScreen userId={userId} defaultVolumeMode={defaultVolumeMode} /> : null}
         {activeTab === "history" ? <HistoryScreen userId={userId} /> : null}

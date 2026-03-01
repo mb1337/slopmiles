@@ -1,11 +1,12 @@
-import { useState } from "react";
-import { Text, TextInput } from "react-native";
+import { useMemo, useState } from "react";
+import { Pressable, Text, TextInput, View } from "react-native";
 
 import {
   COMPETITIVENESS_LEVELS,
   PERSONALITY_PRESETS,
   VOLUME_MODES,
   WEEKDAYS,
+  calculateVdotFromRaceTime,
   type CompetitivenessLevel,
   type PersonalityPreset,
   type UnitPreference,
@@ -14,7 +15,76 @@ import {
 } from "@slopmiles/domain";
 
 import { styles } from "../styles";
+import type { Id } from "../convex";
 import { ChoiceRow, Counter, Panel, PrimaryButton, SecondaryButton, TagGrid } from "./common";
+
+type ImportedWorkoutSummary = {
+  _id: Id<"healthKitWorkouts">;
+  startedAt: number;
+  durationSeconds: number;
+  distanceMeters?: number;
+};
+
+type VdotWorkoutCandidate = ImportedWorkoutSummary & {
+  calculatedVdot: number;
+};
+
+function parsePositiveNumber(raw: string): number | null {
+  const value = Number(raw.trim());
+  if (!Number.isFinite(value) || value <= 0) {
+    return null;
+  }
+
+  return value;
+}
+
+function parseNonNegativeInteger(raw: string): number | null {
+  if (raw.trim().length === 0) {
+    return 0;
+  }
+
+  const value = Number(raw.trim());
+  if (!Number.isFinite(value) || value < 0 || !Number.isInteger(value)) {
+    return null;
+  }
+
+  return value;
+}
+
+function formatDuration(totalSeconds: number): string {
+  const seconds = Math.max(0, Math.round(totalSeconds));
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  const remainder = seconds % 60;
+
+  if (hours > 0) {
+    return `${hours}:${String(minutes).padStart(2, "0")}:${String(remainder).padStart(2, "0")}`;
+  }
+
+  return `${minutes}:${String(remainder).padStart(2, "0")}`;
+}
+
+function formatDistance(distanceMeters: number): string {
+  if (distanceMeters >= 1000) {
+    return `${(distanceMeters / 1000).toFixed(2)} km`;
+  }
+
+  return `${Math.round(distanceMeters)} m`;
+}
+
+function toMeters(distance: number, unit: "km" | "mi" | "m"): number {
+  if (unit === "km") {
+    return distance * 1000;
+  }
+  if (unit === "mi") {
+    return distance * 1609.344;
+  }
+  return distance;
+}
+
+function roundVdot(vdot: number): number {
+  return Math.round(vdot * 10) / 10;
+}
 
 export function StepCard({
   title,
@@ -54,6 +124,201 @@ export function HealthKitStep({
       </Text>
       <PrimaryButton label="Allow HealthKit Access" onPress={onAuthorize} disabled={busy} />
       <SecondaryButton label="Continue without HealthKit" onPress={onSkip} disabled={busy} />
+    </Panel>
+  );
+}
+
+export function EstablishVdotStep({
+  historyWorkouts,
+  busy,
+  onSubmitFromHistory,
+  onSubmitManual,
+  onSkip,
+}: {
+  historyWorkouts: ImportedWorkoutSummary[] | undefined;
+  busy: boolean;
+  onSubmitFromHistory: (workoutId: Id<"healthKitWorkouts">) => void;
+  onSubmitManual: (value: { distanceMeters: number; timeSeconds: number }) => void;
+  onSkip: () => void;
+}) {
+  const [entryMode, setEntryMode] = useState<"history" | "manual">("history");
+  const [selectedWorkoutId, setSelectedWorkoutId] = useState<Id<"healthKitWorkouts"> | null>(null);
+  const [manualDistance, setManualDistance] = useState("5");
+  const [manualUnit, setManualUnit] = useState<"km" | "mi" | "m">("km");
+  const [hours, setHours] = useState("0");
+  const [minutes, setMinutes] = useState("25");
+  const [seconds, setSeconds] = useState("0");
+
+  const topHistoryWorkouts = useMemo(() => {
+    const candidates: VdotWorkoutCandidate[] = [];
+
+    for (const workout of historyWorkouts ?? []) {
+      if (typeof workout.distanceMeters !== "number" || workout.distanceMeters <= 0 || workout.durationSeconds <= 0) {
+        continue;
+      }
+
+      const vdot = roundVdot(calculateVdotFromRaceTime(workout.distanceMeters, workout.durationSeconds));
+      if (!Number.isFinite(vdot) || vdot <= 0) {
+        continue;
+      }
+
+      candidates.push({
+        ...workout,
+        calculatedVdot: vdot,
+      });
+    }
+
+    candidates.sort((left, right) => right.calculatedVdot - left.calculatedVdot);
+    return candidates.slice(0, 3);
+  }, [historyWorkouts]);
+
+  const selectedWorkout = useMemo(
+    () => topHistoryWorkouts.find((workout) => workout._id === selectedWorkoutId) ?? null,
+    [topHistoryWorkouts, selectedWorkoutId],
+  );
+
+  const historyVdotPreview = selectedWorkout?.calculatedVdot ?? null;
+
+  const parsedDistance = parsePositiveNumber(manualDistance);
+  const parsedHours = parseNonNegativeInteger(hours);
+  const parsedMinutes = parseNonNegativeInteger(minutes);
+  const parsedSeconds = parseNonNegativeInteger(seconds);
+  const validClockValues =
+    parsedHours !== null &&
+    parsedMinutes !== null &&
+    parsedSeconds !== null &&
+    parsedMinutes < 60 &&
+    parsedSeconds < 60;
+  const manualTimeSeconds =
+    validClockValues && parsedHours !== null && parsedMinutes !== null && parsedSeconds !== null
+      ? parsedHours * 3600 + parsedMinutes * 60 + parsedSeconds
+      : 0;
+  const manualDistanceMeters = parsedDistance ? toMeters(parsedDistance, manualUnit) : null;
+  const manualVdotPreview =
+    manualDistanceMeters && manualTimeSeconds > 0
+      ? roundVdot(calculateVdotFromRaceTime(manualDistanceMeters, manualTimeSeconds))
+      : null;
+
+  return (
+    <Panel title="Establish VDOT">
+      <Text style={styles.bodyText}>Pick a recent result source to set your starting training paces.</Text>
+      <ChoiceRow options={["history", "manual"]} selected={entryMode} onChange={(value) => setEntryMode(value as "history" | "manual")} />
+
+      {entryMode === "history" ? (
+        <>
+          <Text style={styles.label}>Recent workout history</Text>
+          {historyWorkouts === undefined ? <Text style={styles.helperText}>Loading imported workouts...</Text> : null}
+          {historyWorkouts && topHistoryWorkouts.length === 0 ? (
+            <Text style={styles.helperText}>No eligible workouts yet. Switch to manual entry or sync HealthKit first.</Text>
+          ) : null}
+          {topHistoryWorkouts.map((workout) => {
+            const selected = selectedWorkoutId === workout._id;
+            return (
+              <Pressable
+                key={String(workout._id)}
+                style={[
+                  styles.historyWorkoutBlock,
+                  selected ? { borderColor: "#165177", backgroundColor: "#e5f0f7" } : null,
+                ]}
+                onPress={() => setSelectedWorkoutId(workout._id)}
+              >
+                <Text style={styles.historyWorkoutTitle}>{new Date(workout.startedAt).toLocaleDateString()}</Text>
+                <Text style={styles.helperText}>
+                  {formatDistance(workout.distanceMeters ?? 0)} · {formatDuration(workout.durationSeconds)} · VDOT{" "}
+                  {workout.calculatedVdot.toFixed(1)}
+                </Text>
+              </Pressable>
+            );
+          })}
+
+          {historyVdotPreview !== null ? (
+            <Text style={styles.helperText}>Estimated VDOT from selected workout: {historyVdotPreview.toFixed(1)}</Text>
+          ) : null}
+
+          <PrimaryButton
+            label="Use selected workout"
+            disabled={busy || !selectedWorkoutId}
+            onPress={() => {
+              if (selectedWorkoutId) {
+                onSubmitFromHistory(selectedWorkoutId);
+              }
+            }}
+          />
+        </>
+      ) : null}
+
+      {entryMode === "manual" ? (
+        <>
+          <Text style={styles.label}>Distance</Text>
+          <TextInput
+            style={styles.input}
+            value={manualDistance}
+            onChangeText={setManualDistance}
+            keyboardType="decimal-pad"
+            placeholder="5"
+            placeholderTextColor="#7a848c"
+          />
+          <ChoiceRow options={["km", "mi", "m"]} selected={manualUnit} onChange={(value) => setManualUnit(value as "km" | "mi" | "m")} />
+
+          <Text style={styles.label}>Finish time</Text>
+          <View style={styles.timeInputRow}>
+            <View style={styles.timeInputBlock}>
+              <Text style={styles.helperText}>Hours</Text>
+              <TextInput
+                style={styles.input}
+                value={hours}
+                onChangeText={setHours}
+                keyboardType="number-pad"
+                placeholder="0"
+                placeholderTextColor="#7a848c"
+              />
+            </View>
+            <View style={styles.timeInputBlock}>
+              <Text style={styles.helperText}>Minutes</Text>
+              <TextInput
+                style={styles.input}
+                value={minutes}
+                onChangeText={setMinutes}
+                keyboardType="number-pad"
+                placeholder="25"
+                placeholderTextColor="#7a848c"
+              />
+            </View>
+            <View style={styles.timeInputBlock}>
+              <Text style={styles.helperText}>Seconds</Text>
+              <TextInput
+                style={styles.input}
+                value={seconds}
+                onChangeText={setSeconds}
+                keyboardType="number-pad"
+                placeholder="0"
+                placeholderTextColor="#7a848c"
+              />
+            </View>
+          </View>
+
+          {manualVdotPreview !== null ? (
+            <Text style={styles.helperText}>Estimated VDOT from manual result: {manualVdotPreview.toFixed(1)}</Text>
+          ) : (
+            <Text style={styles.helperText}>Enter a positive distance and valid finish time.</Text>
+          )}
+
+          <PrimaryButton
+            label="Use manual result"
+            disabled={busy || manualDistanceMeters === null || manualTimeSeconds <= 0 || !validClockValues}
+            onPress={() => {
+              if (manualDistanceMeters !== null && manualTimeSeconds > 0) {
+                onSubmitManual({
+                  distanceMeters: manualDistanceMeters,
+                  timeSeconds: manualTimeSeconds,
+                });
+              }
+            }}
+          />
+        </>
+      ) : null}
+
+      <SecondaryButton label="Use conservative paces" onPress={onSkip} disabled={busy} />
     </Panel>
   );
 }

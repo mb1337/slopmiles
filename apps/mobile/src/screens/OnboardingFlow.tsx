@@ -1,4 +1,5 @@
 import { ScrollView, Text } from "react-native";
+import { useQuery } from "convex/react";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import {
@@ -13,6 +14,7 @@ import {
 
 import {
   CompetitivenessStep,
+  EstablishVdotStep,
   HealthKitStep,
   PersonalityStep,
   ProfileBasicsStep,
@@ -20,6 +22,7 @@ import {
   StepCard,
   TrackAccessStep,
 } from "../components/onboardingSteps";
+import { api, type Id } from "../convex";
 import { requestHealthKitAuthorization, type HealthKitPermissionResult } from "../healthkit/bridge";
 import { styles } from "../styles";
 import type { SessionPayload } from "../types";
@@ -33,6 +36,8 @@ export function OnboardingFlow({
   onSaveProfileBasics,
   onSaveRunningSchedule,
   onSaveTrackAccess,
+  onSaveVdotFromHistory,
+  onSaveVdotFromManual,
   onSaveCompetitiveness,
   onSavePersonality,
 }: {
@@ -53,12 +58,24 @@ export function OnboardingFlow({
     preferredQualityDays: Weekday[];
   }) => Promise<void>;
   onSaveTrackAccess: (trackAccess: boolean) => Promise<void>;
+  onSaveVdotFromHistory: (workoutId: Id<"healthKitWorkouts">) => Promise<void>;
+  onSaveVdotFromManual: (value: { distanceMeters: number; timeSeconds: number }) => Promise<void>;
   onSaveCompetitiveness: (level: CompetitivenessLevel) => Promise<void>;
   onSavePersonality: (value: {
     preset: PersonalityPreset;
     customDescription?: string;
   }) => Promise<void>;
 }) {
+  const historyWorkouts = useQuery(
+    api.healthkit.listImportedWorkouts,
+    session.onboardingState.currentStep === "establishVDOT"
+        ? {
+            userId: session.user._id,
+            limit: 200,
+          }
+        : "skip",
+  );
+
   return (
     <SafeAreaView style={styles.screen}>
       <ScrollView contentContainerStyle={styles.container}>
@@ -126,12 +143,12 @@ export function OnboardingFlow({
         ) : null}
 
         {session.onboardingState.currentStep === "establishVDOT" ? (
-          <StepCard
-            title="Establish VDOT"
-            body="VDOT estimation and race-result entry are next slices. For now we keep onboarding resumable and move ahead."
-            actionLabel="Use conservative paces"
+          <EstablishVdotStep
+            historyWorkouts={historyWorkouts}
             busy={saving}
-            onAction={() => onCompleteStep("establishVDOT")}
+            onSubmitFromHistory={onSaveVdotFromHistory}
+            onSubmitManual={onSaveVdotFromManual}
+            onSkip={() => onCompleteStep("establishVDOT")}
           />
         ) : null}
 

@@ -27,6 +27,8 @@ export default function AppRoot() {
   const saveProfileBasics = useMutation(api.onboarding.saveProfileBasics);
   const saveRunningSchedule = useMutation(api.onboarding.saveRunningSchedule);
   const saveTrackAccess = useMutation(api.onboarding.saveTrackAccess);
+  const saveVdotFromHistoryWorkout = useMutation(api.onboarding.saveVdotFromHistoryWorkout);
+  const saveVdotFromManualResult = useMutation(api.onboarding.saveVdotFromManualResult);
   const saveCompetitiveness = useMutation(api.onboarding.saveCompetitiveness);
   const savePersonality = useMutation(api.onboarding.savePersonality);
 
@@ -123,6 +125,7 @@ export default function AppRoot() {
         userName={session.user.name}
         defaultVolumeMode={session.user.volumePreference}
         healthKitAuthorized={session.user.healthKitAuthorized}
+        currentVDOT={session.user.currentVDOT ?? null}
         onResetApp={resetApp}
         onSyncHealthKit={async () => {
           const permission = await requestHealthKitAuthorization();
@@ -232,6 +235,23 @@ export default function AppRoot() {
           await saveTrackAccess({
             userId: session.user._id,
             trackAccess,
+          });
+        })
+      }
+      onSaveVdotFromHistory={(workoutId) =>
+        runMutationVoid(async () => {
+          await saveVdotFromHistoryWorkout({
+            userId: session.user._id,
+            healthKitWorkoutId: workoutId,
+          });
+        })
+      }
+      onSaveVdotFromManual={(value) =>
+        runMutationVoid(async () => {
+          await saveVdotFromManualResult({
+            userId: session.user._id,
+            distanceMeters: value.distanceMeters,
+            timeSeconds: value.timeSeconds,
           });
         })
       }

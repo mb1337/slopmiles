@@ -1,5 +1,6 @@
 import { ScrollView, Text } from "react-native";
 import { useQuery } from "convex/react";
+import { projectedRaceTime } from "@slopmiles/domain";
 
 import { api, type Id } from "../../convex";
 import { Panel, PrimaryButton } from "../../components/common";
@@ -8,14 +9,30 @@ import { styles } from "../../styles";
 export function DashboardScreen({
   userId,
   userName,
+  currentVDOT,
   onCreatePlanPress,
 }: {
   userId: Id<"users">;
   userName: string;
+  currentVDOT: number | null;
   onCreatePlanPress: () => void;
 }) {
   const planState = useQuery(api.plans.getPlanState, { userId });
   const activePlan = planState?.activePlan ?? null;
+  const vdot = typeof currentVDOT === "number" ? currentVDOT : null;
+
+  const formatRaceTime = (seconds: number): string => {
+    const rounded = Math.max(0, Math.round(seconds));
+    const hours = Math.floor(rounded / 3600);
+    const minutes = Math.floor((rounded % 3600) / 60);
+    const remainder = rounded % 60;
+
+    if (hours > 0) {
+      return `${hours}:${String(minutes).padStart(2, "0")}:${String(remainder).padStart(2, "0")}`;
+    }
+
+    return `${minutes}:${String(remainder).padStart(2, "0")}`;
+  };
 
   return (
     <ScrollView contentContainerStyle={styles.container}>
@@ -33,9 +50,19 @@ export function DashboardScreen({
         <PrimaryButton label="Create Plan" onPress={onCreatePlanPress} />
       </Panel>
       <Panel title="VDOT badge">
-        <Text style={styles.bodyText}>
-          VDOT initialization comes next after HealthKit and race-result ingestion are wired.
-        </Text>
+        {vdot !== null ? (
+          <>
+            <Text style={styles.bodyText}>Current VDOT: {vdot.toFixed(1)}</Text>
+            <Text style={styles.helperText}>5K prediction: {formatRaceTime(projectedRaceTime(vdot, 5000))}</Text>
+            <Text style={styles.helperText}>10K prediction: {formatRaceTime(projectedRaceTime(vdot, 10000))}</Text>
+            <Text style={styles.helperText}>Half Marathon prediction: {formatRaceTime(projectedRaceTime(vdot, 21097.5))}</Text>
+            <Text style={styles.helperText}>Marathon prediction: {formatRaceTime(projectedRaceTime(vdot, 42195))}</Text>
+          </>
+        ) : (
+          <Text style={styles.bodyText}>
+            No VDOT yet. Use workout history or manual race entry in onboarding to set training paces.
+          </Text>
+        )}
       </Panel>
     </ScrollView>
   );

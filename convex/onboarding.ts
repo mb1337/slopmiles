@@ -11,6 +11,7 @@ import {
   weekdays,
   type OnboardingStep,
 } from "./constants";
+import { calculateVdotFromRaceTime } from "../packages/domain/src/vdot";
 
 const weekdayValidator = v.union(...weekdays.map((day) => v.literal(day)));
 const onboardingStepValidator = v.union(...onboardingSteps.map((step) => v.literal(step)));
@@ -234,5 +235,73 @@ export const saveHealthKitAuthorization = mutation({
     });
 
     await advance(ctx, args.userId, "healthKitAuthorization");
+  },
+});
+
+function assertPositiveFinite(value: number, label: string): void {
+  if (!Number.isFinite(value) || value <= 0) {
+    throw new Error(`${label} must be a positive number.`);
+  }
+}
+
+function roundVdot(value: number): number {
+  return Math.round(value * 10) / 10;
+}
+
+export const saveVdotFromManualResult = mutation({
+  args: {
+    userId: v.id("users"),
+    distanceMeters: v.number(),
+    timeSeconds: v.number(),
+  },
+  handler: async (ctx, args) => {
+    assertPositiveFinite(args.distanceMeters, "distanceMeters");
+    assertPositiveFinite(args.timeSeconds, "timeSeconds");
+
+    const vdot = roundVdot(calculateVdotFromRaceTime(args.distanceMeters, args.timeSeconds));
+
+    await ctx.db.patch(args.userId, {
+      currentVDOT: vdot,
+      updatedAt: Date.now(),
+    });
+
+    await advance(ctx, args.userId, "establishVDOT");
+
+    return {
+      vdot,
+    };
+  },
+});
+
+export const saveVdotFromHistoryWorkout = mutation({
+  args: {
+    userId: v.id("users"),
+    healthKitWorkoutId: v.id("healthKitWorkouts"),
+  },
+  handler: async (ctx, args) => {
+    const workout = await ctx.db.get(args.healthKitWorkoutId);
+    if (!workout || workout.userId !== args.userId) {
+      throw new Error("Workout not found for user.");
+    }
+
+    if (typeof workout.distanceMeters !== "number") {
+      throw new Error("Selected workout does not include distance.");
+    }
+
+    assertPositiveFinite(workout.distanceMeters, "distanceMeters");
+    assertPositiveFinite(workout.durationSeconds, "timeSeconds");
+
+    const vdot = roundVdot(calculateVdotFromRaceTime(workout.distanceMeters, workout.durationSeconds));
+
+    await ctx.db.patch(args.userId, {
+      currentVDOT: vdot,
+      updatedAt: Date.now(),
+    });
+
+    await advance(ctx, args.userId, "establishVDOT");
+
+    return {
+      vdot,
+    };
   },
 });

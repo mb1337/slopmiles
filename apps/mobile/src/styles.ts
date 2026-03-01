@@ -208,6 +208,14 @@ export const styles = StyleSheet.create({
     fontWeight: "600",
     color: "#1d2c36",
   },
+  timeInputRow: {
+    flexDirection: "row",
+    gap: 10,
+  },
+  timeInputBlock: {
+    flex: 1,
+    gap: 6,
+  },
   tabContent: {
     flex: 1,
   },
