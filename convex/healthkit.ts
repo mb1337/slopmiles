@@ -2,6 +2,25 @@ import { v } from "convex/values";
 
 import { mutation, query } from "./_generated/server";
 
+const importedWorkoutIntervalValidator = v.object({
+  type: v.union(v.literal("lap"), v.literal("segment")),
+  startedAt: v.number(),
+  endedAt: v.number(),
+  durationSeconds: v.number(),
+  distanceMeters: v.optional(v.number()),
+  averageHeartRate: v.optional(v.number()),
+});
+
+const importedWorkoutIntervalChainValidator = v.object({
+  chainIndex: v.number(),
+  startedAt: v.number(),
+  endedAt: v.number(),
+  durationSeconds: v.number(),
+  intervalCount: v.number(),
+  distanceMeters: v.optional(v.number()),
+  intervals: v.array(importedWorkoutIntervalValidator),
+});
+
 const importedWorkoutValidator = v.object({
   externalWorkoutId: v.string(),
   startedAt: v.number(),
@@ -10,6 +29,7 @@ const importedWorkoutValidator = v.object({
   distanceMeters: v.optional(v.number()),
   averageHeartRate: v.optional(v.number()),
   maxHeartRate: v.optional(v.number()),
+  intervalChains: v.optional(v.array(importedWorkoutIntervalChainValidator)),
   sourceName: v.optional(v.string()),
   sourceBundleIdentifier: v.optional(v.string()),
 });
@@ -56,6 +76,7 @@ export const seedImportWorkouts = mutation({
         distanceMeters: workout.distanceMeters,
         averageHeartRate: workout.averageHeartRate,
         maxHeartRate: workout.maxHeartRate,
+        intervalChains: workout.intervalChains,
         sourceName: workout.sourceName,
         sourceBundleIdentifier: workout.sourceBundleIdentifier,
         importedAt: now,
@@ -114,5 +135,22 @@ export const getImportSummary = query({
       workoutCount: workouts.length,
       lastImportedAt,
     };
+  },
+});
+
+export const listImportedWorkouts = query({
+  args: {
+    userId: v.id("users"),
+    limit: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const limit = typeof args.limit === "number" ? Math.max(1, Math.min(200, Math.floor(args.limit))) : 50;
+
+    const workouts = await ctx.db
+      .query("healthKitWorkouts")
+      .withIndex("by_user_id", (q) => q.eq("userId", args.userId))
+      .collect();
+
+    return workouts.sort((left, right) => right.startedAt - left.startedAt).slice(0, limit);
   },
 });

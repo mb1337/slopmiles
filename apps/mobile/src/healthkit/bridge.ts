@@ -1,10 +1,12 @@
 import {
   WorkoutActivityType,
+  WorkoutEventType,
   WorkoutTypeIdentifier,
   WorkoutRouteTypeIdentifier,
   getDateOfBirthAsync,
   getMostRecentQuantitySample,
   isHealthDataAvailable,
+  queryQuantitySamples,
   queryStatisticsForQuantity,
   queryWorkoutSamples,
   requestAuthorization,
@@ -27,8 +29,28 @@ export type HealthKitImportedWorkout = {
   distanceMeters?: number;
   averageHeartRate?: number;
   maxHeartRate?: number;
+  intervalChains?: HealthKitWorkoutIntervalChain[];
   sourceName?: string;
   sourceBundleIdentifier?: string;
+};
+
+export type HealthKitWorkoutInterval = {
+  type: "lap" | "segment";
+  startedAt: number;
+  endedAt: number;
+  durationSeconds: number;
+  distanceMeters?: number;
+  averageHeartRate?: number;
+};
+
+export type HealthKitWorkoutIntervalChain = {
+  chainIndex: number;
+  startedAt: number;
+  endedAt: number;
+  durationSeconds: number;
+  intervalCount: number;
+  distanceMeters?: number;
+  intervals: HealthKitWorkoutInterval[];
 };
 
 export type HealthKitSeedPayload = {
@@ -40,6 +62,7 @@ export type HealthKitSeedPayload = {
 const HEALTHKIT_READ_TYPES = [
   WorkoutTypeIdentifier,
   WorkoutRouteTypeIdentifier,
+  "HKQuantityTypeIdentifierDistanceWalkingRunning",
   "HKQuantityTypeIdentifierHeartRate",
   "HKQuantityTypeIdentifierRestingHeartRate",
   "HKCharacteristicTypeIdentifierDateOfBirth",
@@ -138,6 +161,18 @@ async function queryHeartRateStats(workout: WorkoutProxy): Promise<{ averageHear
 
 type WorkoutProxy = Awaited<ReturnType<typeof queryWorkoutSamples>>[number];
 
+function resolveEventIntervalType(eventType: WorkoutEventType): HealthKitWorkoutInterval["type"] | null {
+  if (eventType === WorkoutEventType.lap) {
+    return "lap";
+  }
+
+  if (eventType === WorkoutEventType.segment) {
+    return "segment";
+  }
+
+  return null;
+}
+
 function resolveWorkoutDurationSeconds(workout: WorkoutProxy): number {
   const start = workout.startDate.getTime();
   const end = workout.endDate.getTime();
@@ -165,6 +200,269 @@ async function resolveWorkoutDistanceMeters(workout: WorkoutProxy): Promise<numb
   }
 
   return undefined;
+}
+
+async function queryIntervalStats(
+  workout: WorkoutProxy,
+  startDate: Date,
+  endDate: Date,
+): Promise<number | undefined> {
+  const heartRateStats = await queryStatisticsForQuantity("HKQuantityTypeIdentifierHeartRate", ["discreteAverage"], {
+    filter: {
+      workout,
+      date: {
+        startDate,
+        endDate,
+        strictStartDate: true,
+        strictEndDate: true,
+      },
+    },
+    unit: "count/min",
+  }).catch(() => undefined);
+
+  return heartRateStats?.averageQuantity?.quantity;
+}
+
+type DistanceSlice = {
+  startedAt: number;
+  endedAt: number;
+  distanceMeters: number;
+};
+
+async function resolveWorkoutDistanceSlices(workout: WorkoutProxy): Promise<DistanceSlice[] | undefined> {
+  const distanceSamples = await queryQuantitySamples("HKQuantityTypeIdentifierDistanceWalkingRunning", {
+    filter: {
+      workout,
+    },
+    ascending: true,
+    limit: 0,
+    unit: "m",
+  }).catch(() => undefined);
+
+  if (!distanceSamples || distanceSamples.length === 0) {
+    return undefined;
+  }
+
+  const slices: DistanceSlice[] = [];
+  for (const sample of distanceSamples) {
+    const startedAt = sample.startDate.getTime();
+    const endedAt = sample.endDate.getTime();
+    if (!Number.isFinite(sample.quantity) || sample.quantity <= 0 || endedAt <= startedAt) {
+      continue;
+    }
+
+    slices.push({
+      startedAt,
+      endedAt,
+      distanceMeters: sample.quantity,
+    });
+  }
+
+  return slices.length > 0 ? slices : undefined;
+}
+
+function resolveIntervalDistanceMeters(
+  slices: DistanceSlice[] | undefined,
+  startedAt: number,
+  endedAt: number,
+): number | undefined {
+  if (!slices || slices.length === 0 || endedAt <= startedAt) {
+    return undefined;
+  }
+
+  let totalDistanceMeters = 0;
+
+  for (const slice of slices) {
+    const overlapStartedAt = Math.max(startedAt, slice.startedAt);
+    const overlapEndedAt = Math.min(endedAt, slice.endedAt);
+    if (overlapEndedAt <= overlapStartedAt) {
+      continue;
+    }
+
+    const overlapDurationMs = overlapEndedAt - overlapStartedAt;
+    const sliceDurationMs = slice.endedAt - slice.startedAt;
+    if (sliceDurationMs <= 0) {
+      continue;
+    }
+
+    const overlapRatio = overlapDurationMs / sliceDurationMs;
+    totalDistanceMeters += slice.distanceMeters * overlapRatio;
+  }
+
+  return totalDistanceMeters > 0 ? totalDistanceMeters : undefined;
+}
+
+async function resolveWorkoutIntervals(workout: WorkoutProxy): Promise<HealthKitWorkoutInterval[] | undefined> {
+  const events = workout.events;
+  if (!events || events.length === 0) {
+    return undefined;
+  }
+
+  const intervalEvents = [...events]
+    .filter((event) => resolveEventIntervalType(event.type) !== null)
+    .sort((left, right) => left.startDate.getTime() - right.startDate.getTime());
+
+  if (intervalEvents.length === 0) {
+    return undefined;
+  }
+
+  const distanceSlices = await resolveWorkoutDistanceSlices(workout);
+
+  const intervals = await Promise.all(
+    intervalEvents.map(async (event) => {
+      const type = resolveEventIntervalType(event.type);
+      if (!type) {
+        return null;
+      }
+
+      const startedAt = event.startDate.getTime();
+      const endedAt = event.endDate.getTime();
+      if (endedAt <= startedAt) {
+        return null;
+      }
+
+      const averageHeartRate = await queryIntervalStats(workout, event.startDate, event.endDate);
+      const distanceMeters = resolveIntervalDistanceMeters(distanceSlices, startedAt, endedAt);
+
+      return {
+        type,
+        startedAt,
+        endedAt,
+        durationSeconds: Math.round((endedAt - startedAt) / 1000),
+        ...(typeof distanceMeters === "number" ? { distanceMeters } : {}),
+        ...(typeof averageHeartRate === "number" ? { averageHeartRate } : {}),
+      } satisfies HealthKitWorkoutInterval;
+    }),
+  );
+
+  const validIntervals: HealthKitWorkoutInterval[] = [];
+  for (const interval of intervals) {
+    if (interval) {
+      validIntervals.push(interval);
+    }
+  }
+
+  return validIntervals.length > 0 ? validIntervals : undefined;
+}
+
+function buildIntervalChain(chainIndex: number, intervals: HealthKitWorkoutInterval[]): HealthKitWorkoutIntervalChain {
+  const startedAt = intervals[0]?.startedAt ?? 0;
+  const endedAt = intervals[intervals.length - 1]?.endedAt ?? startedAt;
+  let distanceMetersTotal = 0;
+  let hasDistance = false;
+
+  for (const interval of intervals) {
+    if (typeof interval.distanceMeters === "number") {
+      distanceMetersTotal += interval.distanceMeters;
+      hasDistance = true;
+    }
+  }
+
+  return {
+    chainIndex,
+    startedAt,
+    endedAt,
+    durationSeconds: Math.max(0, Math.round((endedAt - startedAt) / 1000)),
+    intervalCount: intervals.length,
+    ...(hasDistance ? { distanceMeters: distanceMetersTotal } : {}),
+    intervals,
+  };
+}
+
+function resolveWorkoutIntervalChains(
+  intervals: HealthKitWorkoutInterval[] | undefined,
+): HealthKitWorkoutIntervalChain[] | undefined {
+  if (!intervals || intervals.length === 0) {
+    return undefined;
+  }
+
+  const orderedIntervals = [...intervals].sort((left, right) => {
+    if (left.startedAt !== right.startedAt) {
+      return left.startedAt - right.startedAt;
+    }
+    if (left.endedAt !== right.endedAt) {
+      return left.endedAt - right.endedAt;
+    }
+    if (left.type !== right.type) {
+      return left.type < right.type ? -1 : 1;
+    }
+    return left.durationSeconds - right.durationSeconds;
+  });
+
+  const endedAtSet = new Set<number>(orderedIntervals.map((interval) => interval.endedAt));
+  const chains: HealthKitWorkoutIntervalChain[] = [];
+
+  const usedIndices = new Set<number>();
+
+  const rootIndices: number[] = [];
+  for (let index = 0; index < orderedIntervals.length; index += 1) {
+    const interval = orderedIntervals[index]!;
+    if (!endedAtSet.has(interval.startedAt)) {
+      rootIndices.push(index);
+    }
+  }
+
+  const findNextIndex = (endedAt: number): number | null => {
+    let nextIndex: number | null = null;
+
+    for (let index = 0; index < orderedIntervals.length; index += 1) {
+      if (usedIndices.has(index)) {
+        continue;
+      }
+
+      const candidate = orderedIntervals[index]!;
+      if (candidate.startedAt !== endedAt) {
+        continue;
+      }
+
+      if (nextIndex === null) {
+        nextIndex = index;
+        continue;
+      }
+
+      const currentBest = orderedIntervals[nextIndex]!;
+      if (candidate.endedAt < currentBest.endedAt) {
+        nextIndex = index;
+      }
+    }
+
+    return nextIndex;
+  };
+
+  const consumeFrom = (startIndex: number) => {
+    if (usedIndices.has(startIndex)) {
+      return;
+    }
+
+    const chainIntervals: HealthKitWorkoutInterval[] = [];
+    let currentIndex: number | null = startIndex;
+
+    while (currentIndex !== null) {
+      if (usedIndices.has(currentIndex)) {
+        break;
+      }
+
+      const currentInterval = orderedIntervals[currentIndex]!;
+      chainIntervals.push(currentInterval);
+      usedIndices.add(currentIndex);
+
+      currentIndex = findNextIndex(currentInterval.endedAt);
+    }
+
+    if (chainIntervals.length > 0) {
+      chains.push(buildIntervalChain(chains.length + 1, chainIntervals));
+    }
+  };
+
+  for (const rootIndex of rootIndices) {
+    consumeFrom(rootIndex);
+  }
+
+  for (let index = 0; index < orderedIntervals.length; index += 1) {
+    consumeFrom(index);
+  }
+
+  return chains.length > 0 ? chains : undefined;
 }
 
 export async function seedRecentHealthKitImport({
@@ -205,10 +503,12 @@ export async function seedRecentHealthKitImport({
 
   const workouts = await Promise.all(
     runningWorkouts.map(async (workout) => {
-      const [heartRateStats, distanceMeters] = await Promise.all([
+      const [heartRateStats, distanceMeters, intervals] = await Promise.all([
         queryHeartRateStats(workout),
         resolveWorkoutDistanceMeters(workout),
+        resolveWorkoutIntervals(workout),
       ]);
+      const intervalChains = resolveWorkoutIntervalChains(intervals);
 
       return {
         externalWorkoutId: workout.uuid,
@@ -218,6 +518,7 @@ export async function seedRecentHealthKitImport({
         distanceMeters,
         averageHeartRate: heartRateStats.averageHeartRate,
         maxHeartRate: heartRateStats.maxHeartRate,
+        intervalChains,
         sourceName: workout.sourceRevision.source.name,
         sourceBundleIdentifier: workout.sourceRevision.source.bundleIdentifier,
       } satisfies HealthKitImportedWorkout;

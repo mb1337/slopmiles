@@ -36,7 +36,7 @@ export function MainTabs({
           <DashboardScreen userId={userId} userName={userName} onCreatePlanPress={() => setActiveTab("plan")} />
         ) : null}
         {activeTab === "plan" ? <PlanScreen userId={userId} defaultVolumeMode={defaultVolumeMode} /> : null}
-        {activeTab === "history" ? <HistoryScreen /> : null}
+        {activeTab === "history" ? <HistoryScreen userId={userId} /> : null}
         {activeTab === "coach" ? <CoachScreen /> : null}
         {activeTab === "settings" ? (
           <SettingsScreen

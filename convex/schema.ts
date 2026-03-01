@@ -20,6 +20,24 @@ const competitivenessValidator = v.union(...competitivenessLevels.map((level) =>
 const personalityPresetValidator = v.union(...personalityPresets.map((preset) => v.literal(preset)));
 const goalTypeValidator = v.union(...goalTypes.map((goalType) => v.literal(goalType)));
 const planStatusValidator = v.union(...planStatuses.map((status) => v.literal(status)));
+const healthKitIntervalTypeValidator = v.union(v.literal("lap"), v.literal("segment"));
+const healthKitIntervalValidator = v.object({
+  type: healthKitIntervalTypeValidator,
+  startedAt: v.number(),
+  endedAt: v.number(),
+  durationSeconds: v.number(),
+  distanceMeters: v.optional(v.number()),
+  averageHeartRate: v.optional(v.number()),
+});
+const healthKitIntervalChainValidator = v.object({
+  chainIndex: v.number(),
+  startedAt: v.number(),
+  endedAt: v.number(),
+  durationSeconds: v.number(),
+  intervalCount: v.number(),
+  distanceMeters: v.optional(v.number()),
+  intervals: v.array(healthKitIntervalValidator),
+});
 
 export default defineSchema({
   users: defineTable({
@@ -98,6 +116,7 @@ export default defineSchema({
     distanceMeters: v.optional(v.number()),
     averageHeartRate: v.optional(v.number()),
     maxHeartRate: v.optional(v.number()),
+    intervalChains: v.optional(v.array(healthKitIntervalChainValidator)),
     sourceName: v.optional(v.string()),
     sourceBundleIdentifier: v.optional(v.string()),
     importedAt: v.number(),
