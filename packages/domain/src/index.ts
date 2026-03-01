@@ -138,3 +138,5 @@ export function nextOnboardingStep(step: OnboardingStep): OnboardingStep {
 
   return ONBOARDING_STEPS[index + 1] ?? "done";
 }
+
+export * from "./vdot";
