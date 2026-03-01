@@ -1,24 +1,34 @@
 import { useEffect, useState } from "react";
-import { Alert, ScrollView, Text } from "react-native";
+import { Alert, ScrollView, Text, TextInput } from "react-native";
 import type { UnitPreference } from "@slopmiles/domain";
+import { useAuthActions } from "@convex-dev/auth/react";
 
-import { ChoiceRow, Panel, PrimaryButton } from "../../components/common";
+import { ChoiceRow, Panel, PrimaryButton, SecondaryButton } from "../../components/common";
 import { styles } from "../../styles";
 import type { HealthKitSyncResult } from "../../types";
 
 export function SettingsScreen({
+  userName,
   unitPreference,
   healthKitAuthorized,
   onResetApp,
+  onUpdateName,
   onUpdateUnitPreference,
   onSyncHealthKit,
 }: {
+  userName: string;
   unitPreference: UnitPreference;
   healthKitAuthorized: boolean;
   onResetApp: () => Promise<void>;
+  onUpdateName: (name: string) => Promise<void>;
   onUpdateUnitPreference: (unitPreference: UnitPreference) => Promise<void>;
   onSyncHealthKit: () => Promise<HealthKitSyncResult>;
 }) {
+  const { signOut } = useAuthActions();
+  const [name, setName] = useState(userName);
+  const [savingName, setSavingName] = useState(false);
+  const [nameMessage, setNameMessage] = useState<string | null>(null);
+  const [nameError, setNameError] = useState<string | null>(null);
   const [selectedUnitPreference, setSelectedUnitPreference] = useState<UnitPreference>(unitPreference);
   const [savingUnitPreference, setSavingUnitPreference] = useState(false);
   const [unitPreferenceMessage, setUnitPreferenceMessage] = useState<string | null>(null);
@@ -28,10 +38,38 @@ export function SettingsScreen({
   const [syncingHealthKit, setSyncingHealthKit] = useState(false);
   const [healthKitMessage, setHealthKitMessage] = useState<string | null>(null);
   const [healthKitError, setHealthKitError] = useState<string | null>(null);
+  const [signingOut, setSigningOut] = useState(false);
+  const [signOutError, setSignOutError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setName(userName);
+  }, [userName]);
 
   useEffect(() => {
     setSelectedUnitPreference(unitPreference);
   }, [unitPreference]);
+
+  const runSaveName = async () => {
+    const normalizedName = name.trim();
+    if (normalizedName.length === 0) {
+      setNameError("Name cannot be empty.");
+      setNameMessage(null);
+      return;
+    }
+
+    setSavingName(true);
+    setNameError(null);
+    setNameMessage(null);
+    try {
+      await onUpdateName(normalizedName);
+      setName(normalizedName);
+      setNameMessage("Display name updated.");
+    } catch (error) {
+      setNameError(String(error));
+    } finally {
+      setSavingName(false);
+    }
+  };
 
   const runSaveUnitPreference = async () => {
     setSavingUnitPreference(true);
@@ -82,10 +120,22 @@ export function SettingsScreen({
     }
   };
 
+  const runSignOut = async () => {
+    setSigningOut(true);
+    setSignOutError(null);
+    try {
+      await signOut();
+    } catch (error) {
+      setSignOutError(String(error));
+    } finally {
+      setSigningOut(false);
+    }
+  };
+
   const confirmReset = () => {
     Alert.alert(
       "Reset app data?",
-      "This permanently deletes your profile data, plans, and onboarding progress, then restarts onboarding.",
+      "This permanently deletes your profile data, plans, and onboarding progress, then signs you out.",
       [
         {
           text: "Cancel",
@@ -107,6 +157,36 @@ export function SettingsScreen({
       <Text style={styles.kicker}>Settings</Text>
       <Text style={styles.heading}>Core settings scaffold</Text>
       <Panel title="Preferences">
+        <Text style={styles.label}>Display name</Text>
+        <TextInput
+          style={styles.input}
+          value={name}
+          onChangeText={(value) => {
+            setName(value);
+            setNameMessage(null);
+            setNameError(null);
+          }}
+          autoCapitalize="words"
+          placeholder="Runner"
+          placeholderTextColor="#7a848c"
+        />
+        {nameMessage ? <Text style={styles.helperText}>{nameMessage}</Text> : null}
+        {nameError ? <Text style={styles.errorText}>{nameError}</Text> : null}
+        <PrimaryButton
+          label={savingName ? "Saving name..." : "Save display name"}
+          onPress={() => {
+            void runSaveName();
+          }}
+          disabled={
+            savingName ||
+            savingUnitPreference ||
+            resetting ||
+            syncingHealthKit ||
+            signingOut ||
+            name.trim().length === 0 ||
+            name.trim() === userName
+          }
+        />
         <Text style={styles.bodyText}>
           Choose how distances and paces are displayed across the app.
         </Text>
@@ -128,7 +208,12 @@ export function SettingsScreen({
             void runSaveUnitPreference();
           }}
           disabled={
-            savingUnitPreference || resetting || syncingHealthKit || selectedUnitPreference === unitPreference
+            savingName ||
+            savingUnitPreference ||
+            resetting ||
+            syncingHealthKit ||
+            signingOut ||
+            selectedUnitPreference === unitPreference
           }
         />
       </Panel>
@@ -144,16 +229,27 @@ export function SettingsScreen({
           onPress={() => {
             void runHealthKitSync();
           }}
-          disabled={syncingHealthKit || resetting || savingUnitPreference}
+          disabled={syncingHealthKit || resetting || savingName || savingUnitPreference || signingOut}
         />
       </Panel>
       <Panel title="Data Management">
-        <Text style={styles.bodyText}>Reset App wipes stored data and returns you to onboarding.</Text>
+        <Text style={styles.bodyText}>Reset App wipes stored data, signs you out, and restarts onboarding on next sign-in.</Text>
         {resetError ? <Text style={styles.errorText}>{resetError}</Text> : null}
         <PrimaryButton
           label={resetting ? "Resetting..." : "Reset App"}
           onPress={confirmReset}
-          disabled={resetting || syncingHealthKit || savingUnitPreference}
+          disabled={resetting || syncingHealthKit || savingName || savingUnitPreference || signingOut}
+        />
+      </Panel>
+      <Panel title="Account">
+        <Text style={styles.bodyText}>Signing out clears your local session and returns you to Apple sign-in.</Text>
+        {signOutError ? <Text style={styles.errorText}>{signOutError}</Text> : null}
+        <SecondaryButton
+          label={signingOut ? "Signing out..." : "Sign Out"}
+          onPress={() => {
+            void runSignOut();
+          }}
+          disabled={signingOut || resetting || syncingHealthKit || savingName || savingUnitPreference}
         />
       </Panel>
     </ScrollView>

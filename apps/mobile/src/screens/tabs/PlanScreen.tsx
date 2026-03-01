@@ -8,16 +8,14 @@ import { ChoiceRow, Counter, Panel, PrimaryButton } from "../../components/commo
 import { styles } from "../../styles";
 
 export function PlanScreen({
-  userId,
   defaultVolumeMode,
 }: {
-  userId: Id<"users">;
   defaultVolumeMode: VolumeMode;
 }) {
   const createPlan = useMutation(api.plans.createPlan);
   const activateDraftPlan = useMutation(api.plans.activateDraftPlan);
   const updatePlanStatus = useMutation(api.plans.updatePlanStatus);
-  const planState = useQuery(api.plans.getPlanState, { userId });
+  const planState = useQuery(api.plans.getPlanState, {});
 
   const [goalType, setGoalType] = useState<(typeof GOAL_TYPES)[number]>("race");
   const [goalLabel, setGoalLabel] = useState("5K");
@@ -36,7 +34,6 @@ export function PlanScreen({
     setPlanMessage(null);
     try {
       const result = await createPlan({
-        userId,
         goalType,
         goalLabel: goalLabel.trim(),
         numberOfWeeks,
@@ -57,23 +54,23 @@ export function PlanScreen({
   };
 
   const onActivateDraft = async (planId: Id<"trainingPlans">) => {
-    try {
-      setPlanError(null);
-      setPlanMessage(null);
-      await activateDraftPlan({ userId, planId });
-      setPlanMessage("Draft activated.");
-    } catch (error) {
+      try {
+        setPlanError(null);
+        setPlanMessage(null);
+        await activateDraftPlan({ planId });
+        setPlanMessage("Draft activated.");
+      } catch (error) {
       setPlanError(String(error));
     }
   };
 
   const onAbandonPlan = async (planId: Id<"trainingPlans">) => {
-    try {
-      setPlanError(null);
-      setPlanMessage(null);
-      await updatePlanStatus({ userId, planId, status: "abandoned" });
-      setPlanMessage("Active plan abandoned. You can activate a draft now.");
-    } catch (error) {
+      try {
+        setPlanError(null);
+        setPlanMessage(null);
+        await updatePlanStatus({ planId, status: "abandoned" });
+        setPlanMessage("Active plan abandoned. You can activate a draft now.");
+      } catch (error) {
       setPlanError(String(error));
     }
   };

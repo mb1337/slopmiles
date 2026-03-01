@@ -70,7 +70,6 @@ export type RunningSchedule = {
 
 export type UserProfile = {
   id: string;
-  anonymousHandle: string;
   name: string;
   unitPreference: UnitPreference;
   volumePreference: VolumeMode;

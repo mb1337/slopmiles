@@ -1,10 +1,12 @@
 import { useEffect, useState } from "react";
-import { ActivityIndicator, Text } from "react-native";
+import { ActivityIndicator, Text, View } from "react-native";
 import { useMutation } from "convex/react";
+import { useAuthActions } from "@convex-dev/auth/react";
 import { type CompetitivenessLevel, type OnboardingStep, type PersonalityPreset } from "@slopmiles/domain";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { api } from "./convex";
+import { PrimaryButton, SecondaryButton } from "./components/common";
 import {
   requestHealthKitAuthorization,
   seedRecentHealthKitImport,
@@ -15,11 +17,33 @@ import { OnboardingFlow } from "./screens/OnboardingFlow";
 import { styles } from "./styles";
 import type { HealthKitSyncResult, SessionPayload } from "./types";
 
-const ANONYMOUS_HANDLE = "ios-anonymous-v1";
+function isSessionPayload(value: unknown): value is SessionPayload {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const candidate = value as Partial<SessionPayload>;
+  return (
+    Boolean(candidate.user) &&
+    typeof candidate.user?.name === "string" &&
+    typeof candidate.user?.unitPreference === "string" &&
+    Boolean(candidate.runningSchedule) &&
+    Array.isArray(candidate.runningSchedule?.preferredRunningDays) &&
+    Boolean(candidate.onboardingState) &&
+    typeof candidate.onboardingState?.currentStep === "string" &&
+    typeof candidate.onboardingState?.isComplete === "boolean" &&
+    Boolean(candidate.competitiveness) &&
+    typeof candidate.competitiveness?.level === "string" &&
+    Boolean(candidate.personality) &&
+    typeof candidate.personality?.name === "string"
+  );
+}
 
 export default function AppRoot() {
-  const bootstrapAnonymous = useMutation(api.users.bootstrapAnonymous);
+  const { signOut } = useAuthActions();
+  const bootstrapSession = useMutation(api.users.bootstrapSession);
   const resetAppData = useMutation(api.users.resetAppData);
+  const updateName = useMutation(api.users.updateName);
   const updateUnitPreference = useMutation(api.users.updateUnitPreference);
   const setHealthKitAuthorizationStatus = useMutation(api.healthkit.setAuthorizationStatus);
   const seedHealthKitImportWorkouts = useMutation(api.healthkit.seedImportWorkouts);
@@ -38,11 +62,29 @@ export default function AppRoot() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const refresh = async () => {
-    const payload = (await bootstrapAnonymous({
-      anonymousHandle: ANONYMOUS_HANDLE,
-    })) as SessionPayload;
+  const signOutSafely = async () => {
+    try {
+      await signOut();
+    } catch (signOutError) {
+      setError(String(signOutError));
+    }
+  };
+
+  const refresh = async (): Promise<SessionPayload | null> => {
+    const payload = await bootstrapSession({});
+
+    if (!payload) {
+      setSession(null);
+      await signOutSafely();
+      return null;
+    }
+
+    if (!isSessionPayload(payload)) {
+      throw new Error("Received invalid session payload from backend.");
+    }
+
     setSession(payload);
+    return payload;
   };
 
   useEffect(() => {
@@ -51,10 +93,12 @@ export default function AppRoot() {
     const load = async () => {
       try {
         setError(null);
+        setLoading(true);
         await refresh();
       } catch (err) {
         if (mounted) {
           setError(String(err));
+          setSession(null);
         }
       } finally {
         if (mounted) {
@@ -75,9 +119,22 @@ export default function AppRoot() {
     setError(null);
     try {
       const result = await fn();
-      await refresh();
+      const refreshed = await refresh();
+      if (!refreshed) {
+        return null;
+      }
       return result;
     } catch (err) {
+      try {
+        const refreshed = await refresh();
+        if (!refreshed) {
+          return null;
+        }
+      } catch (refreshError) {
+        setError(String(refreshError));
+        return null;
+      }
+
       setError(String(err));
       return null;
     } finally {
@@ -89,10 +146,9 @@ export default function AppRoot() {
     await runMutation(fn);
   };
 
-  const importHealthKitSeed = async (userId: SessionPayload["user"]["_id"]) => {
+  const importHealthKitSeed = async () => {
     const payload = await seedRecentHealthKitImport();
     return seedHealthKitImportWorkouts({
-      userId,
       workouts: payload.workouts,
       restingHeartRate: payload.restingHeartRate,
       inferredMaxHeartRate: payload.inferredMaxHeartRate,
@@ -104,13 +160,16 @@ export default function AppRoot() {
       return;
     }
 
-    await resetAppData({
-      userId: session.user._id,
-    });
-    await refresh();
+    await resetAppData({});
+    try {
+      await signOut();
+    } catch (error) {
+      await refresh();
+      throw error;
+    }
   };
 
-  if (loading || !session) {
+  if (loading) {
     return (
       <SafeAreaView style={styles.screenCenter}>
         <ActivityIndicator color="#154e72" size="large" />
@@ -119,20 +178,58 @@ export default function AppRoot() {
     );
   }
 
+  if (!session) {
+    return (
+      <SafeAreaView style={styles.screenCenter}>
+        <View style={{ width: "100%", maxWidth: 360, paddingHorizontal: 20, gap: 12 }}>
+          <Text style={styles.heading}>Session unavailable</Text>
+          <Text style={styles.helperText}>{error ?? "We could not load your session. Try again or sign in again."}</Text>
+          <PrimaryButton
+            label="Retry"
+            onPress={() => {
+              void (async () => {
+                setLoading(true);
+                setError(null);
+                try {
+                  await refresh();
+                } catch (retryError) {
+                  setError(String(retryError));
+                } finally {
+                  setLoading(false);
+                }
+              })();
+            }}
+          />
+          <SecondaryButton
+            label="Sign out"
+            onPress={() => {
+              void signOutSafely();
+            }}
+          />
+        </View>
+      </SafeAreaView>
+    );
+  }
+
   if (session.onboardingState.isComplete) {
     return (
       <MainTabs
-        userId={session.user._id}
         userName={session.user.name}
         unitPreference={session.user.unitPreference}
         defaultVolumeMode={session.user.volumePreference}
         healthKitAuthorized={session.user.healthKitAuthorized}
         currentVDOT={session.user.currentVDOT ?? null}
         onResetApp={resetApp}
+        onUpdateName={(name) =>
+          runMutationVoid(async () => {
+            await updateName({
+              name,
+            });
+          })
+        }
         onUpdateUnitPreference={(unitPreference) =>
           runMutationVoid(async () => {
             await updateUnitPreference({
-              userId: session.user._id,
               unitPreference,
             });
           })
@@ -142,7 +239,6 @@ export default function AppRoot() {
 
           const result = await runMutation(async () => {
             await setHealthKitAuthorizationStatus({
-              userId: session.user._id,
               authorized: permission.authorized,
             });
 
@@ -160,7 +256,7 @@ export default function AppRoot() {
             let importResult: { processedCount: number; insertedCount: number; updatedCount: number } | null = null;
             let importError: string | undefined;
             try {
-              importResult = await importHealthKitSeed(session.user._id);
+              importResult = await importHealthKitSeed();
             } catch (error) {
               importError = String(error);
             }
@@ -198,7 +294,6 @@ export default function AppRoot() {
       onCompleteStep={(step: OnboardingStep) =>
         runMutationVoid(async () => {
           await completeStep({
-            userId: session.user._id,
             step,
           });
         })
@@ -206,13 +301,12 @@ export default function AppRoot() {
       onSaveHealthKitAuthorization={(permission: HealthKitPermissionResult) =>
         runMutationVoid(async () => {
           await saveHealthKitAuthorization({
-            userId: session.user._id,
             authorized: permission.authorized,
           });
 
           if (permission.authorized) {
             try {
-              await importHealthKitSeed(session.user._id);
+              await importHealthKitSeed();
             } catch (error) {
               setError(`HealthKit connected, but initial import failed: ${String(error)}`);
             }
@@ -222,8 +316,6 @@ export default function AppRoot() {
       onSaveProfileBasics={(value) =>
         runMutationVoid(async () => {
           await saveProfileBasics({
-            userId: session.user._id,
-            name: value.name,
             unitPreference: value.unitPreference,
             volumePreference: value.volumePreference,
           });
@@ -232,7 +324,6 @@ export default function AppRoot() {
       onSaveRunningSchedule={(value) =>
         runMutationVoid(async () => {
           await saveRunningSchedule({
-            userId: session.user._id,
             preferredRunningDays: value.preferredRunningDays,
             runningDaysPerWeek: value.runningDaysPerWeek,
             preferredLongRunDay: value.preferredLongRunDay ?? undefined,
@@ -243,7 +334,6 @@ export default function AppRoot() {
       onSaveTrackAccess={(trackAccess) =>
         runMutationVoid(async () => {
           await saveTrackAccess({
-            userId: session.user._id,
             trackAccess,
           });
         })
@@ -251,7 +341,6 @@ export default function AppRoot() {
       onSaveVdotFromHistory={(workoutId) =>
         runMutationVoid(async () => {
           await saveVdotFromHistoryWorkout({
-            userId: session.user._id,
             healthKitWorkoutId: workoutId,
           });
         })
@@ -259,7 +348,6 @@ export default function AppRoot() {
       onSaveVdotFromManual={(value) =>
         runMutationVoid(async () => {
           await saveVdotFromManualResult({
-            userId: session.user._id,
             distanceMeters: value.distanceMeters,
             timeSeconds: value.timeSeconds,
           });
@@ -268,7 +356,6 @@ export default function AppRoot() {
       onSaveCompetitiveness={(level: CompetitivenessLevel) =>
         runMutationVoid(async () => {
           await saveCompetitiveness({
-            userId: session.user._id,
             level,
           });
         })
@@ -276,7 +363,6 @@ export default function AppRoot() {
       onSavePersonality={(value: { preset: PersonalityPreset; customDescription?: string }) =>
         runMutationVoid(async () => {
           await savePersonality({
-            userId: session.user._id,
             preset: value.preset,
             customDescription: value.customDescription,
           });

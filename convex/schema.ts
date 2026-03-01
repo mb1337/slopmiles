@@ -1,5 +1,6 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
+import { authTables } from "@convex-dev/auth/server";
 
 import {
   competitivenessLevels,
@@ -40,9 +41,18 @@ const healthKitIntervalChainValidator = v.object({
 });
 
 export default defineSchema({
+  ...authTables,
+
   users: defineTable({
-    anonymousHandle: v.string(),
+    appleSubject: v.optional(v.string()),
+    appleDefaultName: v.optional(v.string()),
     name: v.string(),
+    image: v.optional(v.string()),
+    email: v.optional(v.string()),
+    emailVerificationTime: v.optional(v.number()),
+    phone: v.optional(v.string()),
+    phoneVerificationTime: v.optional(v.number()),
+    isAnonymous: v.optional(v.boolean()),
     unitPreference: unitPreferenceValidator,
     volumePreference: volumeModeValidator,
     trackAccess: v.boolean(),
@@ -52,7 +62,10 @@ export default defineSchema({
     restingHeartRate: v.optional(v.number()),
     createdAt: v.number(),
     updatedAt: v.number(),
-  }).index("by_anonymous_handle", ["anonymousHandle"]),
+  })
+    .index("email", ["email"])
+    .index("phone", ["phone"])
+    .index("by_apple_subject", ["appleSubject"]),
 
   runningSchedules: defineTable({
     userId: v.id("users"),

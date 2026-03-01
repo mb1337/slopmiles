@@ -1,10 +1,15 @@
 import { useMemo } from "react";
 import { StatusBar } from "expo-status-bar";
-import { ConvexProvider, ConvexReactClient } from "convex/react";
-import { SafeAreaProvider } from "react-native-safe-area-context";
+import { Authenticated, AuthLoading, ConvexReactClient, Unauthenticated } from "convex/react";
+import { ConvexAuthProvider } from "@convex-dev/auth/react";
+import * as SecureStore from "expo-secure-store";
+import { ActivityIndicator, Platform, Text } from "react-native";
+import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 
 import AppRoot from "./src/AppRoot";
 import { MissingConfigScreen } from "./src/screens/MissingConfigScreen";
+import { SignInScreen } from "./src/screens/SignInScreen";
+import { styles } from "./src/styles";
 
 declare const process:
   | {
@@ -13,6 +18,12 @@ declare const process:
   | undefined;
 
 const convexUrl = process?.env?.EXPO_PUBLIC_CONVEX_URL;
+
+const secureStorage = {
+  getItem: SecureStore.getItemAsync,
+  setItem: SecureStore.setItemAsync,
+  removeItem: SecureStore.deleteItemAsync,
+};
 
 export default function App() {
   const convex = useMemo(() => {
@@ -32,10 +43,24 @@ export default function App() {
 
   return (
     <SafeAreaProvider>
-      <ConvexProvider client={convex}>
+      <ConvexAuthProvider
+        client={convex}
+        storage={Platform.OS === "ios" || Platform.OS === "android" ? secureStorage : undefined}
+      >
         <StatusBar style="dark" />
-        <AppRoot />
-      </ConvexProvider>
+        <AuthLoading>
+          <SafeAreaView style={styles.screenCenter}>
+            <ActivityIndicator color="#154e72" size="large" />
+            <Text style={styles.helperText}>Restoring secure session...</Text>
+          </SafeAreaView>
+        </AuthLoading>
+        <Unauthenticated>
+          <SignInScreen />
+        </Unauthenticated>
+        <Authenticated>
+          <AppRoot />
+        </Authenticated>
+      </ConvexAuthProvider>
     </SafeAreaProvider>
   );
 }

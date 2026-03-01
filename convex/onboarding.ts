@@ -1,4 +1,5 @@
 import { v } from "convex/values";
+import { getAuthUserId } from "@convex-dev/auth/server";
 import { mutation, type MutationCtx } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
 
@@ -27,6 +28,14 @@ function nextStep(step: OnboardingStep): OnboardingStep {
   }
 
   return onboardingSteps[index + 1] ?? "done";
+}
+
+async function requireAuthenticatedUserId(ctx: MutationCtx): Promise<Id<"users">> {
+  const userId = await getAuthUserId(ctx);
+  if (!userId) {
+    throw new Error("Authentication required.");
+  }
+  return userId;
 }
 
 async function ensureOnboardingState(ctx: MutationCtx, userId: Id<"users">) {
@@ -65,36 +74,33 @@ async function advance(ctx: MutationCtx, userId: Id<"users">, completedStep: Onb
 
 export const completeStep = mutation({
   args: {
-    userId: v.id("users"),
     step: onboardingStepValidator,
   },
   handler: async (ctx, args) => {
-    await advance(ctx, args.userId, args.step);
+    const userId = await requireAuthenticatedUserId(ctx);
+    await advance(ctx, userId, args.step);
   },
 });
 
 export const saveProfileBasics = mutation({
   args: {
-    userId: v.id("users"),
-    name: v.string(),
     unitPreference: unitPreferenceValidator,
     volumePreference: volumeModeValidator,
   },
   handler: async (ctx, args) => {
-    await ctx.db.patch(args.userId, {
-      name: args.name,
+    const userId = await requireAuthenticatedUserId(ctx);
+    await ctx.db.patch(userId, {
       unitPreference: args.unitPreference,
       volumePreference: args.volumePreference,
       updatedAt: Date.now(),
     });
 
-    await advance(ctx, args.userId, "profileBasics");
+    await advance(ctx, userId, "profileBasics");
   },
 });
 
 export const saveRunningSchedule = mutation({
   args: {
-    userId: v.id("users"),
     preferredRunningDays: v.array(weekdayValidator),
     runningDaysPerWeek: v.number(),
     preferredLongRunDay: v.optional(weekdayValidator),
@@ -109,9 +115,11 @@ export const saveRunningSchedule = mutation({
       throw new Error("Running days per week must be less than or equal to available days.");
     }
 
+    const userId = await requireAuthenticatedUserId(ctx);
+
     const schedule = await ctx.db
       .query("runningSchedules")
-      .withIndex("by_user_id", (query) => query.eq("userId", args.userId))
+      .withIndex("by_user_id", (query) => query.eq("userId", userId))
       .unique();
 
     const payload = {
@@ -126,39 +134,39 @@ export const saveRunningSchedule = mutation({
       await ctx.db.patch(schedule._id, payload);
     } else {
       await ctx.db.insert("runningSchedules", {
-        userId: args.userId,
+        userId,
         ...payload,
       });
     }
 
-    await advance(ctx, args.userId, "runningSchedule");
+    await advance(ctx, userId, "runningSchedule");
   },
 });
 
 export const saveTrackAccess = mutation({
   args: {
-    userId: v.id("users"),
     trackAccess: v.boolean(),
   },
   handler: async (ctx, args) => {
-    await ctx.db.patch(args.userId, {
+    const userId = await requireAuthenticatedUserId(ctx);
+    await ctx.db.patch(userId, {
       trackAccess: args.trackAccess,
       updatedAt: Date.now(),
     });
 
-    await advance(ctx, args.userId, "trackAccess");
+    await advance(ctx, userId, "trackAccess");
   },
 });
 
 export const saveCompetitiveness = mutation({
   args: {
-    userId: v.id("users"),
     level: competitivenessValidator,
   },
   handler: async (ctx, args) => {
+    const userId = await requireAuthenticatedUserId(ctx);
     const existing = await ctx.db
       .query("competitiveness")
-      .withIndex("by_user_id", (query) => query.eq("userId", args.userId))
+      .withIndex("by_user_id", (query) => query.eq("userId", userId))
       .unique();
 
     if (existing) {
@@ -168,13 +176,13 @@ export const saveCompetitiveness = mutation({
       });
     } else {
       await ctx.db.insert("competitiveness", {
-        userId: args.userId,
+        userId,
         level: args.level,
         updatedAt: Date.now(),
       });
     }
 
-    await advance(ctx, args.userId, "competitiveness");
+    await advance(ctx, userId, "competitiveness");
   },
 });
 
@@ -188,11 +196,11 @@ const presetDescriptions: Record<string, string> = {
 
 export const savePersonality = mutation({
   args: {
-    userId: v.id("users"),
     preset: personalityPresetValidator,
     customDescription: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
+    const userId = await requireAuthenticatedUserId(ctx);
     const isCustom = args.preset === "custom";
     const description = isCustom
       ? args.customDescription?.trim() || "Custom coach voice."
@@ -200,7 +208,7 @@ export const savePersonality = mutation({
 
     const existing = await ctx.db
       .query("personalities")
-      .withIndex("by_user_id", (query) => query.eq("userId", args.userId))
+      .withIndex("by_user_id", (query) => query.eq("userId", userId))
       .unique();
 
     const payload = {
@@ -214,27 +222,27 @@ export const savePersonality = mutation({
       await ctx.db.patch(existing._id, payload);
     } else {
       await ctx.db.insert("personalities", {
-        userId: args.userId,
+        userId,
         ...payload,
       });
     }
 
-    await advance(ctx, args.userId, "personality");
+    await advance(ctx, userId, "personality");
   },
 });
 
 export const saveHealthKitAuthorization = mutation({
   args: {
-    userId: v.id("users"),
     authorized: v.boolean(),
   },
   handler: async (ctx, args) => {
-    await ctx.db.patch(args.userId, {
+    const userId = await requireAuthenticatedUserId(ctx);
+    await ctx.db.patch(userId, {
       healthKitAuthorized: args.authorized,
       updatedAt: Date.now(),
     });
 
-    await advance(ctx, args.userId, "healthKitAuthorization");
+    await advance(ctx, userId, "healthKitAuthorization");
   },
 });
 
@@ -250,22 +258,22 @@ function roundVdot(value: number): number {
 
 export const saveVdotFromManualResult = mutation({
   args: {
-    userId: v.id("users"),
     distanceMeters: v.number(),
     timeSeconds: v.number(),
   },
   handler: async (ctx, args) => {
+    const userId = await requireAuthenticatedUserId(ctx);
     assertPositiveFinite(args.distanceMeters, "distanceMeters");
     assertPositiveFinite(args.timeSeconds, "timeSeconds");
 
     const vdot = roundVdot(calculateVdotFromRaceTime(args.distanceMeters, args.timeSeconds));
 
-    await ctx.db.patch(args.userId, {
+    await ctx.db.patch(userId, {
       currentVDOT: vdot,
       updatedAt: Date.now(),
     });
 
-    await advance(ctx, args.userId, "establishVDOT");
+    await advance(ctx, userId, "establishVDOT");
 
     return {
       vdot,
@@ -275,12 +283,12 @@ export const saveVdotFromManualResult = mutation({
 
 export const saveVdotFromHistoryWorkout = mutation({
   args: {
-    userId: v.id("users"),
     healthKitWorkoutId: v.id("healthKitWorkouts"),
   },
   handler: async (ctx, args) => {
+    const userId = await requireAuthenticatedUserId(ctx);
     const workout = await ctx.db.get(args.healthKitWorkoutId);
-    if (!workout || workout.userId !== args.userId) {
+    if (!workout || workout.userId !== userId) {
       throw new Error("Workout not found for user.");
     }
 
@@ -293,12 +301,12 @@ export const saveVdotFromHistoryWorkout = mutation({
 
     const vdot = roundVdot(calculateVdotFromRaceTime(workout.distanceMeters, workout.durationSeconds));
 
-    await ctx.db.patch(args.userId, {
+    await ctx.db.patch(userId, {
       currentVDOT: vdot,
       updatedAt: Date.now(),
     });
 
-    await advance(ctx, args.userId, "establishVDOT");
+    await advance(ctx, userId, "establishVDOT");
 
     return {
       vdot,

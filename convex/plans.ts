@@ -1,9 +1,10 @@
 import { v } from "convex/values";
+import { getAuthUserId } from "@convex-dev/auth/server";
 
 import { goalTypes, planStatuses, volumeModes } from "./constants";
 import { mutation, query } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
-import type { QueryCtx } from "./_generated/server";
+import type { MutationCtx, QueryCtx } from "./_generated/server";
 
 const goalTypeValidator = v.union(...goalTypes.map((goalType) => v.literal(goalType)));
 const volumeModeValidator = v.union(...volumeModes.map((mode) => v.literal(mode)));
@@ -24,6 +25,22 @@ type PlanSummary = {
     goalTimeSeconds?: number;
   };
 };
+
+async function requireAuthenticatedQueryUserId(ctx: QueryCtx): Promise<Id<"users">> {
+  const userId = await getAuthUserId(ctx);
+  if (!userId) {
+    throw new Error("Authentication required.");
+  }
+  return userId;
+}
+
+async function requireAuthenticatedMutationUserId(ctx: MutationCtx): Promise<Id<"users">> {
+  const userId = await getAuthUserId(ctx);
+  if (!userId) {
+    throw new Error("Authentication required.");
+  }
+  return userId;
+}
 
 async function listPlanSummaries(ctx: QueryCtx, userId: Id<"users">): Promise<PlanSummary[]> {
   const plans = await ctx.db
@@ -60,11 +77,10 @@ async function listPlanSummaries(ctx: QueryCtx, userId: Id<"users">): Promise<Pl
 }
 
 export const getPlanState = query({
-  args: {
-    userId: v.id("users"),
-  },
-  handler: async (ctx, args) => {
-    const planSummaries = await listPlanSummaries(ctx, args.userId);
+  args: {},
+  handler: async (ctx) => {
+    const userId = await requireAuthenticatedQueryUserId(ctx);
+    const planSummaries = await listPlanSummaries(ctx, userId);
     const sorted = [...planSummaries].sort((a, b) => b.createdAt - a.createdAt);
 
     const activePlan = sorted.find((plan) => plan.status === "active") ?? null;
@@ -81,7 +97,6 @@ export const getPlanState = query({
 
 export const createPlan = mutation({
   args: {
-    userId: v.id("users"),
     goalType: goalTypeValidator,
     goalLabel: v.string(),
     targetDate: v.optional(v.number()),
@@ -96,16 +111,18 @@ export const createPlan = mutation({
       throw new Error("Goal label cannot be empty.");
     }
 
+    const userId = await requireAuthenticatedMutationUserId(ctx);
+
     const activePlans = await ctx.db
       .query("trainingPlans")
       .withIndex("by_user_id_status", (queryBuilder) =>
-        queryBuilder.eq("userId", args.userId).eq("status", "active"),
+        queryBuilder.eq("userId", userId).eq("status", "active"),
       )
       .collect();
 
     const now = Date.now();
     const goalId = await ctx.db.insert("goals", {
-      userId: args.userId,
+      userId,
       type: args.goalType,
       label: normalizedGoalLabel,
       targetDate: args.targetDate,
@@ -116,7 +133,7 @@ export const createPlan = mutation({
     const status = activePlans.length > 0 ? "draft" : "active";
 
     const planId = await ctx.db.insert("trainingPlans", {
-      userId: args.userId,
+      userId,
       goalId,
       numberOfWeeks: args.numberOfWeeks,
       volumeMode: args.volumeMode,
@@ -139,12 +156,12 @@ export const createPlan = mutation({
 
 export const activateDraftPlan = mutation({
   args: {
-    userId: v.id("users"),
     planId: v.id("trainingPlans"),
   },
   handler: async (ctx, args) => {
+    const userId = await requireAuthenticatedMutationUserId(ctx);
     const targetPlan = await ctx.db.get(args.planId);
-    if (!targetPlan || targetPlan.userId !== args.userId) {
+    if (!targetPlan || targetPlan.userId !== userId) {
       throw new Error("Plan not found for user.");
     }
 
@@ -155,7 +172,7 @@ export const activateDraftPlan = mutation({
     const activePlans = await ctx.db
       .query("trainingPlans")
       .withIndex("by_user_id_status", (queryBuilder) =>
-        queryBuilder.eq("userId", args.userId).eq("status", "active"),
+        queryBuilder.eq("userId", userId).eq("status", "active"),
       )
       .collect();
 
@@ -176,13 +193,13 @@ export const activateDraftPlan = mutation({
 
 export const updatePlanStatus = mutation({
   args: {
-    userId: v.id("users"),
     planId: v.id("trainingPlans"),
     status: planStatusValidator,
   },
   handler: async (ctx, args) => {
+    const userId = await requireAuthenticatedMutationUserId(ctx);
     const plan = await ctx.db.get(args.planId);
-    if (!plan || plan.userId !== args.userId) {
+    if (!plan || plan.userId !== userId) {
       throw new Error("Plan not found for user.");
     }
 

@@ -3,7 +3,6 @@ import { Pressable, Text, View } from "react-native";
 import { type UnitPreference, type VolumeMode } from "@slopmiles/domain";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-import { type Id } from "../convex";
 import { CoachScreen } from "./tabs/CoachScreen";
 import { DashboardScreen } from "./tabs/DashboardScreen";
 import { HistoryScreen } from "./tabs/HistoryScreen";
@@ -13,23 +12,23 @@ import { styles } from "../styles";
 import type { HealthKitSyncResult, Tab } from "../types";
 
 export function MainTabs({
-  userId,
   userName,
   unitPreference,
   defaultVolumeMode,
   healthKitAuthorized,
   currentVDOT,
   onResetApp,
+  onUpdateName,
   onUpdateUnitPreference,
   onSyncHealthKit,
 }: {
-  userId: Id<"users">;
   userName: string;
   unitPreference: UnitPreference;
   defaultVolumeMode: VolumeMode;
   healthKitAuthorized: boolean;
   currentVDOT: number | null;
   onResetApp: () => Promise<void>;
+  onUpdateName: (name: string) => Promise<void>;
   onUpdateUnitPreference: (unitPreference: UnitPreference) => Promise<void>;
   onSyncHealthKit: () => Promise<HealthKitSyncResult>;
 }) {
@@ -40,20 +39,21 @@ export function MainTabs({
       <View style={styles.tabContent}>
         {activeTab === "dashboard" ? (
           <DashboardScreen
-            userId={userId}
             userName={userName}
             currentVDOT={currentVDOT}
             onCreatePlanPress={() => setActiveTab("plan")}
           />
         ) : null}
-        {activeTab === "plan" ? <PlanScreen userId={userId} defaultVolumeMode={defaultVolumeMode} /> : null}
-        {activeTab === "history" ? <HistoryScreen userId={userId} unitPreference={unitPreference} /> : null}
+        {activeTab === "plan" ? <PlanScreen defaultVolumeMode={defaultVolumeMode} /> : null}
+        {activeTab === "history" ? <HistoryScreen unitPreference={unitPreference} /> : null}
         {activeTab === "coach" ? <CoachScreen /> : null}
         {activeTab === "settings" ? (
           <SettingsScreen
+            userName={userName}
             unitPreference={unitPreference}
             healthKitAuthorized={healthKitAuthorized}
             onResetApp={onResetApp}
+            onUpdateName={onUpdateName}
             onUpdateUnitPreference={onUpdateUnitPreference}
             onSyncHealthKit={onSyncHealthKit}
           />

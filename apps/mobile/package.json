@@ -9,11 +9,15 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@kingstinct/react-native-healthkit": "^13.2.3",
+    "@auth/core": "0.37.0",
     "@babel/runtime": "^7.28.6",
+    "@convex-dev/auth": "^0.0.91",
+    "@kingstinct/react-native-healthkit": "^13.2.3",
     "@slopmiles/domain": "workspace:*",
     "convex": "^1.32.0",
     "expo": "^54.0.33",
+    "expo-apple-authentication": "^55.0.8",
+    "expo-secure-store": "^55.0.8",
     "expo-status-bar": "~3.0.9",
     "react": "^19.1.0",
     "react-dom": "19.1.0",

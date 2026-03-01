@@ -1,6 +1,8 @@
 import { v } from "convex/values";
+import { getAuthUserId } from "@convex-dev/auth/server";
 
-import { mutation, query } from "./_generated/server";
+import { mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server";
+import type { Id } from "./_generated/dataModel";
 
 const importedWorkoutIntervalValidator = v.object({
   type: v.union(v.literal("lap"), v.literal("segment")),
@@ -34,13 +36,29 @@ const importedWorkoutValidator = v.object({
   sourceBundleIdentifier: v.optional(v.string()),
 });
 
+async function requireAuthenticatedMutationUserId(ctx: MutationCtx): Promise<Id<"users">> {
+  const userId = await getAuthUserId(ctx);
+  if (!userId) {
+    throw new Error("Authentication required.");
+  }
+  return userId;
+}
+
+async function requireAuthenticatedQueryUserId(ctx: QueryCtx): Promise<Id<"users">> {
+  const userId = await getAuthUserId(ctx);
+  if (!userId) {
+    throw new Error("Authentication required.");
+  }
+  return userId;
+}
+
 export const setAuthorizationStatus = mutation({
   args: {
-    userId: v.id("users"),
     authorized: v.boolean(),
   },
   handler: async (ctx, args) => {
-    await ctx.db.patch(args.userId, {
+    const userId = await requireAuthenticatedMutationUserId(ctx);
+    await ctx.db.patch(userId, {
       healthKitAuthorized: args.authorized,
       updatedAt: Date.now(),
     });
@@ -49,12 +67,12 @@ export const setAuthorizationStatus = mutation({
 
 export const seedImportWorkouts = mutation({
   args: {
-    userId: v.id("users"),
     workouts: v.array(importedWorkoutValidator),
     restingHeartRate: v.optional(v.number()),
     inferredMaxHeartRate: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
+    const userId = await requireAuthenticatedMutationUserId(ctx);
     const now = Date.now();
     let insertedCount = 0;
     let updatedCount = 0;
@@ -63,12 +81,12 @@ export const seedImportWorkouts = mutation({
       const existing = await ctx.db
         .query("healthKitWorkouts")
         .withIndex("by_user_id_external_workout_id", (q) =>
-          q.eq("userId", args.userId).eq("externalWorkoutId", workout.externalWorkoutId),
+          q.eq("userId", userId).eq("externalWorkoutId", workout.externalWorkoutId),
         )
         .unique();
 
       const payload = {
-        userId: args.userId,
+        userId,
         externalWorkoutId: workout.externalWorkoutId,
         startedAt: workout.startedAt,
         endedAt: workout.endedAt,
@@ -95,12 +113,12 @@ export const seedImportWorkouts = mutation({
       }
     }
 
-    const user = await ctx.db.get(args.userId);
+    const user = await ctx.db.get(userId);
     if (!user) {
       throw new Error("User not found.");
     }
 
-    await ctx.db.patch(args.userId, {
+    await ctx.db.patch(userId, {
       restingHeartRate: args.restingHeartRate,
       maxHeartRate: typeof user.maxHeartRate === "number" ? user.maxHeartRate : args.inferredMaxHeartRate,
       updatedAt: now,
@@ -115,13 +133,12 @@ export const seedImportWorkouts = mutation({
 });
 
 export const getImportSummary = query({
-  args: {
-    userId: v.id("users"),
-  },
-  handler: async (ctx, args) => {
+  args: {},
+  handler: async (ctx) => {
+    const userId = await requireAuthenticatedQueryUserId(ctx);
     const workouts = await ctx.db
       .query("healthKitWorkouts")
-      .withIndex("by_user_id", (q) => q.eq("userId", args.userId))
+      .withIndex("by_user_id", (q) => q.eq("userId", userId))
       .collect();
 
     let lastImportedAt: number | null = null;
@@ -140,15 +157,15 @@ export const getImportSummary = query({
 
 export const listImportedWorkouts = query({
   args: {
-    userId: v.id("users"),
     limit: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
+    const userId = await requireAuthenticatedQueryUserId(ctx);
     const limit = typeof args.limit === "number" ? Math.max(1, Math.min(200, Math.floor(args.limit))) : 50;
 
     const workouts = await ctx.db
       .query("healthKitWorkouts")
-      .withIndex("by_user_id", (q) => q.eq("userId", args.userId))
+      .withIndex("by_user_id", (q) => q.eq("userId", userId))
       .collect();
 
     return workouts.sort((left, right) => right.startedAt - left.startedAt).slice(0, limit);

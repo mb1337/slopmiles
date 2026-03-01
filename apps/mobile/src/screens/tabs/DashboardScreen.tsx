@@ -2,22 +2,20 @@ import { ScrollView, Text } from "react-native";
 import { useQuery } from "convex/react";
 import { projectedRaceTime } from "@slopmiles/domain";
 
-import { api, type Id } from "../../convex";
+import { api } from "../../convex";
 import { Panel, PrimaryButton } from "../../components/common";
 import { styles } from "../../styles";
 
 export function DashboardScreen({
-  userId,
   userName,
   currentVDOT,
   onCreatePlanPress,
 }: {
-  userId: Id<"users">;
   userName: string;
   currentVDOT: number | null;
   onCreatePlanPress: () => void;
 }) {
-  const planState = useQuery(api.plans.getPlanState, { userId });
+  const planState = useQuery(api.plans.getPlanState, {});
   const activePlan = planState?.activePlan ?? null;
   const vdot = typeof currentVDOT === "number" ? currentVDOT : null;
 

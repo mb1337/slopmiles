@@ -2,7 +2,7 @@ import { ScrollView, Text, View } from "react-native";
 import { useQuery } from "convex/react";
 import type { UnitPreference } from "@slopmiles/domain";
 
-import { api, type Id } from "../../convex";
+import { api } from "../../convex";
 import { Panel } from "../../components/common";
 import { styles } from "../../styles";
 import { formatDistanceForDisplay } from "../../units";
@@ -27,14 +27,11 @@ function formatWorkoutDate(timestamp: number): string {
 }
 
 export function HistoryScreen({
-  userId,
   unitPreference,
 }: {
-  userId: Id<"users">;
   unitPreference: UnitPreference;
 }) {
   const importedWorkouts = useQuery(api.healthkit.listImportedWorkouts, {
-    userId,
     limit: 40,
   });
 

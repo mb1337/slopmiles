@@ -319,37 +319,24 @@ export function EstablishVdotStep({
 }
 
 export function ProfileBasicsStep({
-  defaultName,
   defaultUnit,
   defaultVolumeMode,
   onSubmit,
   busy,
 }: {
-  defaultName: string;
   defaultUnit: UnitPreference;
   defaultVolumeMode: VolumeMode;
   onSubmit: (value: {
-    name: string;
     unitPreference: UnitPreference;
     volumePreference: VolumeMode;
   }) => void;
   busy: boolean;
 }) {
-  const [name, setName] = useState(defaultName);
   const [unitPreference, setUnitPreference] = useState<UnitPreference>(defaultUnit);
   const [volumePreference, setVolumePreference] = useState<VolumeMode>(defaultVolumeMode);
 
   return (
     <Panel title="Profile Basics">
-      <Text style={styles.label}>Name</Text>
-      <TextInput
-        style={styles.input}
-        value={name}
-        onChangeText={setName}
-        autoCapitalize="words"
-        placeholder="Runner name"
-        placeholderTextColor="#7a848c"
-      />
       <Text style={styles.label}>Unit preference</Text>
       <ChoiceRow
         options={["system", "metric", "imperial"]}
@@ -364,10 +351,9 @@ export function ProfileBasicsStep({
       />
       <PrimaryButton
         label="Save and continue"
-        disabled={busy || name.trim().length === 0}
+        disabled={busy}
         onPress={() =>
           onSubmit({
-            name: name.trim(),
             unitPreference,
             volumePreference,
           })

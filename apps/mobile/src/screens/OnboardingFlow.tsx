@@ -47,7 +47,6 @@ export function OnboardingFlow({
   onCompleteStep: (step: OnboardingStep) => Promise<void>;
   onSaveHealthKitAuthorization: (permission: HealthKitPermissionResult) => Promise<void>;
   onSaveProfileBasics: (value: {
-    name: string;
     unitPreference: UnitPreference;
     volumePreference: VolumeMode;
   }) => Promise<void>;
@@ -69,11 +68,10 @@ export function OnboardingFlow({
   const historyWorkouts = useQuery(
     api.healthkit.listImportedWorkouts,
     session.onboardingState.currentStep === "establishVDOT"
-        ? {
-            userId: session.user._id,
-            limit: 200,
-          }
-        : "skip",
+      ? {
+          limit: 200,
+        }
+      : "skip",
   );
 
   return (
@@ -115,7 +113,6 @@ export function OnboardingFlow({
 
         {session.onboardingState.currentStep === "profileBasics" ? (
           <ProfileBasicsStep
-            defaultName={session.user.name}
             defaultUnit={session.user.unitPreference}
             defaultVolumeMode={session.user.volumePreference}
             busy={saving}
