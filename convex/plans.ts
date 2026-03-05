@@ -16,6 +16,16 @@ type PlanSummary = {
   numberOfWeeks: number;
   volumeMode: (typeof volumeModes)[number];
   peakWeekVolume: number;
+  generationRationale?: string;
+  generatedByAiRequestId?: Id<"aiRequests">;
+  weeklyVolumeProfile?: Array<{
+    weekNumber: number;
+    percentOfPeak: number;
+  }>;
+  weeklyEmphasis?: Array<{
+    weekNumber: number;
+    emphasis: string;
+  }>;
   createdAt: number;
   goal: {
     _id: Id<"goals">;
@@ -62,6 +72,10 @@ async function listPlanSummaries(ctx: QueryCtx, userId: Id<"users">): Promise<Pl
       numberOfWeeks: plan.numberOfWeeks,
       volumeMode: plan.volumeMode,
       peakWeekVolume: plan.peakWeekVolume,
+      generationRationale: plan.generationRationale,
+      generatedByAiRequestId: plan.generatedByAiRequestId,
+      weeklyVolumeProfile: plan.weeklyVolumeProfile,
+      weeklyEmphasis: plan.weeklyEmphasis,
       createdAt: plan.createdAt,
       goal: {
         _id: goal._id,

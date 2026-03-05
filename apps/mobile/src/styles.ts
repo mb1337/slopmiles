@@ -59,6 +59,37 @@ export const styles = StyleSheet.create({
     gap: 10,
     paddingVertical: 6,
   },
+  weekStructureList: {
+    gap: 6,
+  },
+  weekStructureRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    borderWidth: 1,
+    borderColor: "#dde6ea",
+    borderRadius: 8,
+    backgroundColor: "#fbfcfd",
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+  },
+  weekStructureWeek: {
+    width: 30,
+    color: "#2f4554",
+    fontWeight: "700",
+    fontSize: 12,
+  },
+  weekStructurePercent: {
+    width: 42,
+    color: "#1f4f6e",
+    fontWeight: "600",
+    fontSize: 12,
+  },
+  weekStructureEmphasis: {
+    flex: 1,
+    color: "#2f404c",
+    fontSize: 12,
+  },
   historyWorkoutBlock: {
     borderWidth: 1,
     borderColor: "#dde6ea",

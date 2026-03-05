@@ -218,6 +218,22 @@ export const resetAppData = mutation({
       await ctx.db.delete(workout._id);
     }
 
+    const aiRequests = await ctx.db
+      .query("aiRequests")
+      .withIndex("by_user_id", (query) => query.eq("userId", userId))
+      .collect();
+    for (const aiRequest of aiRequests) {
+      await ctx.db.delete(aiRequest._id);
+    }
+
+    const aiDiagnostics = await ctx.db
+      .query("aiDiagnostics")
+      .withIndex("by_user_id", (query) => query.eq("userId", userId))
+      .collect();
+    for (const aiDiagnostic of aiDiagnostics) {
+      await ctx.db.delete(aiDiagnostic._id);
+    }
+
     const now = Date.now();
     await ctx.db.patch(userId, {
       name: resetName,

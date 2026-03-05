@@ -3,6 +3,9 @@ import { v } from "convex/values";
 import { authTables } from "@convex-dev/auth/server";
 
 import {
+  aiCallTypes,
+  aiRequestPriorities,
+  aiRequestStatuses,
   competitivenessLevels,
   goalTypes,
   onboardingSteps,
@@ -21,6 +24,9 @@ const competitivenessValidator = v.union(...competitivenessLevels.map((level) =>
 const personalityPresetValidator = v.union(...personalityPresets.map((preset) => v.literal(preset)));
 const goalTypeValidator = v.union(...goalTypes.map((goalType) => v.literal(goalType)));
 const planStatusValidator = v.union(...planStatuses.map((status) => v.literal(status)));
+const aiCallTypeValidator = v.union(...aiCallTypes.map((callType) => v.literal(callType)));
+const aiRequestStatusValidator = v.union(...aiRequestStatuses.map((status) => v.literal(status)));
+const aiRequestPriorityValidator = v.union(...aiRequestPriorities.map((priority) => v.literal(priority)));
 const healthKitIntervalTypeValidator = v.union(v.literal("lap"), v.literal("segment"));
 const healthKitIntervalValidator = v.object({
   type: healthKitIntervalTypeValidator,
@@ -113,12 +119,68 @@ export default defineSchema({
     numberOfWeeks: v.number(),
     volumeMode: volumeModeValidator,
     peakWeekVolume: v.number(),
+    weeklyVolumeProfile: v.optional(
+      v.array(
+        v.object({
+          weekNumber: v.number(),
+          percentOfPeak: v.number(),
+        }),
+      ),
+    ),
+    weeklyEmphasis: v.optional(
+      v.array(
+        v.object({
+          weekNumber: v.number(),
+          emphasis: v.string(),
+        }),
+      ),
+    ),
+    generationRationale: v.optional(v.string()),
+    generatedByAiRequestId: v.optional(v.id("aiRequests")),
     status: planStatusValidator,
     createdAt: v.number(),
     updatedAt: v.number(),
   })
     .index("by_user_id", ["userId"])
     .index("by_user_id_status", ["userId", "status"]),
+
+  aiRequests: defineTable({
+    userId: v.id("users"),
+    callType: aiCallTypeValidator,
+    status: aiRequestStatusValidator,
+    priority: aiRequestPriorityValidator,
+    dedupeKey: v.string(),
+    input: v.any(),
+    result: v.optional(v.any()),
+    errorCode: v.optional(v.string()),
+    errorMessage: v.optional(v.string()),
+    attemptCount: v.number(),
+    maxAttempts: v.number(),
+    nextRetryAt: v.optional(v.number()),
+    promptRevision: v.string(),
+    schemaRevision: v.string(),
+    lastAttemptAt: v.optional(v.number()),
+    completedAt: v.optional(v.number()),
+    consumedByPlanId: v.optional(v.id("trainingPlans")),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_user_id", ["userId"])
+    .index("by_user_id_status", ["userId", "status"])
+    .index("by_status_next_retry_at", ["status", "nextRetryAt"])
+    .index("by_user_id_call_type_dedupe_key", ["userId", "callType", "dedupeKey"]),
+
+  aiDiagnostics: defineTable({
+    userId: v.id("users"),
+    requestId: v.id("aiRequests"),
+    callType: aiCallTypeValidator,
+    code: v.string(),
+    message: v.string(),
+    details: v.optional(v.any()),
+    createdAt: v.number(),
+  })
+    .index("by_user_id", ["userId"])
+    .index("by_request_id", ["requestId"]),
 
   healthKitWorkouts: defineTable({
     userId: v.id("users"),

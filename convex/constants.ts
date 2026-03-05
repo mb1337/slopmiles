@@ -27,8 +27,15 @@ export const competitivenessLevels = ["conservative", "balanced", "aggressive"] 
 export const personalityPresets = ["cheerleader", "noNonsense", "nerd", "zen", "custom"] as const;
 export const goalTypes = ["race", "nonRace", "custom"] as const;
 export const planStatuses = ["draft", "active", "completed", "abandoned"] as const;
+export const aiCallTypes = ["planGeneration"] as const;
+export const aiRequestStatuses = ["queued", "inProgress", "succeeded", "failed"] as const;
+export const aiRequestPriorities = ["userBlocking", "interactive", "background"] as const;
 
 export type Weekday = (typeof weekdays)[number];
 export type OnboardingStep = (typeof onboardingSteps)[number];
 export type GoalType = (typeof goalTypes)[number];
 export type PlanStatus = (typeof planStatuses)[number];
+export type VolumeMode = (typeof volumeModes)[number];
+export type AiCallType = (typeof aiCallTypes)[number];
+export type AiRequestStatus = (typeof aiRequestStatuses)[number];
+export type AiRequestPriority = (typeof aiRequestPriorities)[number];
