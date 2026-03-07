@@ -5,6 +5,7 @@ import { GOAL_TYPES, VOLUME_MODES, type UnitPreference, type VolumeMode } from "
 
 import { api, type Id } from "../../convex";
 import { ChoiceRow, Counter, Panel, PrimaryButton, SecondaryButton } from "../../components/common";
+import { WorkoutExecutionDetail } from "../../components/workoutExecution";
 import { styles } from "../../styles";
 import { formatDistanceForDisplay } from "../../units";
 
@@ -219,6 +220,32 @@ function formatWorkoutType(type: string): string {
   }
 }
 
+function formatWorkoutStatus(status: string): string {
+  switch (status) {
+    case "completed":
+      return "Completed";
+    case "planned":
+      return "Planned";
+    case "modified":
+      return "Modified";
+    case "skipped":
+      return "Skipped";
+    default:
+      return status;
+  }
+}
+
+function workoutStatusBadgeStyle(status: string) {
+  switch (status) {
+    case "completed":
+      return styles.statusBadgeMatched;
+    case "modified":
+      return styles.statusBadgeNeedsReview;
+    default:
+      return styles.statusBadgeUnmatched;
+  }
+}
+
 function formatAbsoluteVolume(volumeMode: VolumeMode, absoluteVolume: number, unitPreference: UnitPreference): string {
   if (volumeMode === "time") {
     return formatDurationSeconds(absoluteVolume);
@@ -277,6 +304,7 @@ export function PlanScreen({
   const [draftPeakOverrideText, setDraftPeakOverrideText] = useState("");
   const [draftPeakInputs, setDraftPeakInputs] = useState<Record<string, string>>({});
   const [selectedWeekNumber, setSelectedWeekNumber] = useState<number | null>(null);
+  const [selectedWorkoutId, setSelectedWorkoutId] = useState<Id<"workouts"> | null>(null);
   const [planError, setPlanError] = useState<string | null>(null);
   const [planMessage, setPlanMessage] = useState<string | null>(null);
   const [proposalChatDraft, setProposalChatDraft] = useState("");
@@ -306,6 +334,7 @@ export function PlanScreen({
   useEffect(() => {
     if (!planState?.activePlan) {
       setSelectedWeekNumber(null);
+      setSelectedWorkoutId(null);
       return;
     }
 
@@ -321,6 +350,10 @@ export function PlanScreen({
       return preferredWeek;
     });
   }, [planState?.activePlan, trainingWeeks]);
+
+  useEffect(() => {
+    setSelectedWorkoutId(null);
+  }, [selectedWeekNumber]);
 
   const selectedWeekSummary = useMemo(
     () => trainingWeeks.find((week) => week.weekNumber === selectedWeekNumber) ?? null,
@@ -743,28 +776,56 @@ export function PlanScreen({
 
                   {weekDetail.workouts.length > 0 ? (
                     <View style={styles.workoutList}>
-                      {weekDetail.workouts.map((workout) => (
-                        <View key={String(workout._id)} style={styles.workoutCard}>
-                          <Text style={styles.workoutTitle}>
-                            {formatDateKey(workout.scheduledDateKey)} · {formatWorkoutType(workout.type)}
-                          </Text>
-                          <Text style={styles.helperText}>
-                            {formatAbsoluteVolume(planState.activePlan.volumeMode, workout.absoluteVolume, unitPreference)}
-                            {" · "}
-                            {Math.round(workout.volumePercent * 100)}% of peak · {workout.venue}
-                          </Text>
-                          {workout.notes ? <Text style={styles.bodyText}>{workout.notes}</Text> : null}
-                          {workout.segments.length > 0 ? (
-                            <View style={styles.segmentList}>
-                              {workout.segments.map((segment, index) => (
-                                <Text key={`${String(workout._id)}-${index}`} style={styles.helperText}>
-                                  {formatSegment(segment)}
-                                </Text>
-                              ))}
+                      {weekDetail.workouts.map((workout) => {
+                        const expanded = selectedWorkoutId === workout._id;
+                        return (
+                          <Pressable
+                            key={String(workout._id)}
+                            style={[styles.workoutCard, expanded ? styles.workoutCardActive : null]}
+                            onPress={() =>
+                              setSelectedWorkoutId((current) => (current === workout._id ? null : workout._id))
+                            }
+                          >
+                            <View style={styles.statusRow}>
+                              <Text style={styles.workoutTitle}>
+                                {formatDateKey(workout.scheduledDateKey)} · {formatWorkoutType(workout.type)}
+                              </Text>
+                              <Text style={[styles.statusBadge, workoutStatusBadgeStyle(workout.status)]}>
+                                {formatWorkoutStatus(workout.status)}
+                              </Text>
                             </View>
-                          ) : null}
-                        </View>
-                      ))}
+                            <Text style={styles.helperText}>
+                              {formatAbsoluteVolume(planState.activePlan.volumeMode, workout.absoluteVolume, unitPreference)}
+                              {" · "}
+                              {Math.round(workout.volumePercent * 100)}% of peak · {workout.venue}
+                            </Text>
+                            {expanded ? (
+                              <>
+                                {workout.notes ? <Text style={styles.bodyText}>{workout.notes}</Text> : null}
+                                {workout.segments.length > 0 ? (
+                                  <View style={styles.segmentList}>
+                                    {workout.segments.map((segment, index) => (
+                                      <Text key={`${String(workout._id)}-${index}`} style={styles.helperText}>
+                                        {formatSegment(segment)}
+                                      </Text>
+                                    ))}
+                                  </View>
+                                ) : null}
+                                {workout.execution ? (
+                                  <WorkoutExecutionDetail
+                                    executionId={workout.execution._id}
+                                    unitPreference={unitPreference}
+                                  />
+                                ) : (
+                                  <Text style={styles.helperText}>
+                                    No imported run is linked to this workout yet.
+                                  </Text>
+                                )}
+                              </>
+                            ) : null}
+                          </Pressable>
+                        );
+                      })}
                     </View>
                   ) : selectedWeekSummary.generated ? (
                     <Text style={styles.helperText}>No workouts returned for this week.</Text>

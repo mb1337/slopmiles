@@ -15,9 +15,14 @@ import {
   volumeModes,
   weekdays,
   workoutOrigins,
+  workoutMatchMethods,
+  workoutMatchStatuses,
+  workoutCheckInStatuses,
+  workoutFeedbackStatuses,
   workoutStatuses,
   workoutTypes,
   workoutVenues,
+  effortModifiers,
 } from "./constants";
 
 const weekdayValidator = v.union(...weekdays.map((day) => v.literal(day)));
@@ -38,6 +43,11 @@ const workoutTypeValidator = v.union(...workoutTypes.map((type) => v.literal(typ
 const workoutVenueValidator = v.union(...workoutVenues.map((venue) => v.literal(venue)));
 const workoutOriginValidator = v.union(...workoutOrigins.map((origin) => v.literal(origin)));
 const workoutStatusValidator = v.union(...workoutStatuses.map((status) => v.literal(status)));
+const workoutMatchStatusValidator = v.union(...workoutMatchStatuses.map((status) => v.literal(status)));
+const workoutMatchMethodValidator = v.union(...workoutMatchMethods.map((method) => v.literal(method)));
+const workoutCheckInStatusValidator = v.union(...workoutCheckInStatuses.map((status) => v.literal(status)));
+const workoutFeedbackStatusValidator = v.union(...workoutFeedbackStatuses.map((status) => v.literal(status)));
+const effortModifierValidator = v.union(...effortModifiers.map((modifier) => v.literal(modifier)));
 const workoutSegmentValidator = v.object({
   order: v.number(),
   label: v.string(),
@@ -269,4 +279,30 @@ export default defineSchema({
   })
     .index("by_user_id", ["userId"])
     .index("by_user_id_external_workout_id", ["userId", "externalWorkoutId"]),
+
+  workoutExecutions: defineTable({
+    userId: v.id("users"),
+    healthKitWorkoutId: v.id("healthKitWorkouts"),
+    planId: v.optional(v.id("trainingPlans")),
+    weekId: v.optional(v.id("trainingWeeks")),
+    plannedWorkoutId: v.optional(v.id("workouts")),
+    matchStatus: workoutMatchStatusValidator,
+    matchMethod: workoutMatchMethodValidator,
+    matchConfidence: v.optional(v.number()),
+    matchDateKey: v.optional(v.string()),
+    checkInStatus: workoutCheckInStatusValidator,
+    rpe: v.optional(v.number()),
+    modifiers: v.array(effortModifierValidator),
+    customModifierText: v.optional(v.string()),
+    notes: v.optional(v.string()),
+    feedbackStatus: workoutFeedbackStatusValidator,
+    feedbackCommentary: v.optional(v.string()),
+    feedbackAdjustments: v.array(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_user_id", ["userId"])
+    .index("by_healthkit_workout_id", ["healthKitWorkoutId"])
+    .index("by_planned_workout_id", ["plannedWorkoutId"])
+    .index("by_week_id", ["weekId"]),
 });

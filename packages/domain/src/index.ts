@@ -67,6 +67,29 @@ export type WorkoutOrigin = (typeof WORKOUT_ORIGINS)[number];
 export const WORKOUT_STATUSES = ["planned", "completed", "skipped", "modified"] as const;
 export type WorkoutStatus = (typeof WORKOUT_STATUSES)[number];
 
+export const WORKOUT_MATCH_STATUSES = ["matched", "unmatched", "needsReview"] as const;
+export type WorkoutMatchStatus = (typeof WORKOUT_MATCH_STATUSES)[number];
+
+export const WORKOUT_MATCH_METHODS = ["auto", "manual", "none"] as const;
+export type WorkoutMatchMethod = (typeof WORKOUT_MATCH_METHODS)[number];
+
+export const WORKOUT_CHECKIN_STATUSES = ["pending", "submitted"] as const;
+export type WorkoutCheckInStatus = (typeof WORKOUT_CHECKIN_STATUSES)[number];
+
+export const WORKOUT_FEEDBACK_STATUSES = ["pending", "ready"] as const;
+export type WorkoutFeedbackStatus = (typeof WORKOUT_FEEDBACK_STATUSES)[number];
+
+export const EFFORT_MODIFIERS = [
+  "pushedStroller",
+  "ranWithDog",
+  "trailOffRoad",
+  "treadmill",
+  "highAltitude",
+  "poorSleep",
+  "feelingUnwell",
+] as const;
+export type EffortModifier = (typeof EFFORT_MODIFIERS)[number];
+
 export type WorkoutSegment = {
   order: number;
   label: string;
@@ -76,6 +99,32 @@ export type WorkoutSegment = {
   repetitions?: number;
   restValue?: number;
   restUnit?: "seconds" | "meters";
+};
+
+export type WorkoutFeedbackSummary = {
+  status: WorkoutFeedbackStatus;
+  commentary?: string;
+  adjustments: string[];
+};
+
+export type WorkoutExecutionSummary = {
+  id: string;
+  healthKitWorkoutId: string;
+  plannedWorkoutId?: string | null;
+  matchStatus: WorkoutMatchStatus;
+  matchMethod: WorkoutMatchMethod;
+  matchConfidence?: number | null;
+  checkInStatus: WorkoutCheckInStatus;
+  actualStartedAt: number;
+  actualEndedAt: number;
+  actualDurationSeconds: number;
+  actualDistanceMeters?: number;
+  actualAverageHeartRate?: number;
+  rpe?: number | null;
+  modifiers: EffortModifier[];
+  customModifierText?: string;
+  notes?: string;
+  feedback: WorkoutFeedbackSummary;
 };
 
 export type WorkoutSummary = {
@@ -90,6 +139,7 @@ export type WorkoutSummary = {
   status: WorkoutStatus;
   notes?: string;
   segments: WorkoutSegment[];
+  execution?: WorkoutExecutionSummary | null;
 };
 
 export type TrainingWeekSummary = {

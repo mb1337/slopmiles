@@ -34,6 +34,19 @@ export const workoutTypes = ["easyRun", "longRun", "tempo", "intervals", "recove
 export const workoutVenues = ["track", "road", "any"] as const;
 export const workoutOrigins = ["planned", "unplanned"] as const;
 export const workoutStatuses = ["planned", "completed", "skipped", "modified"] as const;
+export const workoutMatchStatuses = ["matched", "unmatched", "needsReview"] as const;
+export const workoutMatchMethods = ["auto", "manual", "none"] as const;
+export const workoutCheckInStatuses = ["pending", "submitted"] as const;
+export const workoutFeedbackStatuses = ["pending", "ready"] as const;
+export const effortModifiers = [
+  "pushedStroller",
+  "ranWithDog",
+  "trailOffRoad",
+  "treadmill",
+  "highAltitude",
+  "poorSleep",
+  "feelingUnwell",
+] as const;
 
 export type Weekday = (typeof weekdays)[number];
 export type OnboardingStep = (typeof onboardingSteps)[number];
@@ -47,3 +60,8 @@ export type WorkoutType = (typeof workoutTypes)[number];
 export type WorkoutVenue = (typeof workoutVenues)[number];
 export type WorkoutOrigin = (typeof workoutOrigins)[number];
 export type WorkoutStatus = (typeof workoutStatuses)[number];
+export type WorkoutMatchStatus = (typeof workoutMatchStatuses)[number];
+export type WorkoutMatchMethod = (typeof workoutMatchMethods)[number];
+export type WorkoutCheckInStatus = (typeof workoutCheckInStatuses)[number];
+export type WorkoutFeedbackStatus = (typeof workoutFeedbackStatuses)[number];
+export type EffortModifier = (typeof effortModifiers)[number];

@@ -1,8 +1,10 @@
-import { ScrollView, Text, View } from "react-native";
+import { useState } from "react";
+import { Pressable, ScrollView, Text, View } from "react-native";
 import { useQuery } from "convex/react";
 import type { UnitPreference } from "@slopmiles/domain";
 
 import { api } from "../../convex";
+import { WorkoutExecutionDetail } from "../../components/workoutExecution";
 import { Panel } from "../../components/common";
 import { styles } from "../../styles";
 import { formatDistanceForDisplay } from "../../units";
@@ -26,6 +28,32 @@ function formatWorkoutDate(timestamp: number): string {
   });
 }
 
+function formatMatchStatus(status: "matched" | "unmatched" | "needsReview" | null): string {
+  switch (status) {
+    case "matched":
+      return "Matched";
+    case "needsReview":
+      return "Needs Review";
+    case "unmatched":
+      return "Unplanned";
+    default:
+      return "Pending";
+  }
+}
+
+function matchBadgeStyle(status: "matched" | "unmatched" | "needsReview" | null) {
+  switch (status) {
+    case "matched":
+      return styles.statusBadgeMatched;
+    case "needsReview":
+      return styles.statusBadgeNeedsReview;
+    case "unmatched":
+      return styles.statusBadgeUnmatched;
+    default:
+      return styles.statusBadgeUnmatched;
+  }
+}
+
 export function HistoryScreen({
   unitPreference,
 }: {
@@ -34,6 +62,7 @@ export function HistoryScreen({
   const importedWorkouts = useQuery(api.healthkit.listImportedWorkouts, {
     limit: 40,
   });
+  const [selectedWorkoutId, setSelectedWorkoutId] = useState<string | null>(null);
 
   return (
     <ScrollView contentContainerStyle={styles.container}>
@@ -47,42 +76,78 @@ export function HistoryScreen({
         {importedWorkouts && importedWorkouts.length === 0 ? (
           <Text style={styles.bodyText}>No imported workouts yet. Connect or re-sync HealthKit in Settings.</Text>
         ) : null}
-        {importedWorkouts?.map((workout) => (
-          <View key={String(workout._id)} style={styles.historyWorkoutBlock}>
-            <Text style={styles.historyWorkoutTitle}>{formatWorkoutDate(workout.startedAt)}</Text>
-            <Text style={styles.helperText}>
-              {formatDistanceForDisplay(workout.distanceMeters, unitPreference)} · {formatDuration(workout.durationSeconds)} · Avg HR{" "}
-              {formatHeartRate(workout.averageHeartRate)}
-            </Text>
-            {workout.intervalChains?.length ? (
-              <View style={styles.historyIntervalList}>
-                {workout.intervalChains.map((chain) => (
-                  <View key={`${workout._id}:chain:${chain.chainIndex}`} style={styles.historyChainBlock}>
-                    <Text style={styles.historyChainTitle}>Chain {chain.chainIndex}</Text>
-                    <Text style={styles.helperText}>
-                      {chain.intervalCount} intervals · {formatDuration(chain.durationSeconds)} ·{" "}
-                      {formatDistanceForDisplay(chain.distanceMeters, unitPreference)}
-                    </Text>
-                    {chain.intervals.map((interval, index) => (
-                      <View
-                        key={`${workout._id}:chain:${chain.chainIndex}:interval:${interval.startedAt}:${index}`}
-                        style={styles.historyIntervalRow}
-                      >
-                        <Text style={styles.historyIntervalLabel}>
-                          {interval.type === "lap" ? "Lap" : "Segment"} {index + 1}
-                        </Text>
-                        <Text style={styles.historyIntervalValue}>
-                          {formatDistanceForDisplay(interval.distanceMeters, unitPreference)} · {formatDuration(interval.durationSeconds)} ·{" "}
-                          {formatHeartRate(interval.averageHeartRate)}
-                        </Text>
-                      </View>
-                    ))}
-                  </View>
-                ))}
+        {importedWorkouts?.map((workout) => {
+          const expanded = selectedWorkoutId === String(workout._id);
+          const matchStatus = workout.execution?.matchStatus ?? null;
+
+          return (
+            <Pressable
+              key={String(workout._id)}
+              style={[
+                styles.historyWorkoutBlock,
+                expanded ? styles.workoutCardActive : null,
+              ]}
+              onPress={() =>
+                setSelectedWorkoutId((current) =>
+                  current === String(workout._id) ? null : String(workout._id),
+                )
+              }
+            >
+              <View style={styles.statusRow}>
+                <Text style={styles.historyWorkoutTitle}>{formatWorkoutDate(workout.startedAt)}</Text>
+                <Text style={[styles.statusBadge, matchBadgeStyle(matchStatus)]}>
+                  {formatMatchStatus(matchStatus)}
+                </Text>
               </View>
-            ) : null}
-          </View>
-        ))}
+              <Text style={styles.helperText}>
+                {formatDistanceForDisplay(workout.distanceMeters, unitPreference)} · {formatDuration(workout.durationSeconds)} · Avg HR{" "}
+                {formatHeartRate(workout.averageHeartRate)}
+              </Text>
+              {expanded ? (
+                <>
+                  {workout.intervalChains?.length ? (
+                    <View style={styles.historyIntervalList}>
+                      {workout.intervalChains.map((chain) => (
+                        <View key={`${workout._id}:chain:${chain.chainIndex}`} style={styles.historyChainBlock}>
+                          <Text style={styles.historyChainTitle}>Chain {chain.chainIndex}</Text>
+                          <Text style={styles.helperText}>
+                            {chain.intervalCount} intervals · {formatDuration(chain.durationSeconds)} ·{" "}
+                            {formatDistanceForDisplay(chain.distanceMeters, unitPreference)}
+                          </Text>
+                          {chain.intervals.map((interval, index) => (
+                            <View
+                              key={`${workout._id}:chain:${chain.chainIndex}:interval:${interval.startedAt}:${index}`}
+                              style={styles.historyIntervalRow}
+                            >
+                              <Text style={styles.historyIntervalLabel}>
+                                {interval.type === "lap" ? "Lap" : "Segment"} {index + 1}
+                              </Text>
+                              <Text style={styles.historyIntervalValue}>
+                                {formatDistanceForDisplay(interval.distanceMeters, unitPreference)} · {formatDuration(interval.durationSeconds)} ·{" "}
+                                {formatHeartRate(interval.averageHeartRate)}
+                              </Text>
+                            </View>
+                          ))}
+                        </View>
+                      ))}
+                    </View>
+                  ) : null}
+                  {workout.execution ? (
+                    <WorkoutExecutionDetail
+                      executionId={workout.execution._id}
+                      unitPreference={unitPreference}
+                      allowMatchControls
+                    />
+                  ) : (
+                    <Text style={styles.helperText}>
+                      This imported run has not been reconciled yet. Re-sync HealthKit to build execution detail.
+                    </Text>
+                  )}
+                </>
+              ) : null}
+            </Pressable>
+          );
+        })}
       </Panel>
     </ScrollView>
   );

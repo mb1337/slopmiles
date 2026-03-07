@@ -3,6 +3,7 @@ import { getAuthUserId } from "@convex-dev/auth/server";
 
 import { mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
+import { listExecutionSummariesByHealthKitWorkoutId, reconcileImportedWorkoutExecution } from "./workoutExecutionHelpers";
 
 const importedWorkoutIntervalValidator = v.object({
   type: v.union(v.literal("lap"), v.literal("segment")),
@@ -113,6 +114,11 @@ export const seedImportWorkouts = mutation({
       }
     }
 
+    const importedWorkoutDocs = await ctx.db
+      .query("healthKitWorkouts")
+      .withIndex("by_user_id", (queryBuilder) => queryBuilder.eq("userId", userId))
+      .collect();
+
     const user = await ctx.db.get(userId);
     if (!user) {
       throw new Error("User not found.");
@@ -123,6 +129,20 @@ export const seedImportWorkouts = mutation({
       maxHeartRate: typeof user.maxHeartRate === "number" ? user.maxHeartRate : args.inferredMaxHeartRate,
       updatedAt: now,
     });
+
+    const importedWorkoutIds = new Set(
+      args.workouts.map((workout) => workout.externalWorkoutId),
+    );
+    for (const importedWorkout of importedWorkoutDocs) {
+      if (!importedWorkoutIds.has(importedWorkout.externalWorkoutId)) {
+        continue;
+      }
+
+      await reconcileImportedWorkoutExecution(ctx, {
+        userId,
+        healthKitWorkoutId: importedWorkout._id,
+      });
+    }
 
     return {
       insertedCount,
@@ -163,11 +183,20 @@ export const listImportedWorkouts = query({
     const userId = await requireAuthenticatedQueryUserId(ctx);
     const limit = typeof args.limit === "number" ? Math.max(1, Math.min(200, Math.floor(args.limit))) : 50;
 
-    const workouts = await ctx.db
+    const [workouts, executionSummaryByHealthKitWorkoutId] = await Promise.all([
+      ctx.db
       .query("healthKitWorkouts")
       .withIndex("by_user_id", (q) => q.eq("userId", userId))
-      .collect();
+      .collect(),
+      listExecutionSummariesByHealthKitWorkoutId(ctx, userId),
+    ]);
 
-    return workouts.sort((left, right) => right.startedAt - left.startedAt).slice(0, limit);
+    return workouts
+      .sort((left, right) => right.startedAt - left.startedAt)
+      .slice(0, limit)
+      .map((workout) => ({
+        ...workout,
+        execution: executionSummaryByHealthKitWorkoutId.get(String(workout._id)) ?? null,
+      }));
   },
 });

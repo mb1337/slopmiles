@@ -8,6 +8,7 @@ import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { addDays, type DateKey } from "../packages/domain/src/calendar";
 import { aiCallTypes, goalTypes, planStatuses, volumeModes } from "./constants";
 import { deriveCurrentWeekNumber, endDateFromStart, isWeekGeneratable, normalizeActivationDateKey, resolveAbsoluteWeekVolume } from "./planWeeks";
+import { listExecutionSummariesByPlannedWorkoutId } from "./workoutExecutionHelpers";
 
 const goalTypeValidator = v.union(...goalTypes.map((goalType) => v.literal(goalType)));
 const volumeModeValidator = v.union(...volumeModes.map((mode) => v.literal(mode)));
@@ -314,6 +315,7 @@ export const getWeekDetail = query({
       .query("workouts")
       .withIndex("by_week_id", (queryBuilder) => queryBuilder.eq("weekId", week._id))
       .collect();
+    const executionSummaryByPlannedWorkoutId = await listExecutionSummariesByPlannedWorkoutId(ctx, userId);
 
     const requests = await ctx.db
       .query("aiRequests")
@@ -362,8 +364,12 @@ export const getWeekDetail = query({
           notes: workout.notes,
           venue: workout.venue,
           origin: workout.origin,
-          status: workout.status,
+          status:
+            executionSummaryByPlannedWorkoutId.get(String(workout._id))?.matchStatus === "matched"
+              ? "completed"
+              : workout.status,
           segments: workout.segments,
+          execution: executionSummaryByPlannedWorkoutId.get(String(workout._id)) ?? null,
         })),
       latestRequest: latestRequest
         ? {
