@@ -23,6 +23,7 @@ export type GapMicroSegment = {
 export type GapAnalysis = {
   rawPaceSecondsPerMeter: number;
   gradeAdjustedPaceSecondsPerMeter: number;
+  equivalentFlatDistanceMeters: number;
   elevationAscentMeters: number;
   elevationDescentMeters: number;
   microSegments: GapMicroSegment[];
@@ -39,15 +40,26 @@ export type GapIntervalAggregate = {
   durationSeconds: number;
   rawPaceSecondsPerMeter: number;
   gradeAdjustedPaceSecondsPerMeter: number;
+  equivalentFlatDistanceMeters: number;
+  elevationGainMeters: number;
+  elevationLossMeters: number;
 };
 
 const EARTH_RADIUS_METERS = 6_371_000;
 const MIN_POINT_DISTANCE_METERS = 0.5;
 const MAX_HORIZONTAL_ACCURACY_METERS = 30;
 const MAX_VERTICAL_ACCURACY_METERS = 20;
-const TARGET_SEGMENT_DISTANCE_METERS = 100;
+const TARGET_SEGMENT_DISTANCE_METERS = 20;
 const MAX_ABSOLUTE_GRADE = 0.3;
 const SMOOTHING_WINDOW_RADIUS = 2;
+const MIN_ACCURACY_METERS_FOR_WEIGHT = 1;
+const TERMINAL_TAIL_MAX_DISTANCE_METERS = 80;
+const TERMINAL_TAIL_MIN_DROP_METERS = 2;
+const TERMINAL_TAIL_STABLE_RANGE_METERS = 3;
+const RELIABLE_VERTICAL_ACCURACY_METERS = 8;
+const DEGRADED_VERTICAL_ACCURACY_METERS = 12;
+const RELIABLE_HORIZONTAL_ACCURACY_METERS = 12;
+const FLAT_GRADE_COST = 3.6;
 
 export function calculatePaceSecondsPerMeter(
   durationSeconds: number,
@@ -77,7 +89,7 @@ export function calculateMinettiCost(grade: number): number {
     43.3 * Math.pow(grade, 3) +
     46.3 * Math.pow(grade, 2) +
     19.5 * grade +
-    3.6
+    FLAT_GRADE_COST
   );
 }
 
@@ -91,16 +103,11 @@ export function calculateGradeAdjustedPace(
 
   const clampedGrade = clampGrade(grade);
   const costAtGrade = calculateMinettiCost(clampedGrade);
-  const costAtFlat = calculateMinettiCost(0);
   if (!Number.isFinite(costAtGrade) || costAtGrade <= 0) {
     throw new Error("grade produced an invalid Minetti cost");
   }
 
-  // Preserve uphill penalty, but do not grant downhill "credit".
-  // This keeps rolling routes harder than flat even when ascent and descent balance out.
-  const effectiveCost = clampedGrade < 0 ? costAtFlat : costAtGrade;
-
-  return rawPaceSecondsPerMeter * (costAtFlat / effectiveCost);
+  return rawPaceSecondsPerMeter * (FLAT_GRADE_COST / costAtGrade);
 }
 
 export function analyzeRouteForGap(
@@ -125,19 +132,19 @@ export function analyzeRouteForGap(
 
   const cumulativeDistances = buildCumulativeDistances(orderedLocations);
 
-  const smoothedAltitudes = orderedLocations.map((_, index) =>
-    median(
-      orderedLocations
-        .slice(
-          Math.max(0, index - SMOOTHING_WINDOW_RADIUS),
-          Math.min(orderedLocations.length, index + SMOOTHING_WINDOW_RADIUS + 1),
-        )
-        .map((location) => location.altitudeMeters),
-    ),
-  );
-  const correctedAltitudes = correctAltitudeDrift({
+  const smoothedAltitudes = smoothAltitudes(orderedLocations);
+  const stabilizedAltitudes = stabilizeTerminalAltitudeTail({
+    routeLocations: orderedLocations,
     altitudes: smoothedAltitudes,
-    targetNetElevationChangeMeters: resolveTargetNetElevationChangeMeters(orderedLocations, options.forceClosedLoop),
+    cumulativeDistances,
+  });
+  const correctedAltitudes = correctAltitudeDrift({
+    altitudes: stabilizedAltitudes,
+    targetNetElevationChangeMeters: resolveTargetNetElevationChangeMeters(
+      orderedLocations,
+      stabilizedAltitudes,
+      options.forceClosedLoop,
+    ),
     cumulativeDistances,
   });
   const calibratedAltitudes = calibrateAltitudeTotals({
@@ -228,26 +235,34 @@ export function analyzeRouteForGap(
     flushBin(
       orderedLocations[orderedLocations.length - 1]!.timestampMs,
       calibratedAltitudes[calibratedAltitudes.length - 1]!,
-      microSegments.length === 0 || accumulatedDistanceMeters >= TARGET_SEGMENT_DISTANCE_METERS / 2,
+      true,
     );
   }
 
   let totalDistanceMeters = 0;
   let totalDurationSeconds = 0;
-  let weightedGapSeconds = 0;
+  let totalCostWeightedDistanceMeters = 0;
   for (const segment of microSegments) {
     totalDistanceMeters += segment.distanceMeters;
     totalDurationSeconds += segment.durationSeconds;
-    weightedGapSeconds += segment.gradeAdjustedPaceSecondsPerMeter * segment.distanceMeters;
+    totalCostWeightedDistanceMeters += calculateCostWeightedDistanceMeters(segment.distanceMeters, segment.grade);
   }
 
-  if (microSegments.length === 0 || totalDistanceMeters <= 0 || totalDurationSeconds <= 0) {
+  if (
+    microSegments.length === 0 ||
+    totalDistanceMeters <= 0 ||
+    totalDurationSeconds <= 0 ||
+    totalCostWeightedDistanceMeters <= 0
+  ) {
     return null;
   }
 
+  const equivalentFlatDistanceMeters = totalCostWeightedDistanceMeters / FLAT_GRADE_COST;
+
   return {
     rawPaceSecondsPerMeter: totalDurationSeconds / totalDistanceMeters,
-    gradeAdjustedPaceSecondsPerMeter: weightedGapSeconds / totalDistanceMeters,
+    gradeAdjustedPaceSecondsPerMeter: totalDurationSeconds / equivalentFlatDistanceMeters,
+    equivalentFlatDistanceMeters,
     elevationAscentMeters,
     elevationDescentMeters,
     microSegments,
@@ -265,7 +280,9 @@ export function aggregateGapMicroSegmentsForInterval(
 
   let overlappedDistanceMeters = 0;
   let overlappedDurationSeconds = 0;
-  let weightedGapSeconds = 0;
+  let overlappedCostWeightedDistanceMeters = 0;
+  let overlappedElevationGainMeters = 0;
+  let overlappedElevationLossMeters = 0;
 
   for (const segment of microSegments) {
     const overlapStartedAt = Math.max(startedAt, segment.startedAt);
@@ -289,18 +306,29 @@ export function aggregateGapMicroSegmentsForInterval(
 
     overlappedDistanceMeters += distanceMeters;
     overlappedDurationSeconds += durationSeconds;
-    weightedGapSeconds += segment.gradeAdjustedPaceSecondsPerMeter * distanceMeters;
+    overlappedCostWeightedDistanceMeters += calculateCostWeightedDistanceMeters(distanceMeters, segment.grade);
+    overlappedElevationGainMeters += segment.elevationGainMeters * overlapRatio;
+    overlappedElevationLossMeters += segment.elevationLossMeters * overlapRatio;
   }
 
-  if (overlappedDistanceMeters <= 0 || overlappedDurationSeconds <= 0) {
+  if (
+    overlappedDistanceMeters <= 0 ||
+    overlappedDurationSeconds <= 0 ||
+    overlappedCostWeightedDistanceMeters <= 0
+  ) {
     return null;
   }
+
+  const equivalentFlatDistanceMeters = overlappedCostWeightedDistanceMeters / FLAT_GRADE_COST;
 
   return {
     distanceMeters: overlappedDistanceMeters,
     durationSeconds: overlappedDurationSeconds,
     rawPaceSecondsPerMeter: overlappedDurationSeconds / overlappedDistanceMeters,
-    gradeAdjustedPaceSecondsPerMeter: weightedGapSeconds / overlappedDistanceMeters,
+    gradeAdjustedPaceSecondsPerMeter: overlappedDurationSeconds / equivalentFlatDistanceMeters,
+    equivalentFlatDistanceMeters,
+    elevationGainMeters: overlappedElevationGainMeters,
+    elevationLossMeters: overlappedElevationLossMeters,
   };
 }
 
@@ -329,8 +357,7 @@ function hasUsableAccuracy(location: GapRouteLocation): boolean {
   if (
     typeof location.horizontalAccuracyMeters === "number" &&
     Number.isFinite(location.horizontalAccuracyMeters) &&
-    location.horizontalAccuracyMeters >= 0 &&
-    location.horizontalAccuracyMeters > MAX_HORIZONTAL_ACCURACY_METERS
+    (location.horizontalAccuracyMeters < 0 || location.horizontalAccuracyMeters > MAX_HORIZONTAL_ACCURACY_METERS)
   ) {
     return false;
   }
@@ -338,8 +365,7 @@ function hasUsableAccuracy(location: GapRouteLocation): boolean {
   if (
     typeof location.verticalAccuracyMeters === "number" &&
     Number.isFinite(location.verticalAccuracyMeters) &&
-    location.verticalAccuracyMeters >= 0 &&
-    location.verticalAccuracyMeters > MAX_VERTICAL_ACCURACY_METERS
+    (location.verticalAccuracyMeters < 0 || location.verticalAccuracyMeters > MAX_VERTICAL_ACCURACY_METERS)
   ) {
     return false;
   }
@@ -360,6 +386,19 @@ function resolveSegmentDistanceMeters(
   return haversineDistanceMeters(left, right);
 }
 
+function calculateCostWeightedDistanceMeters(distanceMeters: number, grade: number): number {
+  if (!Number.isFinite(distanceMeters) || distanceMeters <= 0) {
+    return 0;
+  }
+
+  const costAtGrade = calculateMinettiCost(clampGrade(grade));
+  if (!Number.isFinite(costAtGrade) || costAtGrade <= 0) {
+    return 0;
+  }
+
+  return distanceMeters * costAtGrade;
+}
+
 function buildCumulativeDistances(routeLocations: readonly GapRouteLocation[]): number[] {
   const cumulativeDistances = [0];
   let totalDistanceMeters = 0;
@@ -373,6 +412,84 @@ function buildCumulativeDistances(routeLocations: readonly GapRouteLocation[]): 
   }
 
   return cumulativeDistances;
+}
+
+function smoothAltitudes(routeLocations: readonly GapRouteLocation[]): number[] {
+  return routeLocations.map((_, index) => {
+    const windowLocations = routeLocations.slice(
+      Math.max(0, index - SMOOTHING_WINDOW_RADIUS),
+      Math.min(routeLocations.length, index + SMOOTHING_WINDOW_RADIUS + 1),
+    );
+
+    return weightedMedian(
+      windowLocations.map((location) => ({
+        value: location.altitudeMeters,
+        weight: resolveAltitudeSampleWeight(location),
+      })),
+    );
+  });
+}
+
+function stabilizeTerminalAltitudeTail(args: {
+  routeLocations: readonly GapRouteLocation[];
+  altitudes: readonly number[];
+  cumulativeDistances: readonly number[];
+}): number[] {
+  const { routeLocations, altitudes, cumulativeDistances } = args;
+  if (routeLocations.length < 4 || altitudes.length !== routeLocations.length) {
+    return [...altitudes];
+  }
+
+  const lastIndex = routeLocations.length - 1;
+  const lastVerticalAccuracy = resolveAccuracyMeters(routeLocations[lastIndex]!.verticalAccuracyMeters);
+  if (lastVerticalAccuracy === undefined || lastVerticalAccuracy < DEGRADED_VERTICAL_ACCURACY_METERS) {
+    return [...altitudes];
+  }
+
+  let anchorIndex: number | undefined;
+  for (let index = lastIndex - 1; index >= 0; index -= 1) {
+    const tailDistanceMeters = (cumulativeDistances[lastIndex] ?? 0) - (cumulativeDistances[index] ?? 0);
+    if (tailDistanceMeters > TERMINAL_TAIL_MAX_DISTANCE_METERS) {
+      break;
+    }
+
+    if (isReliableTailAnchor(routeLocations[index]!)) {
+      anchorIndex = index;
+      break;
+    }
+  }
+
+  if (anchorIndex === undefined || anchorIndex >= lastIndex - 1) {
+    return [...altitudes];
+  }
+
+  const tailLocations = routeLocations.slice(anchorIndex + 1);
+  const tailVerticalAccuracies = tailLocations
+    .map((location) => resolveAccuracyMeters(location.verticalAccuracyMeters))
+    .filter((accuracy): accuracy is number => typeof accuracy === "number");
+  if (tailVerticalAccuracies.length === 0 || median(tailVerticalAccuracies) < DEGRADED_VERTICAL_ACCURACY_METERS) {
+    return [...altitudes];
+  }
+
+  const anchorWindowAltitudes = altitudes.slice(Math.max(0, anchorIndex - 2), anchorIndex + 1);
+  const anchorWindowRange = Math.max(...anchorWindowAltitudes) - Math.min(...anchorWindowAltitudes);
+  if (!Number.isFinite(anchorWindowRange) || anchorWindowRange > TERMINAL_TAIL_STABLE_RANGE_METERS) {
+    return [...altitudes];
+  }
+
+  const anchorAltitude = altitudes[anchorIndex]!;
+  const tailAltitudes = altitudes.slice(anchorIndex + 1);
+  const tailDropMeters = anchorAltitude - Math.min(...tailAltitudes);
+  if (!Number.isFinite(tailDropMeters) || tailDropMeters < TERMINAL_TAIL_MIN_DROP_METERS) {
+    return [...altitudes];
+  }
+
+  const stabilizedAltitudes = [...altitudes];
+  for (let index = anchorIndex + 1; index <= lastIndex; index += 1) {
+    stabilizedAltitudes[index] = Math.max(stabilizedAltitudes[index]!, anchorAltitude);
+  }
+
+  return stabilizedAltitudes;
 }
 
 function correctAltitudeDrift(args: {
@@ -451,11 +568,56 @@ function clampScale(value: number): number {
   return Math.max(0.5, Math.min(2, value));
 }
 
+function resolveAltitudeSampleWeight(location: GapRouteLocation): number {
+  let weight = 1;
+
+  if (
+    typeof location.verticalAccuracyMeters === "number" &&
+    Number.isFinite(location.verticalAccuracyMeters) &&
+    location.verticalAccuracyMeters > 0
+  ) {
+    weight /= Math.max(location.verticalAccuracyMeters, MIN_ACCURACY_METERS_FOR_WEIGHT);
+  }
+
+  if (
+    typeof location.horizontalAccuracyMeters === "number" &&
+    Number.isFinite(location.horizontalAccuracyMeters) &&
+    location.horizontalAccuracyMeters > 0
+  ) {
+    weight /= Math.sqrt(Math.max(location.horizontalAccuracyMeters, MIN_ACCURACY_METERS_FOR_WEIGHT));
+  }
+
+  return Number.isFinite(weight) && weight > 0 ? weight : 1;
+}
+
+function isReliableTailAnchor(location: GapRouteLocation): boolean {
+  const verticalAccuracy = resolveAccuracyMeters(location.verticalAccuracyMeters);
+  if (verticalAccuracy !== undefined && verticalAccuracy > RELIABLE_VERTICAL_ACCURACY_METERS) {
+    return false;
+  }
+
+  const horizontalAccuracy = resolveAccuracyMeters(location.horizontalAccuracyMeters);
+  if (horizontalAccuracy !== undefined && horizontalAccuracy > RELIABLE_HORIZONTAL_ACCURACY_METERS) {
+    return false;
+  }
+
+  return true;
+}
+
+function resolveAccuracyMeters(value: number | undefined): number | undefined {
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
+    return undefined;
+  }
+
+  return value;
+}
+
 function resolveTargetNetElevationChangeMeters(
   routeLocations: readonly GapRouteLocation[],
+  smoothedAltitudes: readonly number[],
   forceClosedLoop: boolean | undefined,
 ): number {
-  if (routeLocations.length < 2) {
+  if (routeLocations.length < 2 || smoothedAltitudes.length < 2) {
     return 0;
   }
 
@@ -466,7 +628,7 @@ function resolveTargetNetElevationChangeMeters(
     return 0;
   }
 
-  return end.altitudeMeters - start.altitudeMeters;
+  return smoothedAltitudes[smoothedAltitudes.length - 1]! - smoothedAltitudes[0]!;
 }
 
 function haversineDistanceMeters(
@@ -500,4 +662,36 @@ function median(values: readonly number[]): number {
   }
 
   return ordered[middleIndex]!;
+}
+
+function weightedMedian(
+  entries: readonly {
+    value: number;
+    weight: number;
+  }[],
+): number {
+  if (entries.length === 0) {
+    throw new Error("weightedMedian requires at least one entry");
+  }
+
+  const finiteEntries = entries.filter(
+    (entry) => Number.isFinite(entry.value) && Number.isFinite(entry.weight) && entry.weight > 0,
+  );
+  if (finiteEntries.length === 0) {
+    return median(entries.map((entry) => entry.value));
+  }
+
+  const ordered = [...finiteEntries].sort((left, right) => left.value - right.value);
+  const totalWeight = ordered.reduce((sum, entry) => sum + entry.weight, 0);
+  const targetWeight = totalWeight / 2;
+  let cumulativeWeight = 0;
+
+  for (const entry of ordered) {
+    cumulativeWeight += entry.weight;
+    if (cumulativeWeight >= targetWeight) {
+      return entry.value;
+    }
+  }
+
+  return ordered[ordered.length - 1]!.value;
 }

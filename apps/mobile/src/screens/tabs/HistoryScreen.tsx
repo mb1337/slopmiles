@@ -24,6 +24,35 @@ function formatHeartRate(heartRate?: number): string {
   return typeof heartRate === "number" ? `${Math.round(heartRate)} bpm` : "-";
 }
 
+function formatIntervalPaceSummary(
+  rawPaceSecondsPerMeter: number | undefined,
+  gradeAdjustedPaceSecondsPerMeter: number | undefined,
+  unitPreference: UnitPreference,
+): string {
+  const rawPace = formatPaceSecondsPerMeterForDisplay(rawPaceSecondsPerMeter, unitPreference);
+
+  if (typeof gradeAdjustedPaceSecondsPerMeter === "number") {
+    return `Pace ${rawPace} · GAP ${formatPaceSecondsPerMeterForDisplay(gradeAdjustedPaceSecondsPerMeter, unitPreference)}`;
+  }
+
+  return `Pace ${rawPace} · GAP unavailable`;
+}
+
+function formatIntervalElevationSummary(
+  elevationAscentMeters: number | undefined,
+  elevationDescentMeters: number | undefined,
+  unitPreference: UnitPreference,
+): string | null {
+  if (typeof elevationAscentMeters !== "number" && typeof elevationDescentMeters !== "number") {
+    return null;
+  }
+
+  return `Elevation +${formatElevationForDisplay(elevationAscentMeters ?? 0, unitPreference)} / -${formatElevationForDisplay(
+    elevationDescentMeters ?? 0,
+    unitPreference,
+  )}`;
+}
+
 function formatWorkoutDate(timestamp: number): string {
   return new Date(timestamp).toLocaleDateString(undefined, {
     month: "short",
@@ -132,7 +161,14 @@ export function HistoryScreen({
                             {chain.intervalCount} intervals · {formatDuration(chain.durationSeconds)} ·{" "}
                             {formatDistanceForDisplay(chain.distanceMeters, unitPreference)}
                           </Text>
-                          {chain.intervals.map((interval, index) => (
+                          {chain.intervals.map((interval, index) => {
+                            const intervalElevationSummary = formatIntervalElevationSummary(
+                              interval.elevationAscentMeters,
+                              interval.elevationDescentMeters,
+                              unitPreference,
+                            );
+
+                            return (
                             <View
                               key={`${workout._id}:chain:${chain.chainIndex}:interval:${interval.startedAt}:${index}`}
                               style={styles.historyIntervalRow}
@@ -144,8 +180,17 @@ export function HistoryScreen({
                                 {formatDistanceForDisplay(interval.distanceMeters, unitPreference)} · {formatDuration(interval.durationSeconds)} ·{" "}
                                 {formatHeartRate(interval.averageHeartRate)}
                               </Text>
+                              <Text style={styles.helperText}>
+                                {formatIntervalPaceSummary(
+                                  interval.rawPaceSecondsPerMeter,
+                                  interval.gradeAdjustedPaceSecondsPerMeter,
+                                  unitPreference,
+                                )}
+                              </Text>
+                              {intervalElevationSummary ? <Text style={styles.helperText}>{intervalElevationSummary}</Text> : null}
                             </View>
-                          ))}
+                            );
+                          })}
                         </View>
                       ))}
                     </View>

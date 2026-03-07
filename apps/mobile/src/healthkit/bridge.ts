@@ -34,6 +34,7 @@ export type HealthKitImportedWorkout = {
   distanceMeters?: number;
   rawPaceSecondsPerMeter?: number;
   gradeAdjustedPaceSecondsPerMeter?: number;
+  equivalentFlatDistanceMeters?: number;
   elevationAscentMeters?: number;
   elevationDescentMeters?: number;
   averageHeartRate?: number;
@@ -51,6 +52,9 @@ export type HealthKitWorkoutInterval = {
   distanceMeters?: number;
   rawPaceSecondsPerMeter?: number;
   gradeAdjustedPaceSecondsPerMeter?: number;
+  equivalentFlatDistanceMeters?: number;
+  elevationAscentMeters?: number;
+  elevationDescentMeters?: number;
   averageHeartRate?: number;
 };
 
@@ -409,6 +413,15 @@ async function resolveWorkoutIntervals(
         ...(typeof gapAggregate?.gradeAdjustedPaceSecondsPerMeter === "number"
           ? { gradeAdjustedPaceSecondsPerMeter: gapAggregate.gradeAdjustedPaceSecondsPerMeter }
           : {}),
+        ...(typeof gapAggregate?.equivalentFlatDistanceMeters === "number"
+          ? { equivalentFlatDistanceMeters: gapAggregate.equivalentFlatDistanceMeters }
+          : {}),
+        ...(typeof gapAggregate?.elevationGainMeters === "number"
+          ? { elevationAscentMeters: gapAggregate.elevationGainMeters }
+          : {}),
+        ...(typeof gapAggregate?.elevationLossMeters === "number"
+          ? { elevationDescentMeters: gapAggregate.elevationLossMeters }
+          : {}),
         ...(typeof averageHeartRate === "number" ? { averageHeartRate } : {}),
       } satisfies HealthKitWorkoutInterval;
     }),
@@ -603,6 +616,9 @@ export async function seedRecentHealthKitImport({
         ...(typeof rawPaceSecondsPerMeter === "number" ? { rawPaceSecondsPerMeter } : {}),
         ...(typeof routeGapAnalysis?.gradeAdjustedPaceSecondsPerMeter === "number"
           ? { gradeAdjustedPaceSecondsPerMeter: routeGapAnalysis.gradeAdjustedPaceSecondsPerMeter }
+          : {}),
+        ...(typeof routeGapAnalysis?.equivalentFlatDistanceMeters === "number"
+          ? { equivalentFlatDistanceMeters: routeGapAnalysis.equivalentFlatDistanceMeters }
           : {}),
         ...(typeof elevationFromMetadata.elevationAscentMeters === "number"
           ? { elevationAscentMeters: elevationFromMetadata.elevationAscentMeters }

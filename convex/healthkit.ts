@@ -13,6 +13,9 @@ const importedWorkoutIntervalValidator = v.object({
   distanceMeters: v.optional(v.number()),
   rawPaceSecondsPerMeter: v.optional(v.number()),
   gradeAdjustedPaceSecondsPerMeter: v.optional(v.number()),
+  equivalentFlatDistanceMeters: v.optional(v.number()),
+  elevationAscentMeters: v.optional(v.number()),
+  elevationDescentMeters: v.optional(v.number()),
   averageHeartRate: v.optional(v.number()),
 });
 
@@ -34,6 +37,7 @@ const importedWorkoutValidator = v.object({
   distanceMeters: v.optional(v.number()),
   rawPaceSecondsPerMeter: v.optional(v.number()),
   gradeAdjustedPaceSecondsPerMeter: v.optional(v.number()),
+  equivalentFlatDistanceMeters: v.optional(v.number()),
   elevationAscentMeters: v.optional(v.number()),
   elevationDescentMeters: v.optional(v.number()),
   averageHeartRate: v.optional(v.number()),
@@ -101,6 +105,7 @@ export const seedImportWorkouts = mutation({
         distanceMeters: workout.distanceMeters,
         rawPaceSecondsPerMeter: workout.rawPaceSecondsPerMeter,
         gradeAdjustedPaceSecondsPerMeter: workout.gradeAdjustedPaceSecondsPerMeter,
+        equivalentFlatDistanceMeters: workout.equivalentFlatDistanceMeters,
         elevationAscentMeters: workout.elevationAscentMeters,
         elevationDescentMeters: workout.elevationDescentMeters,
         averageHeartRate: workout.averageHeartRate,
