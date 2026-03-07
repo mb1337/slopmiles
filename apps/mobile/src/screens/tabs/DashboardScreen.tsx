@@ -16,7 +16,12 @@ export function DashboardScreen({
   onCreatePlanPress: () => void;
 }) {
   const planState = useQuery(api.plans.getPlanState, {});
+  const coachConversation = useQuery(api.coach.getCoachConversation, {});
   const activePlan = planState?.activePlan ?? null;
+  const latestCoachMessage =
+    coachConversation?.messages && coachConversation.messages.length > 0
+      ? [...coachConversation.messages].reverse().find((message) => message.author === "coach") ?? null
+      : null;
   const vdot = typeof currentVDOT === "number" ? currentVDOT : null;
 
   const formatRaceTime = (seconds: number): string => {
@@ -46,6 +51,13 @@ export function DashboardScreen({
           <Text style={styles.bodyText}>Create your first plan to unlock weekly workouts and coach feedback.</Text>
         )}
         <PrimaryButton label="Create Plan" onPress={onCreatePlanPress} />
+      </Panel>
+      <Panel title="Coach latest">
+        {latestCoachMessage ? (
+          <Text style={styles.bodyText}>{latestCoachMessage.body}</Text>
+        ) : (
+          <Text style={styles.bodyText}>Coach updates will appear here once you create a plan or start a conversation.</Text>
+        )}
       </Panel>
       <Panel title="VDOT badge">
         {vdot !== null ? (

@@ -52,6 +52,22 @@ async function requireAuthenticatedMutationUserId(ctx: MutationCtx): Promise<Id<
   return userId;
 }
 
+async function insertCoachEvent(
+  ctx: MutationCtx,
+  userId: Id<"users">,
+  body: string,
+  planId?: Id<"trainingPlans">,
+) {
+  await ctx.db.insert("coachMessages", {
+    userId,
+    author: "coach",
+    kind: "event",
+    body,
+    planId,
+    createdAt: Date.now(),
+  });
+}
+
 async function listPlanSummaries(ctx: QueryCtx, userId: Id<"users">): Promise<PlanSummary[]> {
   const plans = await ctx.db
     .query("trainingPlans")
@@ -199,8 +215,56 @@ export const activateDraftPlan = mutation({
       updatedAt: Date.now(),
     });
 
+    const goal = await ctx.db.get(targetPlan.goalId);
+    await insertCoachEvent(
+      ctx,
+      userId,
+      `Draft activated${goal ? ` for ${goal.label}` : ""}. I'll treat this as the live training focus now.`,
+      targetPlan._id,
+    );
+
     return {
       activatedPlanId: targetPlan._id,
+    };
+  },
+});
+
+export const updateDraftPlanBasics = mutation({
+  args: {
+    planId: v.id("trainingPlans"),
+    peakWeekVolume: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const userId = await requireAuthenticatedMutationUserId(ctx);
+    const plan = await ctx.db.get(args.planId);
+    if (!plan || plan.userId !== userId) {
+      throw new Error("Plan not found for user.");
+    }
+
+    if (plan.status !== "draft") {
+      throw new Error("Only draft plans can be edited.");
+    }
+
+    const peakWeekVolume = Math.round(args.peakWeekVolume * 10) / 10;
+    if (!Number.isFinite(peakWeekVolume) || peakWeekVolume <= 0) {
+      throw new Error("Peak week volume must be a positive number.");
+    }
+
+    await ctx.db.patch(plan._id, {
+      peakWeekVolume,
+      updatedAt: Date.now(),
+    });
+
+    await insertCoachEvent(
+      ctx,
+      userId,
+      `Draft peak week volume updated to ${peakWeekVolume} ${plan.volumeMode === "time" ? "minutes" : "meters"}.`,
+      plan._id,
+    );
+
+    return {
+      updatedPlanId: plan._id,
+      peakWeekVolume,
     };
   },
 });
@@ -225,6 +289,25 @@ export const updatePlanStatus = mutation({
       status: args.status,
       updatedAt: Date.now(),
     });
+
+    const goal = await ctx.db.get(plan.goalId);
+    if (args.status === "completed") {
+      await insertCoachEvent(
+        ctx,
+        userId,
+        `Plan marked complete${goal ? ` for ${goal.label}` : ""}. Time to review the block and decide what comes next.`,
+        plan._id,
+      );
+    }
+
+    if (args.status === "abandoned") {
+      await insertCoachEvent(
+        ctx,
+        userId,
+        `Plan closed${goal ? ` for ${goal.label}` : ""}. You can activate another draft whenever you're ready.`,
+        plan._id,
+      );
+    }
 
     return {
       updatedPlanId: plan._id,

@@ -27,6 +27,8 @@ const planStatusValidator = v.union(...planStatuses.map((status) => v.literal(st
 const aiCallTypeValidator = v.union(...aiCallTypes.map((callType) => v.literal(callType)));
 const aiRequestStatusValidator = v.union(...aiRequestStatuses.map((status) => v.literal(status)));
 const aiRequestPriorityValidator = v.union(...aiRequestPriorities.map((priority) => v.literal(priority)));
+const coachMessageAuthorValidator = v.union(v.literal("coach"), v.literal("user"));
+const coachMessageKindValidator = v.union(v.literal("message"), v.literal("event"));
 const healthKitIntervalTypeValidator = v.union(v.literal("lap"), v.literal("segment"));
 const healthKitIntervalValidator = v.object({
   type: healthKitIntervalTypeValidator,
@@ -181,6 +183,18 @@ export default defineSchema({
   })
     .index("by_user_id", ["userId"])
     .index("by_request_id", ["requestId"]),
+
+  coachMessages: defineTable({
+    userId: v.id("users"),
+    author: coachMessageAuthorValidator,
+    kind: coachMessageKindValidator,
+    body: v.string(),
+    planId: v.optional(v.id("trainingPlans")),
+    relatedRequestId: v.optional(v.id("aiRequests")),
+    createdAt: v.number(),
+  })
+    .index("by_user_id", ["userId"])
+    .index("by_user_id_created_at", ["userId", "createdAt"]),
 
   healthKitWorkouts: defineTable({
     userId: v.id("users"),

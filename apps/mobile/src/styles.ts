@@ -138,6 +138,32 @@ export const styles = StyleSheet.create({
     color: "#2f404c",
     fontSize: 14,
   },
+  chatBubble: {
+    borderRadius: 12,
+    padding: 12,
+    gap: 6,
+    borderWidth: 1,
+  },
+  chatBubbleCoach: {
+    backgroundColor: "#fbfcfd",
+    borderColor: "#dde6ea",
+  },
+  chatBubbleUser: {
+    backgroundColor: "#e8f1f7",
+    borderColor: "#b8d0df",
+  },
+  chatMeta: {
+    color: "#516775",
+    fontSize: 12,
+    fontWeight: "600",
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+  },
+  chatBody: {
+    color: "#22333d",
+    fontSize: 15,
+    lineHeight: 21,
+  },
   bodyText: {
     color: "#2f404c",
     fontSize: 15,

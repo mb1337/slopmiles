@@ -43,6 +43,75 @@ function trimNonEmpty(value: string): string {
   return normalized;
 }
 
+function formatVolumeSummary(volumeMode: (typeof volumeModes)[number], peakWeekVolume: number): string {
+  return `${Math.round(peakWeekVolume)} ${volumeMode === "time" ? "min" : "m"}`;
+}
+
+function buildCoachReply(args: {
+  message: string;
+  personalityDescription: string;
+  competitiveness: string;
+  activePlan:
+    | {
+        goalLabel: string;
+        numberOfWeeks: number;
+        volumeMode: (typeof volumeModes)[number];
+        peakWeekVolume: number;
+      }
+    | null;
+  runningSchedule:
+    | {
+        preferredRunningDays: string[];
+        runningDaysPerWeek: number;
+        preferredLongRunDay?: string;
+      }
+    | null;
+  currentVDOT?: number;
+}): string {
+  const lower = args.message.toLowerCase();
+  const styleLead = args.personalityDescription.toLowerCase().includes("data")
+    ? `Current fitness marker: VDOT ${typeof args.currentVDOT === "number" ? args.currentVDOT.toFixed(1) : "not set yet"}. `
+    : args.personalityDescription.toLowerCase().includes("calm")
+      ? "Take the next decision one block at a time. "
+      : args.personalityDescription.toLowerCase().includes("celebratory")
+        ? "You've got momentum to work with. "
+        : "";
+
+  const competitivenessNote =
+    args.competitiveness === "aggressive"
+      ? "Because you chose aggressive coaching, I'd only push through if the underlying issue is clearly schedule noise and not fatigue."
+      : args.competitiveness === "conservative"
+        ? "Because you chose conservative coaching, protecting recovery is the default call."
+        : "Balanced mode means we can adapt without overreacting.";
+
+  const planLine = args.activePlan
+    ? `Active plan: ${args.activePlan.goalLabel}, ${args.activePlan.numberOfWeeks} weeks, peak ${formatVolumeSummary(args.activePlan.volumeMode, args.activePlan.peakWeekVolume)}. `
+    : "You do not have an active plan yet. ";
+
+  if (lower.includes("skip") || lower.includes("miss") || lower.includes("can't run") || lower.includes("cannot run")) {
+    const scheduleLine = args.runningSchedule
+      ? `Your current schedule is ${args.runningSchedule.runningDaysPerWeek} days across ${args.runningSchedule.preferredRunningDays.join(", ")}. `
+      : "";
+    return `${styleLead}${planLine}${scheduleLine}If a workout needs to go, protect the long run and the most important quality day, then drop secondary volume first. ${competitivenessNote}`;
+  }
+
+  if (lower.includes("injur") || lower.includes("pain") || lower.includes("sick") || lower.includes("ill")) {
+    return `${styleLead}${planLine}Treat this as a recovery problem before a motivation problem. Reduce intensity immediately, and if symptoms are not clearly resolving, pause the plan and rebuild from there. ${competitivenessNote}`;
+  }
+
+  if (lower.includes("goal") || lower.includes("race") || lower.includes("plan")) {
+    return `${styleLead}${planLine}If the goal has changed, create a fresh draft around the new target and compare peak volume, timeline, and emphasis before activating it. ${competitivenessNote}`;
+  }
+
+  if (lower.includes("schedule") || lower.includes("day") || lower.includes("long run") || lower.includes("quality")) {
+    const longRunLine =
+      args.runningSchedule?.preferredLongRunDay ? ` Long run preference is ${args.runningSchedule.preferredLongRunDay}.` : "";
+    return `${styleLead}${planLine}Use Settings to keep preferred days honest to real life; the coach should adapt to constraints, not pretend they do not exist.${longRunLine}`;
+  }
+
+  return `${styleLead}${planLine}Ask for changes in concrete terms: target race, target date, peak volume, or schedule constraint. I can help you pressure-test the tradeoffs before you commit.`;
+}
+
 function computeRaceWeeks(targetDate: number): number {
   const now = Date.now();
   if (!Number.isFinite(targetDate)) {
@@ -70,6 +139,24 @@ async function requireAuthenticatedMutationUserId(ctx: MutationCtx): Promise<Id<
     throw new Error("Authentication required.");
   }
   return userId;
+}
+
+async function insertCoachEvent(
+  ctx: MutationCtx,
+  userId: Id<"users">,
+  body: string,
+  planId?: Id<"trainingPlans">,
+  relatedRequestId?: Id<"aiRequests">,
+) {
+  await ctx.db.insert("coachMessages", {
+    userId,
+    author: "coach",
+    kind: "event",
+    body,
+    planId,
+    relatedRequestId,
+    createdAt: Date.now(),
+  });
 }
 
 function createDedupeKey(input: {
@@ -384,6 +471,16 @@ export const requestPlanGeneration = mutation({
       updatedAt: now,
     });
 
+    await insertCoachEvent(
+      ctx,
+      userId,
+      `Generating a ${input.goalLabel} plan with ${input.volumeMode}-based volume and ${
+        input.authoritativeNumberOfWeeks ?? input.requestedNumberOfWeeks ?? "coach-selected"
+      } weeks of structure.`,
+      undefined,
+      requestId,
+    );
+
     await ctx.scheduler.runAfter(0, internal.coach.processPlanGenerationRequest, {
       requestId,
     });
@@ -420,6 +517,199 @@ export const getPlanGenerationRequest = query({
       updatedAt: request.updatedAt,
       completedAt: request.completedAt,
       nextRetryAt: request.nextRetryAt,
+    };
+  },
+});
+
+export const getLatestPlanGenerationRequest = query({
+  args: {},
+  handler: async (ctx) => {
+    const userId = await requireAuthenticatedQueryUserId(ctx);
+    const requests = await ctx.db
+      .query("aiRequests")
+      .withIndex("by_user_id", (queryBuilder) => queryBuilder.eq("userId", userId))
+      .collect();
+
+    const latestRequest = requests
+      .filter((request) => request.callType === "planGeneration")
+      .sort((left, right) => right.createdAt - left.createdAt)[0];
+
+    if (!latestRequest) {
+      return null;
+    }
+
+    return {
+      _id: latestRequest._id,
+      status: latestRequest.status,
+      attemptCount: latestRequest.attemptCount,
+      maxAttempts: latestRequest.maxAttempts,
+      errorCode: latestRequest.errorCode,
+      errorMessage: latestRequest.errorMessage,
+      result: latestRequest.result,
+      consumedByPlanId: latestRequest.consumedByPlanId,
+      createdAt: latestRequest.createdAt,
+      updatedAt: latestRequest.updatedAt,
+      completedAt: latestRequest.completedAt,
+      nextRetryAt: latestRequest.nextRetryAt,
+    };
+  },
+});
+
+export const getCoachConversation = query({
+  args: {},
+  handler: async (ctx) => {
+    const userId = await requireAuthenticatedQueryUserId(ctx);
+    const [user, runningSchedule, competitiveness, personality, plans, messages] = await Promise.all([
+      ctx.db.get(userId),
+      ctx.db
+        .query("runningSchedules")
+        .withIndex("by_user_id", (queryBuilder) => queryBuilder.eq("userId", userId))
+        .unique(),
+      ctx.db
+        .query("competitiveness")
+        .withIndex("by_user_id", (queryBuilder) => queryBuilder.eq("userId", userId))
+        .unique(),
+      ctx.db
+        .query("personalities")
+        .withIndex("by_user_id", (queryBuilder) => queryBuilder.eq("userId", userId))
+        .unique(),
+      ctx.db
+        .query("trainingPlans")
+        .withIndex("by_user_id", (queryBuilder) => queryBuilder.eq("userId", userId))
+        .collect(),
+      ctx.db
+        .query("coachMessages")
+        .withIndex("by_user_id", (queryBuilder) => queryBuilder.eq("userId", userId))
+        .collect(),
+    ]);
+
+    const activePlan = plans.find((plan) => plan.status === "active") ?? null;
+    const draftPlans = plans.filter((plan) => plan.status === "draft");
+    const sortedMessages = [...messages].sort((left, right) => left.createdAt - right.createdAt).slice(-40);
+
+    const fallbackMessage =
+      sortedMessages.length === 0
+        ? [
+            {
+              _id: "coach-intro",
+              author: "coach" as const,
+              kind: "message" as const,
+              body: activePlan
+                ? `Active plan loaded. ${activePlan.numberOfWeeks} weeks, peak ${formatVolumeSummary(activePlan.volumeMode, activePlan.peakWeekVolume)}. Ask for schedule or goal tradeoffs in plain language.`
+                : "No active plan yet. Use this tab to pressure-test goals, schedule constraints, or the shape of a new draft before you commit.",
+              createdAt: Date.now(),
+            },
+          ]
+        : [];
+
+    return {
+      currentVDOT: user?.currentVDOT ?? null,
+      competitiveness: competitiveness?.level ?? "balanced",
+      personality: {
+        name: personality?.name ?? "noNonsense",
+        description: personality?.description ?? "Brief, direct, no fluff.",
+      },
+      runningSchedule: runningSchedule
+        ? {
+            preferredRunningDays: runningSchedule.preferredRunningDays,
+            runningDaysPerWeek: runningSchedule.runningDaysPerWeek,
+            preferredLongRunDay: runningSchedule.preferredLongRunDay ?? null,
+          }
+        : null,
+      activePlan: activePlan
+        ? {
+            _id: activePlan._id,
+            numberOfWeeks: activePlan.numberOfWeeks,
+            volumeMode: activePlan.volumeMode,
+            peakWeekVolume: activePlan.peakWeekVolume,
+          }
+        : null,
+      draftPlanCount: draftPlans.length,
+      messages:
+        sortedMessages.length > 0
+          ? sortedMessages.map((message) => ({
+              _id: String(message._id),
+              author: message.author,
+              kind: message.kind,
+              body: message.body,
+              createdAt: message.createdAt,
+            }))
+          : fallbackMessage,
+    };
+  },
+});
+
+export const sendCoachMessage = mutation({
+  args: {
+    body: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const userId = await requireAuthenticatedMutationUserId(ctx);
+    const body = trimNonEmpty(args.body);
+    const [user, runningSchedule, competitiveness, personality, plans] = await Promise.all([
+      ctx.db.get(userId),
+      ctx.db
+        .query("runningSchedules")
+        .withIndex("by_user_id", (queryBuilder) => queryBuilder.eq("userId", userId))
+        .unique(),
+      ctx.db
+        .query("competitiveness")
+        .withIndex("by_user_id", (queryBuilder) => queryBuilder.eq("userId", userId))
+        .unique(),
+      ctx.db
+        .query("personalities")
+        .withIndex("by_user_id", (queryBuilder) => queryBuilder.eq("userId", userId))
+        .unique(),
+      ctx.db
+        .query("trainingPlans")
+        .withIndex("by_user_id", (queryBuilder) => queryBuilder.eq("userId", userId))
+        .collect(),
+    ]);
+
+    const activePlan = plans.find((plan) => plan.status === "active") ?? null;
+
+    await ctx.db.insert("coachMessages", {
+      userId,
+      author: "user",
+      kind: "message",
+      body,
+      planId: activePlan?._id,
+      createdAt: Date.now(),
+    });
+
+    const reply = buildCoachReply({
+      message: body,
+      personalityDescription: personality?.description ?? "Brief, direct, no fluff.",
+      competitiveness: competitiveness?.level ?? "balanced",
+      activePlan: activePlan
+        ? {
+            goalLabel: (await ctx.db.get(activePlan.goalId))?.label ?? "current plan",
+            numberOfWeeks: activePlan.numberOfWeeks,
+            volumeMode: activePlan.volumeMode,
+            peakWeekVolume: activePlan.peakWeekVolume,
+          }
+        : null,
+      runningSchedule: runningSchedule
+        ? {
+            preferredRunningDays: runningSchedule.preferredRunningDays,
+            runningDaysPerWeek: runningSchedule.runningDaysPerWeek,
+            preferredLongRunDay: runningSchedule.preferredLongRunDay,
+          }
+        : null,
+      currentVDOT: user?.currentVDOT ?? undefined,
+    });
+
+    await ctx.db.insert("coachMessages", {
+      userId,
+      author: "coach",
+      kind: "message",
+      body: reply,
+      planId: activePlan?._id,
+      createdAt: Date.now(),
+    });
+
+    return {
+      ok: true,
     };
   },
 });
@@ -462,6 +752,7 @@ export const retryPlanGeneration = mutation({
 export const createPlanFromGeneration = mutation({
   args: {
     requestId: v.id("aiRequests"),
+    peakWeekVolumeOverride: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     const userId = await requireAuthenticatedMutationUserId(ctx);
@@ -492,7 +783,15 @@ export const createPlanFromGeneration = mutation({
       throw new Error("Plan proposal payload is unavailable. Generate a new proposal and try again.");
     }
 
-    const planId = await materializeDraftPlanFromValidatedProposal(ctx, request, proposal);
+    const adjustedProposal =
+      typeof args.peakWeekVolumeOverride === "number" && Number.isFinite(args.peakWeekVolumeOverride) && args.peakWeekVolumeOverride > 0
+        ? {
+            ...proposal,
+            peakWeekVolume: Math.round(args.peakWeekVolumeOverride * 10) / 10,
+          }
+        : proposal;
+
+    const planId = await materializeDraftPlanFromValidatedProposal(ctx, request, adjustedProposal);
     const now = Date.now();
     await ctx.db.patch(request._id, {
       consumedByPlanId: planId,
@@ -503,6 +802,15 @@ export const createPlanFromGeneration = mutation({
     if (!plan) {
       throw new Error("Generated plan could not be loaded after creation.");
     }
+
+    const goal = await ctx.db.get(plan.goalId);
+    await insertCoachEvent(
+      ctx,
+      userId,
+      `Draft ready${goal ? ` for ${goal.label}` : ""}. Peak volume is ${formatVolumeSummary(plan.volumeMode, plan.peakWeekVolume)} until you decide to activate it.`,
+      plan._id,
+      request._id,
+    );
 
     return {
       plan,
@@ -657,6 +965,15 @@ export const finalizePlanGenerationSuccess = internalMutation({
       updatedAt: now,
     });
 
+    await ctx.db.insert("coachMessages", {
+      userId: request.userId,
+      author: "coach",
+      kind: "event",
+      body: `Plan proposal ready for review. Peak volume ${formatVolumeSummary(input.volumeMode, validated.proposal.peakWeekVolume)} across ${validated.proposal.numberOfWeeks} weeks.`,
+      relatedRequestId: request._id,
+      createdAt: now,
+    });
+
     return {
       corrections: validated.corrections,
     };
@@ -706,6 +1023,15 @@ export const markRequestFailed = internalMutation({
       nextRetryAt: undefined,
       completedAt: now,
       updatedAt: now,
+    });
+
+    await ctx.db.insert("coachMessages", {
+      userId: request.userId,
+      author: "coach",
+      kind: "event",
+      body: `Plan generation failed: ${args.errorMessage}`,
+      relatedRequestId: request._id,
+      createdAt: now,
     });
   },
 });

@@ -1,6 +1,12 @@
 import { useState } from "react";
 import { Pressable, Text, View } from "react-native";
-import { type UnitPreference, type VolumeMode } from "@slopmiles/domain";
+import {
+  type CompetitivenessLevel,
+  type Personality,
+  type RunningSchedule,
+  type UnitPreference,
+  type VolumeMode,
+} from "@slopmiles/domain";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { CoachScreen } from "./tabs/CoachScreen";
@@ -15,21 +21,39 @@ export function MainTabs({
   userName,
   unitPreference,
   defaultVolumeMode,
+  runningSchedule,
+  trackAccess,
+  competitivenessLevel,
+  personality,
   healthKitAuthorized,
   currentVDOT,
   onResetApp,
   onUpdateName,
   onUpdateUnitPreference,
+  onUpdateVolumePreference,
+  onUpdateTrackAccess,
+  onUpdateRunningSchedule,
+  onUpdateCompetitiveness,
+  onUpdatePersonality,
   onSyncHealthKit,
 }: {
   userName: string;
   unitPreference: UnitPreference;
   defaultVolumeMode: VolumeMode;
+  runningSchedule: RunningSchedule;
+  trackAccess: boolean;
+  competitivenessLevel: CompetitivenessLevel;
+  personality: Personality;
   healthKitAuthorized: boolean;
   currentVDOT: number | null;
   onResetApp: () => Promise<void>;
   onUpdateName: (name: string) => Promise<void>;
   onUpdateUnitPreference: (unitPreference: UnitPreference) => Promise<void>;
+  onUpdateVolumePreference: (volumePreference: VolumeMode) => Promise<void>;
+  onUpdateTrackAccess: (trackAccess: boolean) => Promise<void>;
+  onUpdateRunningSchedule: (runningSchedule: RunningSchedule) => Promise<void>;
+  onUpdateCompetitiveness: (level: CompetitivenessLevel) => Promise<void>;
+  onUpdatePersonality: (value: { preset: Personality["name"]; customDescription?: string }) => Promise<void>;
   onSyncHealthKit: () => Promise<HealthKitSyncResult>;
 }) {
   const [activeTab, setActiveTab] = useState<Tab>("dashboard");
@@ -51,10 +75,20 @@ export function MainTabs({
           <SettingsScreen
             userName={userName}
             unitPreference={unitPreference}
+            volumePreference={defaultVolumeMode}
+            runningSchedule={runningSchedule}
+            trackAccess={trackAccess}
+            competitivenessLevel={competitivenessLevel}
+            personality={personality}
             healthKitAuthorized={healthKitAuthorized}
             onResetApp={onResetApp}
             onUpdateName={onUpdateName}
             onUpdateUnitPreference={onUpdateUnitPreference}
+            onUpdateVolumePreference={onUpdateVolumePreference}
+            onUpdateTrackAccess={onUpdateTrackAccess}
+            onUpdateRunningSchedule={onUpdateRunningSchedule}
+            onUpdateCompetitiveness={onUpdateCompetitiveness}
+            onUpdatePersonality={onUpdatePersonality}
             onSyncHealthKit={onSyncHealthKit}
           />
         ) : null}

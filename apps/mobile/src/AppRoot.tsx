@@ -45,6 +45,11 @@ export default function AppRoot() {
   const resetAppData = useMutation(api.users.resetAppData);
   const updateName = useMutation(api.users.updateName);
   const updateUnitPreference = useMutation(api.users.updateUnitPreference);
+  const updateVolumePreference = useMutation(api.users.updateVolumePreference);
+  const updateTrackAccess = useMutation(api.users.updateTrackAccess);
+  const updateRunningSchedule = useMutation(api.users.updateRunningSchedule);
+  const updateCompetitivenessPreference = useMutation(api.users.updateCompetitiveness);
+  const updatePersonalityPreference = useMutation(api.users.updatePersonality);
   const setHealthKitAuthorizationStatus = useMutation(api.healthkit.setAuthorizationStatus);
   const seedHealthKitImportWorkouts = useMutation(api.healthkit.seedImportWorkouts);
   const completeStep = useMutation(api.onboarding.completeStep);
@@ -217,6 +222,13 @@ export default function AppRoot() {
         userName={session.user.name}
         unitPreference={session.user.unitPreference}
         defaultVolumeMode={session.user.volumePreference}
+        runningSchedule={{
+          ...session.runningSchedule,
+          availabilityWindows: session.runningSchedule.availabilityWindows ?? {},
+        }}
+        trackAccess={session.user.trackAccess}
+        competitivenessLevel={session.competitiveness.level}
+        personality={session.personality}
         healthKitAuthorized={session.user.healthKitAuthorized}
         currentVDOT={session.user.currentVDOT ?? null}
         onResetApp={resetApp}
@@ -232,6 +244,40 @@ export default function AppRoot() {
             await updateUnitPreference({
               unitPreference,
             });
+          })
+        }
+        onUpdateVolumePreference={(volumePreference) =>
+          runMutationVoid(async () => {
+            await updateVolumePreference({
+              volumePreference,
+            });
+          })
+        }
+        onUpdateTrackAccess={(trackAccess) =>
+          runMutationVoid(async () => {
+            await updateTrackAccess({
+              trackAccess,
+            });
+          })
+        }
+        onUpdateRunningSchedule={(runningSchedule) =>
+          runMutationVoid(async () => {
+            await updateRunningSchedule({
+              ...runningSchedule,
+              preferredLongRunDay: runningSchedule.preferredLongRunDay ?? undefined,
+            });
+          })
+        }
+        onUpdateCompetitiveness={(level) =>
+          runMutationVoid(async () => {
+            await updateCompetitivenessPreference({
+              level,
+            });
+          })
+        }
+        onUpdatePersonality={(value) =>
+          runMutationVoid(async () => {
+            await updatePersonalityPreference(value);
           })
         }
         onSyncHealthKit={async () => {

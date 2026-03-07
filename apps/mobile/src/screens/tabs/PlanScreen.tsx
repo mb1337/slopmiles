@@ -4,7 +4,7 @@ import { useMutation, useQuery } from "convex/react";
 import { GOAL_TYPES, VOLUME_MODES, type VolumeMode } from "@slopmiles/domain";
 
 import { api, type Id } from "../../convex";
-import { ChoiceRow, Counter, Panel, PrimaryButton } from "../../components/common";
+import { ChoiceRow, Counter, Panel, PrimaryButton, SecondaryButton } from "../../components/common";
 import { styles } from "../../styles";
 
 type PlanGenerationMetadata = {
@@ -144,6 +144,41 @@ function parseTargetDateText(value: string): number | null {
   return parsed;
 }
 
+function parseGoalTimeText(hoursText: string, minutesText: string, secondsText: string): number | null {
+  const hours = Number(hoursText.trim() || "0");
+  const minutes = Number(minutesText.trim() || "0");
+  const seconds = Number(secondsText.trim() || "0");
+
+  if (
+    !Number.isFinite(hours) ||
+    !Number.isFinite(minutes) ||
+    !Number.isFinite(seconds) ||
+    hours < 0 ||
+    minutes < 0 ||
+    seconds < 0 ||
+    minutes >= 60 ||
+    seconds >= 60
+  ) {
+    return null;
+  }
+
+  const total = Math.round(hours) * 3600 + Math.round(minutes) * 60 + Math.round(seconds);
+  return total > 0 ? total : null;
+}
+
+function formatGoalTime(seconds: number): string {
+  const rounded = Math.max(0, Math.round(seconds));
+  const hours = Math.floor(rounded / 3600);
+  const minutes = Math.floor((rounded % 3600) / 60);
+  const remainder = rounded % 60;
+
+  if (hours > 0) {
+    return `${hours}:${String(minutes).padStart(2, "0")}:${String(remainder).padStart(2, "0")}`;
+  }
+
+  return `${minutes}:${String(remainder).padStart(2, "0")}`;
+}
+
 export function PlanScreen({
   defaultVolumeMode,
 }: {
@@ -153,29 +188,26 @@ export function PlanScreen({
   const retryPlanGeneration = useMutation(api.coach.retryPlanGeneration);
   const createPlanFromGeneration = useMutation(api.coach.createPlanFromGeneration);
   const activateDraftPlan = useMutation(api.plans.activateDraftPlan);
+  const updateDraftPlanBasics = useMutation(api.plans.updateDraftPlanBasics);
   const updatePlanStatus = useMutation(api.plans.updatePlanStatus);
   const planState = useQuery(api.plans.getPlanState, {});
 
   const [goalType, setGoalType] = useState<(typeof GOAL_TYPES)[number]>("race");
   const [goalLabel, setGoalLabel] = useState("5K");
   const [targetDateText, setTargetDateText] = useState("");
+  const [goalTimeHours, setGoalTimeHours] = useState("0");
+  const [goalTimeMinutes, setGoalTimeMinutes] = useState("0");
+  const [goalTimeSecondsText, setGoalTimeSecondsText] = useState("0");
   const [numberOfWeeks, setNumberOfWeeks] = useState(10);
   const [volumeMode, setVolumeMode] = useState<VolumeMode>(defaultVolumeMode);
   const [creating, setCreating] = useState(false);
   const [creatingDraft, setCreatingDraft] = useState(false);
+  const [draftPeakOverrideText, setDraftPeakOverrideText] = useState("");
+  const [draftPeakInputs, setDraftPeakInputs] = useState<Record<string, string>>({});
   const [planError, setPlanError] = useState<string | null>(null);
   const [planMessage, setPlanMessage] = useState<string | null>(null);
   const [proposalChatDraft, setProposalChatDraft] = useState("");
-  const [planGenerationRequestId, setPlanGenerationRequestId] = useState<Id<"aiRequests"> | null>(null);
-
-  const planGenerationRequest = useQuery(
-    api.coach.getPlanGenerationRequest,
-    planGenerationRequestId
-      ? {
-          requestId: planGenerationRequestId,
-        }
-      : "skip",
-  );
+  const planGenerationRequest = useQuery(api.coach.getLatestPlanGenerationRequest, {});
 
   const hasActivePlan = Boolean(planState?.activePlan);
   const proposal = parsePlanGenerationResult(planGenerationRequest?.result);
@@ -183,6 +215,7 @@ export function PlanScreen({
   const draftGenerated = Boolean(planGenerationRequest?.consumedByPlanId);
 
   const targetDate = parseTargetDateText(targetDateText);
+  const goalTimeSeconds = parseGoalTimeText(goalTimeHours, goalTimeMinutes, goalTimeSecondsText);
   const needsTargetDate = goalType === "race";
   const canGenerate = goalLabel.trim().length > 0 && (!needsTargetDate || targetDate !== null);
 
@@ -200,11 +233,10 @@ export function PlanScreen({
         goalType,
         goalLabel: goalLabel.trim(),
         targetDate: targetDate ?? undefined,
+        goalTimeSeconds: goalTimeSeconds ?? undefined,
         volumeMode,
         requestedNumberOfWeeks: goalType === "race" ? undefined : numberOfWeeks,
       });
-
-      setPlanGenerationRequestId(result.requestId);
 
       setPlanMessage(
         result.deduped
@@ -219,17 +251,16 @@ export function PlanScreen({
   };
 
   const onRetryPlanGeneration = async () => {
-    if (!planGenerationRequestId) {
+    if (!planGenerationRequest) {
       return;
     }
 
     try {
       setPlanError(null);
       setPlanMessage(null);
-      const result = await retryPlanGeneration({
-        requestId: planGenerationRequestId,
+      await retryPlanGeneration({
+        requestId: planGenerationRequest._id,
       });
-      setPlanGenerationRequestId(result.requestId);
       setPlanMessage("Retry queued. Waiting for coach response...");
     } catch (error) {
       setPlanError(String(error));
@@ -237,7 +268,7 @@ export function PlanScreen({
   };
 
   const onCreateDraftFromProposal = async () => {
-    if (!planGenerationRequestId) {
+    if (!planGenerationRequest) {
       return;
     }
 
@@ -246,13 +277,35 @@ export function PlanScreen({
     setPlanMessage(null);
     try {
       await createPlanFromGeneration({
-        requestId: planGenerationRequestId,
+        requestId: planGenerationRequest._id,
+        peakWeekVolumeOverride:
+          draftPeakOverrideText.trim().length > 0 && Number.isFinite(Number(draftPeakOverrideText))
+            ? Number(draftPeakOverrideText)
+            : undefined,
       });
       setPlanMessage("Draft created from coach proposal.");
     } catch (error) {
       setPlanError(String(error));
     } finally {
       setCreatingDraft(false);
+    }
+  };
+
+  const onUpdateDraftPeak = async (planId: Id<"trainingPlans">) => {
+    const raw = draftPeakInputs[String(planId)]?.trim() ?? "";
+    const peakWeekVolume = Number(raw);
+    if (!raw || !Number.isFinite(peakWeekVolume) || peakWeekVolume <= 0) {
+      setPlanError("Draft peak volume must be a positive number.");
+      return;
+    }
+
+    try {
+      setPlanError(null);
+      setPlanMessage(null);
+      await updateDraftPlanBasics({ planId, peakWeekVolume });
+      setPlanMessage("Draft peak volume updated.");
+    } catch (error) {
+      setPlanError(String(error));
     }
   };
 
@@ -273,6 +326,17 @@ export function PlanScreen({
       setPlanMessage(null);
       await updatePlanStatus({ planId, status: "abandoned" });
       setPlanMessage("Active plan abandoned. You can activate a draft now.");
+    } catch (error) {
+      setPlanError(String(error));
+    }
+  };
+
+  const onCompletePlan = async (planId: Id<"trainingPlans">) => {
+    try {
+      setPlanError(null);
+      setPlanMessage(null);
+      await updatePlanStatus({ planId, status: "completed" });
+      setPlanMessage("Active plan marked complete.");
     } catch (error) {
       setPlanError(String(error));
     }
@@ -311,6 +375,42 @@ export function PlanScreen({
           placeholder="YYYY-MM-DD"
           placeholderTextColor="#7a848c"
         />
+        <Text style={styles.label}>Goal time (optional)</Text>
+        <View style={styles.timeInputRow}>
+          <View style={styles.timeInputBlock}>
+            <Text style={styles.helperText}>Hours</Text>
+            <TextInput
+              style={styles.input}
+              value={goalTimeHours}
+              onChangeText={setGoalTimeHours}
+              keyboardType="number-pad"
+              placeholder="0"
+              placeholderTextColor="#7a848c"
+            />
+          </View>
+          <View style={styles.timeInputBlock}>
+            <Text style={styles.helperText}>Minutes</Text>
+            <TextInput
+              style={styles.input}
+              value={goalTimeMinutes}
+              onChangeText={setGoalTimeMinutes}
+              keyboardType="number-pad"
+              placeholder="45"
+              placeholderTextColor="#7a848c"
+            />
+          </View>
+          <View style={styles.timeInputBlock}>
+            <Text style={styles.helperText}>Seconds</Text>
+            <TextInput
+              style={styles.input}
+              value={goalTimeSecondsText}
+              onChangeText={setGoalTimeSecondsText}
+              keyboardType="number-pad"
+              placeholder="0"
+              placeholderTextColor="#7a848c"
+            />
+          </View>
+        </View>
         <Text style={styles.label}>Weeks</Text>
         <Counter value={numberOfWeeks} min={4} max={24} onChange={setNumberOfWeeks} />
         <Text style={styles.label}>Volume mode</Text>
@@ -327,7 +427,7 @@ export function PlanScreen({
       </Panel>
 
       <Panel title="Plan Generation">
-        {!planGenerationRequestId ? (
+        {!planGenerationRequest ? (
           <Text style={styles.bodyText}>No plan generation requested yet.</Text>
         ) : planGenerationRequest ? (
           <>
@@ -344,6 +444,17 @@ export function PlanScreen({
                   Proposed peak: {Math.round(proposal.peakWeekVolume)} {volumeMode === "time" ? "min" : "m"}
                 </Text>
                 <Text style={styles.bodyText}>Proposed weeks: {proposal.numberOfWeeks}</Text>
+                <Text style={styles.helperText}>
+                  Override draft peak volume if you want a different ceiling before activation.
+                </Text>
+                <TextInput
+                  style={styles.input}
+                  value={draftPeakOverrideText}
+                  onChangeText={setDraftPeakOverrideText}
+                  keyboardType="decimal-pad"
+                  placeholder={String(Math.round(proposal.peakWeekVolume))}
+                  placeholderTextColor="#7a848c"
+                />
                 <Text style={styles.helperText}>{proposal.rationale}</Text>
                 <WeekStructure plan={proposal} />
                 {generationMetadata?.model ? (
@@ -377,16 +488,17 @@ export function PlanScreen({
 
       {proposal ? (
         <Panel title="Refine Proposal">
-          <Text style={styles.helperText}>Chat-based proposal refinement is coming soon.</Text>
+          <Text style={styles.helperText}>
+            Use the peak override above for direct volume changes. Use the Coach tab for goal, timeline, and schedule tradeoff questions before activating.
+          </Text>
           <TextInput
             style={[styles.input, styles.textArea]}
             value={proposalChatDraft}
             onChangeText={setProposalChatDraft}
-            placeholder="Ask coach to tweak peak volume, emphasis, or timeline..."
+            placeholder="Draft a note to yourself about what you still want to pressure-test..."
             placeholderTextColor="#7a848c"
             multiline
           />
-          <PrimaryButton label="Send to Coach (Coming Soon)" disabled />
         </Panel>
       ) : null}
 
@@ -396,11 +508,15 @@ export function PlanScreen({
             {planState.activePlan.goal.label} - {planState.activePlan.numberOfWeeks} weeks - peak{" "}
             {Math.round(planState.activePlan.peakWeekVolume)} {planState.activePlan.volumeMode === "time" ? "min" : "m"}
           </Text>
+          {planState.activePlan.goal.targetDate ? (
+            <Text style={styles.helperText}>Target date: {new Date(planState.activePlan.goal.targetDate).toLocaleDateString()}</Text>
+          ) : null}
+          {typeof planState.activePlan.goal.goalTimeSeconds === "number" ? (
+            <Text style={styles.helperText}>Goal time: {formatGoalTime(planState.activePlan.goal.goalTimeSeconds)}</Text>
+          ) : null}
           <WeekStructure plan={planState.activePlan} />
-          <PrimaryButton
-            label="Abandon Active Plan"
-            onPress={() => onAbandonPlan(planState.activePlan!._id)}
-          />
+          <PrimaryButton label="Mark Plan Complete" onPress={() => onCompletePlan(planState.activePlan!._id)} />
+          <SecondaryButton label="Abandon Active Plan" onPress={() => onAbandonPlan(planState.activePlan!._id)} />
         </Panel>
       ) : null}
 
@@ -412,7 +528,28 @@ export function PlanScreen({
                 {draft.goal.label} - {draft.numberOfWeeks} weeks - peak {Math.round(draft.peakWeekVolume)}{" "}
                 {draft.volumeMode === "time" ? "min" : "m"}
               </Text>
+              {draft.goal.targetDate ? (
+                <Text style={styles.helperText}>Target date: {new Date(draft.goal.targetDate).toLocaleDateString()}</Text>
+              ) : null}
+              {typeof draft.goal.goalTimeSeconds === "number" ? (
+                <Text style={styles.helperText}>Goal time: {formatGoalTime(draft.goal.goalTimeSeconds)}</Text>
+              ) : null}
               <WeekStructure plan={draft} />
+              <Text style={styles.label}>Peak week override</Text>
+              <TextInput
+                style={styles.input}
+                value={draftPeakInputs[String(draft._id)] ?? ""}
+                onChangeText={(value) =>
+                  setDraftPeakInputs((current) => ({
+                    ...current,
+                    [String(draft._id)]: value,
+                  }))
+                }
+                keyboardType="decimal-pad"
+                placeholder={String(Math.round(draft.peakWeekVolume))}
+                placeholderTextColor="#7a848c"
+              />
+              <SecondaryButton label="Save Draft Peak" onPress={() => onUpdateDraftPeak(draft._id)} />
               <PrimaryButton
                 label={hasActivePlan ? "Cannot activate while active exists" : "Activate Draft"}
                 disabled={hasActivePlan}

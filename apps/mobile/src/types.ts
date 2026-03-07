@@ -2,6 +2,7 @@ import type {
   CompetitivenessLevel,
   OnboardingStep,
   PersonalityPreset,
+  TimeWindow,
   UnitPreference,
   VolumeMode,
   Weekday,
@@ -24,6 +25,7 @@ export type SessionPayload = {
     runningDaysPerWeek: number;
     preferredLongRunDay: Weekday | null;
     preferredQualityDays: Weekday[];
+    availabilityWindows?: Partial<Record<Weekday, TimeWindow[]>>;
   };
   onboardingState: {
     currentStep: OnboardingStep;
