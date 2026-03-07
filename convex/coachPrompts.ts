@@ -1,4 +1,5 @@
 import type { GoalType, VolumeMode } from "./constants";
+import type { DateKey } from "../packages/domain/src/calendar";
 
 type TrainingHistoryWorkoutSummary = {
   startedAt: number;
@@ -23,6 +24,26 @@ export type PlanGenerationPromptInput = {
     availableDaysPerWeek: number;
   };
   currentVDOT?: number;
+  recentWorkouts: TrainingHistoryWorkoutSummary[];
+};
+
+export type WeekDetailGenerationPromptInput = {
+  goalLabel: string;
+  volumeMode: VolumeMode;
+  peakWeekVolume: number;
+  currentVDOT?: number;
+  competitiveness: string;
+  personalityDescription: string;
+  preferredRunningDays: string[];
+  preferredLongRunDay?: string;
+  preferredQualityDays: string[];
+  trackAccess: boolean;
+  weekNumber: number;
+  weekStartDateKey: DateKey;
+  weekEndDateKey: DateKey;
+  targetVolumePercent: number;
+  targetVolumeAbsolute: number;
+  emphasis: string;
   recentWorkouts: TrainingHistoryWorkoutSummary[];
 };
 
@@ -93,6 +114,102 @@ export function buildPlanGenerationMessages(input: PlanGenerationPromptInput) {
         "Provide weeklyVolumeProfile and weeklyEmphasis entries for every week from 1 through numberOfWeeks.",
     },
     expectedShape,
+  };
+
+  return [
+    {
+      role: "system" as const,
+      content: systemPrompt,
+    },
+    {
+      role: "user" as const,
+      content: JSON.stringify(payload),
+    },
+  ];
+}
+
+const WEEK_DETAIL_SYSTEM_PROMPT = [
+  "You are SlopMiles, an expert running coach.",
+  "This call is for one training week only.",
+  "Respect available running days as hard constraints.",
+  "Generate running workouts only. Do not include strength work, races, weather, or schedule overrides.",
+  "Use at most two workouts on one day.",
+  "Use venue=track only when track access is true.",
+  "Return strictly valid JSON. Do not include markdown, prose outside JSON, or comments.",
+].join(" ");
+
+export function buildWeekDetailGenerationMessages(input: WeekDetailGenerationPromptInput) {
+  const systemPrompt = `${WEEK_DETAIL_SYSTEM_PROMPT} Personality voice guidance: ${input.personalityDescription}`;
+  const allowedScheduledDates = Array.from({ length: 7 }, (_, index) => {
+    const date = new Date(`${input.weekStartDateKey}T00:00:00Z`);
+    date.setUTCDate(date.getUTCDate() + index);
+    return date.toISOString().slice(0, 10);
+  });
+
+  const payload = {
+    goal: {
+      label: input.goalLabel,
+    },
+    runner: {
+      currentVDOT: input.currentVDOT,
+      competitiveness: input.competitiveness,
+      trackAccess: input.trackAccess,
+    },
+    week: {
+      weekNumber: input.weekNumber,
+      weekStartDateKey: input.weekStartDateKey,
+      weekEndDateKey: input.weekEndDateKey,
+      targetVolumePercent: input.targetVolumePercent,
+      targetVolumeAbsolute: input.targetVolumeAbsolute,
+      emphasis: input.emphasis,
+      volumeMode: input.volumeMode,
+      peakWeekVolume: input.peakWeekVolume,
+      allowedScheduledDates,
+    },
+    schedule: {
+      preferredRunningDays: input.preferredRunningDays,
+      preferredLongRunDay: input.preferredLongRunDay,
+      preferredQualityDays: input.preferredQualityDays,
+    },
+    recentTrainingSummary: {
+      workoutCount: input.recentWorkouts.length,
+      workouts: input.recentWorkouts,
+    },
+    responseRequirements: {
+      jsonOnly: true,
+      allowedWorkoutTypes: ["easyRun", "longRun", "tempo", "intervals", "recovery"],
+      allowedVenues: input.trackAccess ? ["track", "road", "any"] : ["road", "any"],
+      paceZoneRule: 'Use "E", "M", "T", "I", "R", or a race pace label ending with "pace".',
+      dateRule: "scheduledDate must be a YYYY-MM-DD date inside the target week.",
+      volumeRule:
+        "volumePercent values should sum to the targetVolumePercent for the week. Return decimals in [0,1].",
+      segmentRule:
+        "Use segments with targetUnit of seconds or meters. Optional repetitions, restValue, and restUnit are allowed.",
+      requiredKeys: ["workouts", "coachNotes"],
+    },
+    expectedShape: {
+      workouts: [
+        {
+          type: "easyRun | longRun | tempo | intervals | recovery",
+          volumePercent: "number",
+          scheduledDate: "YYYY-MM-DD",
+          venue: "track | road | any",
+          notes: "string (optional)",
+          segments: [
+            {
+              label: "string",
+              paceZone: "E | M | T | I | R | '<race> pace'",
+              targetValue: "number",
+              targetUnit: "seconds | meters",
+              repetitions: "number (optional)",
+              restValue: "number (optional)",
+              restUnit: "seconds | meters (optional)",
+            },
+          ],
+        },
+      ],
+      coachNotes: "string",
+    },
   };
 
   return [

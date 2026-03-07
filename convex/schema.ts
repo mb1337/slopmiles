@@ -14,6 +14,10 @@ import {
   unitPreferences,
   volumeModes,
   weekdays,
+  workoutOrigins,
+  workoutStatuses,
+  workoutTypes,
+  workoutVenues,
 } from "./constants";
 
 const weekdayValidator = v.union(...weekdays.map((day) => v.literal(day)));
@@ -30,6 +34,20 @@ const aiRequestPriorityValidator = v.union(...aiRequestPriorities.map((priority)
 const coachMessageAuthorValidator = v.union(v.literal("coach"), v.literal("user"));
 const coachMessageKindValidator = v.union(v.literal("message"), v.literal("event"));
 const healthKitIntervalTypeValidator = v.union(v.literal("lap"), v.literal("segment"));
+const workoutTypeValidator = v.union(...workoutTypes.map((type) => v.literal(type)));
+const workoutVenueValidator = v.union(...workoutVenues.map((venue) => v.literal(venue)));
+const workoutOriginValidator = v.union(...workoutOrigins.map((origin) => v.literal(origin)));
+const workoutStatusValidator = v.union(...workoutStatuses.map((status) => v.literal(status)));
+const workoutSegmentValidator = v.object({
+  order: v.number(),
+  label: v.string(),
+  paceZone: v.string(),
+  targetValue: v.number(),
+  targetUnit: v.union(v.literal("seconds"), v.literal("meters")),
+  repetitions: v.optional(v.number()),
+  restValue: v.optional(v.number()),
+  restUnit: v.optional(v.union(v.literal("seconds"), v.literal("meters"))),
+});
 const healthKitIntervalValidator = v.object({
   type: healthKitIntervalTypeValidator,
   startedAt: v.number(),
@@ -118,6 +136,9 @@ export default defineSchema({
   trainingPlans: defineTable({
     userId: v.id("users"),
     goalId: v.id("goals"),
+    startDateKey: v.optional(v.string()),
+    canonicalTimeZoneId: v.optional(v.string()),
+    activatedAt: v.optional(v.number()),
     numberOfWeeks: v.number(),
     volumeMode: volumeModeValidator,
     peakWeekVolume: v.number(),
@@ -145,6 +166,40 @@ export default defineSchema({
   })
     .index("by_user_id", ["userId"])
     .index("by_user_id_status", ["userId", "status"]),
+
+  trainingWeeks: defineTable({
+    planId: v.id("trainingPlans"),
+    weekNumber: v.number(),
+    weekStartDateKey: v.string(),
+    weekEndDateKey: v.string(),
+    targetVolumePercent: v.number(),
+    targetVolumeAbsolute: v.number(),
+    emphasis: v.string(),
+    coachNotes: v.optional(v.string()),
+    generated: v.boolean(),
+    generatedByAiRequestId: v.optional(v.id("aiRequests")),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_plan_id", ["planId"])
+    .index("by_plan_id_week_number", ["planId", "weekNumber"]),
+
+  workouts: defineTable({
+    weekId: v.id("trainingWeeks"),
+    type: workoutTypeValidator,
+    volumePercent: v.number(),
+    absoluteVolume: v.number(),
+    scheduledDateKey: v.string(),
+    notes: v.optional(v.string()),
+    venue: workoutVenueValidator,
+    origin: workoutOriginValidator,
+    status: workoutStatusValidator,
+    segments: v.array(workoutSegmentValidator),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_week_id", ["weekId"])
+    .index("by_week_id_scheduled_date_key", ["weekId", "scheduledDateKey"]),
 
   aiRequests: defineTable({
     userId: v.id("users"),

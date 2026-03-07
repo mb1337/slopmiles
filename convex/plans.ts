@@ -1,18 +1,27 @@
 import { v } from "convex/values";
 import { getAuthUserId } from "@convex-dev/auth/server";
 
-import { goalTypes, planStatuses, volumeModes } from "./constants";
+import { internal } from "./_generated/api";
 import { mutation, query } from "./_generated/server";
-import type { Id } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
+import { addDays, type DateKey } from "../packages/domain/src/calendar";
+import { aiCallTypes, goalTypes, planStatuses, volumeModes } from "./constants";
+import { deriveCurrentWeekNumber, endDateFromStart, isWeekGeneratable, normalizeActivationDateKey, resolveAbsoluteWeekVolume } from "./planWeeks";
 
 const goalTypeValidator = v.union(...goalTypes.map((goalType) => v.literal(goalType)));
 const volumeModeValidator = v.union(...volumeModes.map((mode) => v.literal(mode)));
 const planStatusValidator = v.union(...planStatuses.map((status) => v.literal(status)));
 
+const WEEK_DETAIL_PROMPT_REVISION = "week-detail-v1";
+const WEEK_DETAIL_SCHEMA_REVISION = "week-detail-v1";
+
 type PlanSummary = {
   _id: Id<"trainingPlans">;
   status: (typeof planStatuses)[number];
+  startDateKey?: string;
+  canonicalTimeZoneId?: string;
+  activatedAt?: number;
   numberOfWeeks: number;
   volumeMode: (typeof volumeModes)[number];
   peakWeekVolume: number;
@@ -68,6 +77,14 @@ async function insertCoachEvent(
   });
 }
 
+function weekPercentMap(plan: Pick<Doc<"trainingPlans">, "weeklyVolumeProfile">): Map<number, number> {
+  return new Map((plan.weeklyVolumeProfile ?? []).map((entry) => [entry.weekNumber, entry.percentOfPeak]));
+}
+
+function weekEmphasisMap(plan: Pick<Doc<"trainingPlans">, "weeklyEmphasis">): Map<number, string> {
+  return new Map((plan.weeklyEmphasis ?? []).map((entry) => [entry.weekNumber, entry.emphasis]));
+}
+
 async function listPlanSummaries(ctx: QueryCtx, userId: Id<"users">): Promise<PlanSummary[]> {
   const plans = await ctx.db
     .query("trainingPlans")
@@ -85,6 +102,9 @@ async function listPlanSummaries(ctx: QueryCtx, userId: Id<"users">): Promise<Pl
     summaries.push({
       _id: plan._id,
       status: plan.status,
+      startDateKey: plan.startDateKey,
+      canonicalTimeZoneId: plan.canonicalTimeZoneId,
+      activatedAt: plan.activatedAt,
       numberOfWeeks: plan.numberOfWeeks,
       volumeMode: plan.volumeMode,
       peakWeekVolume: plan.peakWeekVolume,
@@ -106,6 +126,102 @@ async function listPlanSummaries(ctx: QueryCtx, userId: Id<"users">): Promise<Pl
   return summaries;
 }
 
+async function seedTrainingWeeks(ctx: MutationCtx, plan: Doc<"trainingPlans">): Promise<void> {
+  if (!plan.startDateKey) {
+    throw new Error("Plan startDateKey is required before seeding weeks.");
+  }
+
+  const percentByWeek = weekPercentMap(plan);
+  const emphasisByWeek = weekEmphasisMap(plan);
+  const existingWeeks = await ctx.db
+    .query("trainingWeeks")
+    .withIndex("by_plan_id", (queryBuilder) => queryBuilder.eq("planId", plan._id))
+    .collect();
+  const weekByNumber = new Map(existingWeeks.map((week) => [week.weekNumber, week]));
+  const now = Date.now();
+
+  for (let weekNumber = 1; weekNumber <= plan.numberOfWeeks; weekNumber += 1) {
+    const weekStartDateKey = addDays(plan.startDateKey as DateKey, (weekNumber - 1) * 7);
+    const targetVolumePercent = percentByWeek.get(weekNumber) ?? 0;
+    const emphasis = emphasisByWeek.get(weekNumber) ?? "";
+    const payload = {
+      planId: plan._id,
+      weekNumber,
+      weekStartDateKey,
+      weekEndDateKey: endDateFromStart(weekStartDateKey),
+      targetVolumePercent,
+      targetVolumeAbsolute: resolveAbsoluteWeekVolume(plan.volumeMode, plan.peakWeekVolume, targetVolumePercent),
+      emphasis,
+      generated: false,
+      updatedAt: now,
+    };
+
+    const existingWeek = weekByNumber.get(weekNumber);
+    if (existingWeek) {
+      await ctx.db.patch(existingWeek._id, payload);
+    } else {
+      await ctx.db.insert("trainingWeeks", {
+        ...payload,
+        createdAt: now,
+      });
+    }
+  }
+}
+
+async function enqueueWeekDetailGeneration(
+  ctx: MutationCtx,
+  args: {
+    userId: Id<"users">;
+    planId: Id<"trainingPlans">;
+    weekNumber: number;
+  },
+): Promise<Id<"aiRequests">> {
+  const now = Date.now();
+  const dedupeKey = [
+    "weekDetailGeneration",
+    args.planId,
+    args.weekNumber,
+    WEEK_DETAIL_PROMPT_REVISION,
+    WEEK_DETAIL_SCHEMA_REVISION,
+  ].join("|");
+
+  const existing = await ctx.db
+    .query("aiRequests")
+    .withIndex("by_user_id_call_type_dedupe_key", (queryBuilder) =>
+      queryBuilder.eq("userId", args.userId).eq("callType", "weekDetailGeneration").eq("dedupeKey", dedupeKey),
+    )
+    .collect();
+
+  const inFlight = existing.find((request) => request.status === "queued" || request.status === "inProgress");
+  if (inFlight) {
+    return inFlight._id;
+  }
+
+  const requestId = await ctx.db.insert("aiRequests", {
+    userId: args.userId,
+    callType: aiCallTypes[1],
+    status: "queued",
+    priority: "userBlocking",
+    dedupeKey,
+    input: {
+      planId: args.planId,
+      weekNumber: args.weekNumber,
+    },
+    attemptCount: 0,
+    maxAttempts: 1,
+    promptRevision: WEEK_DETAIL_PROMPT_REVISION,
+    schemaRevision: WEEK_DETAIL_SCHEMA_REVISION,
+    createdAt: now,
+    updatedAt: now,
+  });
+
+  await ctx.scheduler.runAfter(0, internal.coach.processWeekDetailGenerationRequest, {
+    requestId,
+  });
+
+  return requestId;
+}
+
 export const getPlanState = query({
   args: {},
   handler: async (ctx) => {
@@ -117,10 +233,149 @@ export const getPlanState = query({
     const draftPlans = sorted.filter((plan) => plan.status === "draft");
     const pastPlans = sorted.filter((plan) => plan.status === "completed" || plan.status === "abandoned");
 
+    if (!activePlan) {
+      return {
+        activePlan: null,
+        draftPlans,
+        pastPlans,
+      };
+    }
+
+    const activePlanDoc = await ctx.db.get(activePlan._id);
+    if (!activePlanDoc) {
+      return {
+        activePlan: null,
+        draftPlans,
+        pastPlans,
+      };
+    }
+
+    const trainingWeeks = await ctx.db
+      .query("trainingWeeks")
+      .withIndex("by_plan_id", (queryBuilder) => queryBuilder.eq("planId", activePlan._id))
+      .collect();
+    const currentWeekNumber = deriveCurrentWeekNumber(activePlanDoc, Date.now());
+    const nextWeekNumber =
+      currentWeekNumber && currentWeekNumber < activePlan.numberOfWeeks ? currentWeekNumber + 1 : null;
+
     return {
-      activePlan,
+      activePlan: {
+        ...activePlan,
+        startDateKey: activePlanDoc.startDateKey,
+        canonicalTimeZoneId: activePlanDoc.canonicalTimeZoneId,
+        activatedAt: activePlanDoc.activatedAt,
+        currentWeekNumber,
+        nextWeekNumber,
+        trainingWeeks: trainingWeeks
+          .sort((left, right) => left.weekNumber - right.weekNumber)
+          .map((week) => ({
+            _id: week._id,
+            weekNumber: week.weekNumber,
+            weekStartDateKey: week.weekStartDateKey,
+            weekEndDateKey: week.weekEndDateKey,
+            targetVolumePercent: week.targetVolumePercent,
+            targetVolumeAbsolute: week.targetVolumeAbsolute,
+            emphasis: week.emphasis,
+            coachNotes: week.coachNotes,
+            generated: week.generated,
+            generatedByAiRequestId: week.generatedByAiRequestId,
+          })),
+      },
       draftPlans,
       pastPlans,
+    };
+  },
+});
+
+export const getWeekDetail = query({
+  args: {
+    planId: v.id("trainingPlans"),
+    weekNumber: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const userId = await requireAuthenticatedQueryUserId(ctx);
+    const plan = await ctx.db.get(args.planId);
+    if (!plan || plan.userId !== userId) {
+      throw new Error("Plan not found for user.");
+    }
+
+    const week = await ctx.db
+      .query("trainingWeeks")
+      .withIndex("by_plan_id_week_number", (queryBuilder) =>
+        queryBuilder.eq("planId", plan._id).eq("weekNumber", Math.round(args.weekNumber)),
+      )
+      .unique();
+
+    if (!week) {
+      throw new Error("Training week not found.");
+    }
+
+    const workouts = await ctx.db
+      .query("workouts")
+      .withIndex("by_week_id", (queryBuilder) => queryBuilder.eq("weekId", week._id))
+      .collect();
+
+    const requests = await ctx.db
+      .query("aiRequests")
+      .withIndex("by_user_id", (queryBuilder) => queryBuilder.eq("userId", userId))
+      .collect();
+
+    const latestRequest = requests
+      .filter((request) => {
+        if (request.callType !== "weekDetailGeneration") {
+          return false;
+        }
+        const input = request.input as { planId?: Id<"trainingPlans">; weekNumber?: number } | undefined;
+        return input?.planId === plan._id && input?.weekNumber === week.weekNumber;
+      })
+      .sort((left, right) => right.createdAt - left.createdAt)[0];
+
+    return {
+      plan: {
+        _id: plan._id,
+        numberOfWeeks: plan.numberOfWeeks,
+        volumeMode: plan.volumeMode,
+        peakWeekVolume: plan.peakWeekVolume,
+        startDateKey: plan.startDateKey,
+        canonicalTimeZoneId: plan.canonicalTimeZoneId,
+      },
+      week: {
+        _id: week._id,
+        weekNumber: week.weekNumber,
+        weekStartDateKey: week.weekStartDateKey,
+        weekEndDateKey: week.weekEndDateKey,
+        targetVolumePercent: week.targetVolumePercent,
+        targetVolumeAbsolute: week.targetVolumeAbsolute,
+        emphasis: week.emphasis,
+        coachNotes: week.coachNotes,
+        generated: week.generated,
+      },
+      workouts: workouts
+        .sort((left, right) => left.scheduledDateKey.localeCompare(right.scheduledDateKey))
+        .map((workout) => ({
+          _id: workout._id,
+          weekId: workout.weekId,
+          type: workout.type,
+          volumePercent: workout.volumePercent,
+          absoluteVolume: workout.absoluteVolume,
+          scheduledDateKey: workout.scheduledDateKey,
+          notes: workout.notes,
+          venue: workout.venue,
+          origin: workout.origin,
+          status: workout.status,
+          segments: workout.segments,
+        })),
+      latestRequest: latestRequest
+        ? {
+            _id: latestRequest._id,
+            status: latestRequest.status,
+            errorMessage: latestRequest.errorMessage,
+            createdAt: latestRequest.createdAt,
+            updatedAt: latestRequest.updatedAt,
+          }
+        : null,
+      currentWeekNumber: deriveCurrentWeekNumber(plan, Date.now()),
+      canGenerate: isWeekGeneratable(plan, week.weekNumber, Date.now()),
     };
   },
 });
@@ -187,6 +442,7 @@ export const createPlan = mutation({
 export const activateDraftPlan = mutation({
   args: {
     planId: v.id("trainingPlans"),
+    canonicalTimeZoneId: v.string(),
   },
   handler: async (ctx, args) => {
     const userId = await requireAuthenticatedMutationUserId(ctx);
@@ -210,10 +466,30 @@ export const activateDraftPlan = mutation({
       throw new Error("One active plan is allowed. Complete or abandon the current active plan first.");
     }
 
+    const now = Date.now();
+    const startDateKey = normalizeActivationDateKey(now, args.canonicalTimeZoneId);
     await ctx.db.patch(targetPlan._id, {
       status: "active",
-      updatedAt: Date.now(),
+      startDateKey,
+      canonicalTimeZoneId: args.canonicalTimeZoneId,
+      activatedAt: now,
+      updatedAt: now,
     });
+
+    const activatedPlan = await ctx.db.get(targetPlan._id);
+    if (!activatedPlan) {
+      throw new Error("Activated plan could not be reloaded.");
+    }
+
+    await seedTrainingWeeks(ctx, activatedPlan);
+    const currentWeekNumber = deriveCurrentWeekNumber(activatedPlan, now);
+    if (currentWeekNumber) {
+      await enqueueWeekDetailGeneration(ctx, {
+        userId,
+        planId: activatedPlan._id,
+        weekNumber: currentWeekNumber,
+      });
+    }
 
     const goal = await ctx.db.get(targetPlan.goalId);
     await insertCoachEvent(
@@ -225,6 +501,7 @@ export const activateDraftPlan = mutation({
 
     return {
       activatedPlanId: targetPlan._id,
+      currentWeekNumber,
     };
   },
 });

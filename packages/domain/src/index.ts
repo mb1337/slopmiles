@@ -55,6 +55,60 @@ export type GoalType = (typeof GOAL_TYPES)[number];
 export const PLAN_STATUSES = ["draft", "active", "completed", "abandoned"] as const;
 export type PlanStatus = (typeof PLAN_STATUSES)[number];
 
+export const WORKOUT_TYPES = ["easyRun", "longRun", "tempo", "intervals", "recovery"] as const;
+export type WorkoutType = (typeof WORKOUT_TYPES)[number];
+
+export const WORKOUT_VENUES = ["track", "road", "any"] as const;
+export type WorkoutVenue = (typeof WORKOUT_VENUES)[number];
+
+export const WORKOUT_ORIGINS = ["planned", "unplanned"] as const;
+export type WorkoutOrigin = (typeof WORKOUT_ORIGINS)[number];
+
+export const WORKOUT_STATUSES = ["planned", "completed", "skipped", "modified"] as const;
+export type WorkoutStatus = (typeof WORKOUT_STATUSES)[number];
+
+export type WorkoutSegment = {
+  order: number;
+  label: string;
+  paceZone: string;
+  targetValue: number;
+  targetUnit: "seconds" | "meters";
+  repetitions?: number;
+  restValue?: number;
+  restUnit?: "seconds" | "meters";
+};
+
+export type WorkoutSummary = {
+  id: string;
+  weekId: string;
+  type: WorkoutType;
+  volumePercent: number;
+  scheduledDateKey: string;
+  absoluteVolume: number;
+  venue: WorkoutVenue;
+  origin: WorkoutOrigin;
+  status: WorkoutStatus;
+  notes?: string;
+  segments: WorkoutSegment[];
+};
+
+export type TrainingWeekSummary = {
+  id: string;
+  weekNumber: number;
+  weekStartDateKey: string;
+  weekEndDateKey: string;
+  targetVolumePercent: number;
+  targetVolumeAbsolute: number;
+  emphasis: string;
+  coachNotes?: string;
+  generated: boolean;
+  generatedByAiRequestId?: string;
+};
+
+export type TrainingWeekDetail = TrainingWeekSummary & {
+  workouts: WorkoutSummary[];
+};
+
 export type TimeWindow = {
   start: string;
   end: string;
@@ -138,4 +192,5 @@ export function nextOnboardingStep(step: OnboardingStep): OnboardingStep {
   return ONBOARDING_STEPS[index + 1] ?? "done";
 }
 
+export * from "./calendar";
 export * from "./vdot";

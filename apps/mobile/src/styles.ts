@@ -299,4 +299,71 @@ export const styles = StyleSheet.create({
     color: "#134c6e",
     fontWeight: "700",
   },
+  weekList: {
+    gap: 8,
+  },
+  weekListRow: {
+    gap: 4,
+    borderWidth: 1,
+    borderColor: "#dbe4e8",
+    borderRadius: 10,
+    padding: 10,
+    backgroundColor: "#fbfcfd",
+  },
+  weekListRowActive: {
+    borderColor: "#165177",
+    backgroundColor: "#eef6fb",
+  },
+  weekListHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  weekListTitle: {
+    color: "#223540",
+    fontWeight: "700",
+    fontSize: 14,
+  },
+  weekBadge: {
+    color: "#0f4261",
+    backgroundColor: "#d8ebf7",
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 999,
+    fontSize: 11,
+    fontWeight: "700",
+    textTransform: "uppercase",
+    letterSpacing: 0.4,
+  },
+  weekDetailBlock: {
+    gap: 10,
+    borderTopWidth: 1,
+    borderTopColor: "#e2e9ec",
+    paddingTop: 12,
+  },
+  weekDetailHeading: {
+    color: "#17242d",
+    fontWeight: "700",
+    fontSize: 18,
+  },
+  workoutList: {
+    gap: 10,
+  },
+  workoutCard: {
+    gap: 6,
+    borderWidth: 1,
+    borderColor: "#dbe4e8",
+    borderRadius: 10,
+    padding: 12,
+    backgroundColor: "#fbfcfd",
+  },
+  workoutTitle: {
+    color: "#1d2f39",
+    fontWeight: "700",
+    fontSize: 15,
+  },
+  segmentList: {
+    gap: 4,
+    paddingTop: 2,
+  },
 });

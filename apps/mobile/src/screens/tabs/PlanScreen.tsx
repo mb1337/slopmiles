@@ -1,11 +1,12 @@
-import { useState } from "react";
-import { ScrollView, Text, TextInput, View } from "react-native";
+import { useEffect, useMemo, useState } from "react";
+import { Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import { useMutation, useQuery } from "convex/react";
-import { GOAL_TYPES, VOLUME_MODES, type VolumeMode } from "@slopmiles/domain";
+import { GOAL_TYPES, VOLUME_MODES, type UnitPreference, type VolumeMode } from "@slopmiles/domain";
 
 import { api, type Id } from "../../convex";
 import { ChoiceRow, Counter, Panel, PrimaryButton, SecondaryButton } from "../../components/common";
 import { styles } from "../../styles";
+import { formatDistanceForDisplay } from "../../units";
 
 type PlanGenerationMetadata = {
   model?: string;
@@ -179,14 +180,85 @@ function formatGoalTime(seconds: number): string {
   return `${minutes}:${String(remainder).padStart(2, "0")}`;
 }
 
+function formatDurationSeconds(seconds: number): string {
+  const rounded = Math.max(0, Math.round(seconds));
+  const minutes = Math.floor(rounded / 60);
+  const remainder = rounded % 60;
+  if (minutes === 0) {
+    return `${remainder}s`;
+  }
+  if (remainder === 0) {
+    return `${minutes} min`;
+  }
+  return `${minutes}:${String(remainder).padStart(2, "0")}`;
+}
+
+function formatDateKey(dateKey: string): string {
+  return new Intl.DateTimeFormat(undefined, {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    timeZone: "UTC",
+  }).format(new Date(`${dateKey}T00:00:00Z`));
+}
+
+function formatWorkoutType(type: string): string {
+  switch (type) {
+    case "easyRun":
+      return "Easy Run";
+    case "longRun":
+      return "Long Run";
+    case "tempo":
+      return "Tempo";
+    case "intervals":
+      return "Intervals";
+    case "recovery":
+      return "Recovery";
+    default:
+      return type;
+  }
+}
+
+function formatAbsoluteVolume(volumeMode: VolumeMode, absoluteVolume: number, unitPreference: UnitPreference): string {
+  if (volumeMode === "time") {
+    return formatDurationSeconds(absoluteVolume);
+  }
+
+  return formatDistanceForDisplay(absoluteVolume, unitPreference);
+}
+
+function formatSegmentValue(value: number, unit: "seconds" | "meters"): string {
+  return unit === "seconds" ? formatDurationSeconds(value) : `${Math.round(value)}m`;
+}
+
+function formatSegment(segment: {
+  label: string;
+  paceZone: string;
+  targetValue: number;
+  targetUnit: "seconds" | "meters";
+  repetitions?: number;
+  restValue?: number;
+  restUnit?: "seconds" | "meters";
+}): string {
+  const target = formatSegmentValue(segment.targetValue, segment.targetUnit);
+  const repsPrefix = segment.repetitions ? `${segment.repetitions} x ` : "";
+  const rest =
+    typeof segment.restValue === "number" && segment.restUnit ? ` / ${formatSegmentValue(segment.restValue, segment.restUnit)} easy` : "";
+  return `${segment.label}: ${repsPrefix}${target} @ ${segment.paceZone}${rest}`;
+}
+
 export function PlanScreen({
   defaultVolumeMode,
+  unitPreference,
 }: {
   defaultVolumeMode: VolumeMode;
+  unitPreference: UnitPreference;
 }) {
   const requestPlanGeneration = useMutation(api.coach.requestPlanGeneration);
   const retryPlanGeneration = useMutation(api.coach.retryPlanGeneration);
   const createPlanFromGeneration = useMutation(api.coach.createPlanFromGeneration);
+  const requestWeekDetailGeneration = useMutation(api.coach.requestWeekDetailGeneration);
+  const retryWeekDetailGeneration = useMutation(api.coach.retryWeekDetailGeneration);
   const activateDraftPlan = useMutation(api.plans.activateDraftPlan);
   const updateDraftPlanBasics = useMutation(api.plans.updateDraftPlanBasics);
   const updatePlanStatus = useMutation(api.plans.updatePlanStatus);
@@ -204,6 +276,7 @@ export function PlanScreen({
   const [creatingDraft, setCreatingDraft] = useState(false);
   const [draftPeakOverrideText, setDraftPeakOverrideText] = useState("");
   const [draftPeakInputs, setDraftPeakInputs] = useState<Record<string, string>>({});
+  const [selectedWeekNumber, setSelectedWeekNumber] = useState<number | null>(null);
   const [planError, setPlanError] = useState<string | null>(null);
   const [planMessage, setPlanMessage] = useState<string | null>(null);
   const [proposalChatDraft, setProposalChatDraft] = useState("");
@@ -218,6 +291,45 @@ export function PlanScreen({
   const goalTimeSeconds = parseGoalTimeText(goalTimeHours, goalTimeMinutes, goalTimeSecondsText);
   const needsTargetDate = goalType === "race";
   const canGenerate = goalLabel.trim().length > 0 && (!needsTargetDate || targetDate !== null);
+
+  const trainingWeeks = planState?.activePlan?.trainingWeeks ?? [];
+  const weekDetail = useQuery(
+    api.plans.getWeekDetail,
+    planState?.activePlan && selectedWeekNumber
+      ? {
+          planId: planState.activePlan._id,
+          weekNumber: selectedWeekNumber,
+        }
+      : "skip",
+  );
+
+  useEffect(() => {
+    if (!planState?.activePlan) {
+      setSelectedWeekNumber(null);
+      return;
+    }
+
+    const preferredWeek =
+      planState.activePlan.currentWeekNumber ??
+      trainingWeeks[0]?.weekNumber ??
+      null;
+
+    setSelectedWeekNumber((current) => {
+      if (current && trainingWeeks.some((week) => week.weekNumber === current)) {
+        return current;
+      }
+      return preferredWeek;
+    });
+  }, [planState?.activePlan, trainingWeeks]);
+
+  const selectedWeekSummary = useMemo(
+    () => trainingWeeks.find((week) => week.weekNumber === selectedWeekNumber) ?? null,
+    [selectedWeekNumber, trainingWeeks],
+  );
+
+  const canGenerateSelectedWeek = Boolean(weekDetail?.canGenerate);
+  const isWeekRequestInFlight = weekDetail?.latestRequest?.status === "queued" || weekDetail?.latestRequest?.status === "inProgress";
+  const isWeekRequestFailed = weekDetail?.latestRequest?.status === "failed";
 
   const onCreatePlan = async () => {
     if (!canGenerate) {
@@ -313,8 +425,11 @@ export function PlanScreen({
     try {
       setPlanError(null);
       setPlanMessage(null);
-      await activateDraftPlan({ planId });
-      setPlanMessage("Draft activated.");
+      await activateDraftPlan({
+        planId,
+        canonicalTimeZoneId: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
+      });
+      setPlanMessage("Draft activated. Current week generation queued.");
     } catch (error) {
       setPlanError(String(error));
     }
@@ -337,6 +452,41 @@ export function PlanScreen({
       setPlanMessage(null);
       await updatePlanStatus({ planId, status: "completed" });
       setPlanMessage("Active plan marked complete.");
+    } catch (error) {
+      setPlanError(String(error));
+    }
+  };
+
+  const onGenerateWeek = async () => {
+    if (!planState?.activePlan || !selectedWeekNumber) {
+      return;
+    }
+
+    try {
+      setPlanError(null);
+      setPlanMessage(null);
+      await requestWeekDetailGeneration({
+        planId: planState.activePlan._id,
+        weekNumber: selectedWeekNumber,
+      });
+      setPlanMessage(`Week ${selectedWeekNumber} generation queued.`);
+    } catch (error) {
+      setPlanError(String(error));
+    }
+  };
+
+  const onRetryWeek = async () => {
+    if (!weekDetail?.latestRequest?._id) {
+      return;
+    }
+
+    try {
+      setPlanError(null);
+      setPlanMessage(null);
+      await retryWeekDetailGeneration({
+        requestId: weekDetail.latestRequest._id,
+      });
+      setPlanMessage(`Week ${selectedWeekNumber} retry queued.`);
     } catch (error) {
       setPlanError(String(error));
     }
@@ -429,7 +579,7 @@ export function PlanScreen({
       <Panel title="Plan Generation">
         {!planGenerationRequest ? (
           <Text style={styles.bodyText}>No plan generation requested yet.</Text>
-        ) : planGenerationRequest ? (
+        ) : (
           <>
             <Text style={styles.bodyText}>Status: {planGenerationRequest.status}</Text>
             {planGenerationRequest.status === "inProgress" || planGenerationRequest.status === "queued" ? (
@@ -481,8 +631,6 @@ export function PlanScreen({
               <PrimaryButton label="Retry Generation" onPress={onRetryPlanGeneration} />
             ) : null}
           </>
-        ) : (
-          <Text style={styles.helperText}>Loading generation status...</Text>
         )}
       </Panel>
 
@@ -514,7 +662,118 @@ export function PlanScreen({
           {typeof planState.activePlan.goal.goalTimeSeconds === "number" ? (
             <Text style={styles.helperText}>Goal time: {formatGoalTime(planState.activePlan.goal.goalTimeSeconds)}</Text>
           ) : null}
-          <WeekStructure plan={planState.activePlan} />
+          {planState.activePlan.startDateKey ? (
+            <Text style={styles.helperText}>
+              Canonical week 1 starts {planState.activePlan.startDateKey} in {planState.activePlan.canonicalTimeZoneId}
+            </Text>
+          ) : null}
+
+          <Text style={styles.label}>Weeks</Text>
+          <View style={styles.weekList}>
+            {trainingWeeks.map((week) => {
+              const isSelected = week.weekNumber === selectedWeekNumber;
+              const badge =
+                week.weekNumber === planState.activePlan.currentWeekNumber
+                  ? "Current"
+                  : week.weekNumber === planState.activePlan.nextWeekNumber
+                    ? "Next"
+                    : null;
+
+              return (
+                <Pressable
+                  key={String(week._id)}
+                  style={[styles.weekListRow, isSelected ? styles.weekListRowActive : null]}
+                  onPress={() => setSelectedWeekNumber(week.weekNumber)}
+                >
+                  <View style={styles.weekListHeader}>
+                    <Text style={styles.weekListTitle}>Week {week.weekNumber}</Text>
+                    {badge ? <Text style={styles.weekBadge}>{badge}</Text> : null}
+                  </View>
+                  <Text style={styles.helperText}>
+                    {Math.round(week.targetVolumePercent * 100)}% of peak · {week.emphasis || "No emphasis"}
+                  </Text>
+                  <Text style={styles.helperText}>
+                    {formatDateKey(week.weekStartDateKey)} - {formatDateKey(week.weekEndDateKey)} ·{" "}
+                    {week.generated ? "Generated" : "Outline only"}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+
+          {selectedWeekSummary ? (
+            <View style={styles.weekDetailBlock}>
+              <Text style={styles.weekDetailHeading}>Week {selectedWeekSummary.weekNumber}</Text>
+              <Text style={styles.helperText}>
+                {formatDateKey(selectedWeekSummary.weekStartDateKey)} - {formatDateKey(selectedWeekSummary.weekEndDateKey)}
+              </Text>
+              <Text style={styles.bodyText}>
+                Target volume:{" "}
+                {formatAbsoluteVolume(planState.activePlan.volumeMode, selectedWeekSummary.targetVolumeAbsolute, unitPreference)}
+                {" · "}
+                {Math.round(selectedWeekSummary.targetVolumePercent * 100)}% of peak
+              </Text>
+              <Text style={styles.helperText}>Emphasis: {selectedWeekSummary.emphasis || "No emphasis yet"}</Text>
+
+              {weekDetail === undefined ? (
+                <Text style={styles.helperText}>Loading week detail...</Text>
+              ) : (
+                <>
+                  {weekDetail.latestRequest?.status === "failed" ? (
+                    <Text style={styles.errorText}>{weekDetail.latestRequest.errorMessage ?? "Generation failed."}</Text>
+                  ) : null}
+                  {isWeekRequestInFlight ? (
+                    <Text style={styles.helperText}>Coach is building this week now...</Text>
+                  ) : null}
+                  {!selectedWeekSummary.generated ? (
+                    canGenerateSelectedWeek ? (
+                      isWeekRequestFailed ? (
+                        <PrimaryButton label="Retry Generation" onPress={onRetryWeek} disabled={isWeekRequestInFlight} />
+                      ) : (
+                        <PrimaryButton label="Generate Workouts" onPress={onGenerateWeek} disabled={isWeekRequestInFlight} />
+                      )
+                    ) : (
+                      <Text style={styles.helperText}>Only the current week and next week can be generated.</Text>
+                    )
+                  ) : null}
+
+                  {weekDetail.week.coachNotes ? (
+                    <Text style={styles.helperText}>{weekDetail.week.coachNotes}</Text>
+                  ) : null}
+
+                  {weekDetail.workouts.length > 0 ? (
+                    <View style={styles.workoutList}>
+                      {weekDetail.workouts.map((workout) => (
+                        <View key={String(workout._id)} style={styles.workoutCard}>
+                          <Text style={styles.workoutTitle}>
+                            {formatDateKey(workout.scheduledDateKey)} · {formatWorkoutType(workout.type)}
+                          </Text>
+                          <Text style={styles.helperText}>
+                            {formatAbsoluteVolume(planState.activePlan.volumeMode, workout.absoluteVolume, unitPreference)}
+                            {" · "}
+                            {Math.round(workout.volumePercent * 100)}% of peak · {workout.venue}
+                          </Text>
+                          {workout.notes ? <Text style={styles.bodyText}>{workout.notes}</Text> : null}
+                          {workout.segments.length > 0 ? (
+                            <View style={styles.segmentList}>
+                              {workout.segments.map((segment, index) => (
+                                <Text key={`${String(workout._id)}-${index}`} style={styles.helperText}>
+                                  {formatSegment(segment)}
+                                </Text>
+                              ))}
+                            </View>
+                          ) : null}
+                        </View>
+                      ))}
+                    </View>
+                  ) : selectedWeekSummary.generated ? (
+                    <Text style={styles.helperText}>No workouts returned for this week.</Text>
+                  ) : null}
+                </>
+              )}
+            </View>
+          ) : null}
+
           <PrimaryButton label="Mark Plan Complete" onPress={() => onCompletePlan(planState.activePlan!._id)} />
           <SecondaryButton label="Abandon Active Plan" onPress={() => onAbandonPlan(planState.activePlan!._id)} />
         </Panel>

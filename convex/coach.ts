@@ -6,8 +6,10 @@ import { action, internalAction, internalMutation, internalQuery, mutation, quer
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { validatePlanGenerationResponse, type PlanGenerationProposal } from "./coachContracts";
-import { buildPlanGenerationMessages } from "./coachPrompts";
+import { buildPlanGenerationMessages, buildWeekDetailGenerationMessages } from "./coachPrompts";
+import { validateWeekDetailResponse } from "./weekDetailContracts";
 import { aiCallTypes, aiRequestPriorities, aiRequestStatuses, goalTypes, volumeModes } from "./constants";
+import { isWeekGeneratable, resolveAbsoluteWeekVolume } from "./planWeeks";
 
 declare const process:
   | {
@@ -21,6 +23,8 @@ const volumeModeValidator = v.union(...volumeModes.map((mode) => v.literal(mode)
 const MS_PER_WEEK = 7 * 24 * 60 * 60 * 1000;
 const PLAN_GENERATION_PROMPT_REVISION = "plan-generation-v1";
 const PLAN_GENERATION_SCHEMA_REVISION = "plan-generation-v1";
+const WEEK_DETAIL_PROMPT_REVISION = "week-detail-v1";
+const WEEK_DETAIL_SCHEMA_REVISION = "week-detail-v1";
 const DEFAULT_OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
 const DEFAULT_OPENROUTER_MODEL = "openai/gpt-5-mini";
 
@@ -182,6 +186,19 @@ function createDedupeKey(input: {
   ].join("|");
 }
 
+function createWeekDetailDedupeKey(input: {
+  planId: Id<"trainingPlans">;
+  weekNumber: number;
+}): string {
+  return [
+    "weekDetailGeneration",
+    input.planId,
+    input.weekNumber,
+    WEEK_DETAIL_PROMPT_REVISION,
+    WEEK_DETAIL_SCHEMA_REVISION,
+  ].join("|");
+}
+
 function asPlanGenerationInput(
   value: unknown,
 ): {
@@ -226,6 +243,29 @@ function asPlanGenerationInput(
     volumeMode,
     requestedNumberOfWeeks,
     authoritativeNumberOfWeeks,
+  };
+}
+
+function asWeekDetailInput(
+  value: unknown,
+): {
+  planId: Id<"trainingPlans">;
+  weekNumber: number;
+} {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("Invalid week-detail request input payload.");
+  }
+
+  const candidate = value as Record<string, unknown>;
+  const planId = candidate.planId as Id<"trainingPlans"> | undefined;
+  const weekNumber = typeof candidate.weekNumber === "number" ? Math.round(candidate.weekNumber) : undefined;
+  if (!planId || typeof planId !== "string" || !weekNumber || weekNumber < 1) {
+    throw new Error("Week-detail input requires planId and positive weekNumber.");
+  }
+
+  return {
+    planId,
+    weekNumber,
   };
 }
 
@@ -555,6 +595,98 @@ export const getLatestPlanGenerationRequest = query({
   },
 });
 
+export const requestWeekDetailGeneration = mutation({
+  args: {
+    planId: v.id("trainingPlans"),
+    weekNumber: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const userId = await requireAuthenticatedMutationUserId(ctx);
+    const plan = await ctx.db.get(args.planId);
+    if (!plan || plan.userId !== userId) {
+      throw new Error("Plan not found for user.");
+    }
+    if (plan.status !== "active") {
+      throw new Error("Week details can only be generated for an active plan.");
+    }
+    if (!plan.startDateKey || !plan.canonicalTimeZoneId) {
+      throw new Error("Active plan is missing canonical week metadata.");
+    }
+
+    const weekNumber = Math.round(args.weekNumber);
+    if (!isWeekGeneratable(plan, weekNumber, Date.now())) {
+      throw new Error("Only the current week and next week can be generated.");
+    }
+
+    const week = await ctx.db
+      .query("trainingWeeks")
+      .withIndex("by_plan_id_week_number", (queryBuilder) =>
+        queryBuilder.eq("planId", plan._id).eq("weekNumber", weekNumber),
+      )
+      .unique();
+    if (!week) {
+      throw new Error("Training week not found.");
+    }
+
+    const dedupeKey = createWeekDetailDedupeKey({
+      planId: plan._id,
+      weekNumber,
+    });
+    const existing = await ctx.db
+      .query("aiRequests")
+      .withIndex("by_user_id_call_type_dedupe_key", (queryBuilder) =>
+        queryBuilder.eq("userId", userId).eq("callType", "weekDetailGeneration").eq("dedupeKey", dedupeKey),
+      )
+      .collect();
+
+    const inFlight = existing.find((request) => request.status === "queued" || request.status === "inProgress");
+    if (inFlight) {
+      return {
+        requestId: inFlight._id,
+        status: inFlight.status,
+        deduped: true,
+      };
+    }
+
+    const now = Date.now();
+    const requestId = await ctx.db.insert("aiRequests", {
+      userId,
+      callType: aiCallTypes[1],
+      status: aiRequestStatuses[0],
+      priority: aiRequestPriorities[0],
+      dedupeKey,
+      input: {
+        planId: plan._id,
+        weekNumber,
+      },
+      attemptCount: 0,
+      maxAttempts: 1,
+      promptRevision: WEEK_DETAIL_PROMPT_REVISION,
+      schemaRevision: WEEK_DETAIL_SCHEMA_REVISION,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    await insertCoachEvent(
+      ctx,
+      userId,
+      `Generating workouts for week ${week.weekNumber}.`,
+      plan._id,
+      requestId,
+    );
+
+    await ctx.scheduler.runAfter(0, internal.coach.processWeekDetailGenerationRequest, {
+      requestId,
+    });
+
+    return {
+      requestId,
+      status: "queued" as const,
+      deduped: false,
+    };
+  },
+});
+
 export const getCoachConversation = query({
   args: {},
   handler: async (ctx) => {
@@ -749,6 +881,41 @@ export const retryPlanGeneration = mutation({
   },
 });
 
+export const retryWeekDetailGeneration = mutation({
+  args: {
+    requestId: v.id("aiRequests"),
+  },
+  handler: async (ctx, args) => {
+    const userId = await requireAuthenticatedMutationUserId(ctx);
+    const request = await ctx.db.get(args.requestId);
+    if (!request || request.userId !== userId || request.callType !== "weekDetailGeneration") {
+      throw new Error("Week-detail request not found.");
+    }
+
+    if (request.status !== "failed") {
+      throw new Error("Only failed week-detail requests can be retried manually.");
+    }
+
+    await ctx.db.patch(request._id, {
+      status: "queued",
+      errorCode: undefined,
+      errorMessage: undefined,
+      nextRetryAt: undefined,
+      completedAt: undefined,
+      updatedAt: Date.now(),
+    });
+
+    await ctx.scheduler.runAfter(0, internal.coach.processWeekDetailGenerationRequest, {
+      requestId: request._id,
+    });
+
+    return {
+      requestId: request._id,
+      status: "queued" as const,
+    };
+  },
+});
+
 export const createPlanFromGeneration = mutation({
   args: {
     requestId: v.id("aiRequests"),
@@ -894,6 +1061,103 @@ export const getPlanGenerationContext = internalQuery({
   },
 });
 
+export const getWeekDetailGenerationContext = internalQuery({
+  args: {
+    requestId: v.id("aiRequests"),
+  },
+  handler: async (ctx, args) => {
+    const request = await ctx.db.get(args.requestId);
+    if (!request || request.callType !== "weekDetailGeneration") {
+      return null;
+    }
+
+    const input = asWeekDetailInput(request.input);
+    const plan = await ctx.db.get(input.planId);
+    if (!plan || plan.status !== "active" || !plan.startDateKey || !plan.canonicalTimeZoneId) {
+      return null;
+    }
+
+    const week = await ctx.db
+      .query("trainingWeeks")
+      .withIndex("by_plan_id_week_number", (queryBuilder) =>
+        queryBuilder.eq("planId", plan._id).eq("weekNumber", input.weekNumber),
+      )
+      .unique();
+    if (!week) {
+      return null;
+    }
+
+    const [user, goal, competitiveness, runningSchedule, personality] = await Promise.all([
+      ctx.db.get(request.userId),
+      ctx.db.get(plan.goalId),
+      ctx.db
+        .query("competitiveness")
+        .withIndex("by_user_id", (queryBuilder) => queryBuilder.eq("userId", request.userId))
+        .unique(),
+      ctx.db
+        .query("runningSchedules")
+        .withIndex("by_user_id", (queryBuilder) => queryBuilder.eq("userId", request.userId))
+        .unique(),
+      ctx.db
+        .query("personalities")
+        .withIndex("by_user_id", (queryBuilder) => queryBuilder.eq("userId", request.userId))
+        .unique(),
+    ]);
+    if (!user || !goal) {
+      return null;
+    }
+
+    const healthKitWorkouts = await ctx.db
+      .query("healthKitWorkouts")
+      .withIndex("by_user_id", (queryBuilder) => queryBuilder.eq("userId", request.userId))
+      .collect();
+
+    const recentWorkouts = healthKitWorkouts
+      .sort((left, right) => right.startedAt - left.startedAt)
+      .slice(0, 20)
+      .map((workout) => ({
+        startedAt: workout.startedAt,
+        durationSeconds: workout.durationSeconds,
+        distanceMeters: workout.distanceMeters,
+        averageHeartRate: workout.averageHeartRate,
+      }));
+
+    return {
+      request,
+      input,
+      plan,
+      week,
+      promptInput: {
+        goalLabel: goal.label,
+        volumeMode: plan.volumeMode,
+        peakWeekVolume: plan.peakWeekVolume,
+        currentVDOT: user.currentVDOT,
+        competitiveness: competitiveness?.level ?? "balanced",
+        personalityDescription: personality?.description ?? "Direct and concise coaching.",
+        preferredRunningDays: runningSchedule?.preferredRunningDays ?? [
+          "monday",
+          "tuesday",
+          "wednesday",
+          "thursday",
+          "friday",
+          "saturday",
+          "sunday",
+        ],
+        preferredLongRunDay: runningSchedule?.preferredLongRunDay ?? undefined,
+        preferredQualityDays: runningSchedule?.preferredQualityDays ?? [],
+        trackAccess: user.trackAccess,
+        weekNumber: week.weekNumber,
+        weekStartDateKey: week.weekStartDateKey as `${number}-${string}-${string}`,
+        weekEndDateKey: week.weekEndDateKey as `${number}-${string}-${string}`,
+        targetVolumePercent: week.targetVolumePercent,
+        targetVolumeAbsolute: week.targetVolumeAbsolute,
+        emphasis: week.emphasis,
+        recentWorkouts,
+      },
+    };
+  },
+});
+
 export const markRequestInProgress = internalMutation({
   args: {
     requestId: v.id("aiRequests"),
@@ -980,6 +1244,129 @@ export const finalizePlanGenerationSuccess = internalMutation({
   },
 });
 
+export const finalizeWeekDetailGenerationSuccess = internalMutation({
+  args: {
+    requestId: v.id("aiRequests"),
+    proposal: v.any(),
+    metadata: v.optional(v.any()),
+  },
+  handler: async (ctx, args) => {
+    const request = await ctx.db.get(args.requestId);
+    if (!request) {
+      return null;
+    }
+
+    if (request.callType !== "weekDetailGeneration") {
+      throw new Error("finalizeWeekDetailGenerationSuccess only supports weekDetailGeneration requests.");
+    }
+
+    const input = asWeekDetailInput(request.input);
+    const plan = await ctx.db.get(input.planId);
+    if (!plan) {
+      throw new Error("Active plan for week detail could not be loaded.");
+    }
+
+    const week = await ctx.db
+      .query("trainingWeeks")
+      .withIndex("by_plan_id_week_number", (queryBuilder) =>
+        queryBuilder.eq("planId", plan._id).eq("weekNumber", input.weekNumber),
+      )
+      .unique();
+    if (!week) {
+      throw new Error("Target training week could not be loaded.");
+    }
+
+    const runningSchedule = await ctx.db
+      .query("runningSchedules")
+      .withIndex("by_user_id", (queryBuilder) => queryBuilder.eq("userId", request.userId))
+      .unique();
+
+    const validated = validateWeekDetailResponse(args.proposal, {
+      weekStartDateKey: week.weekStartDateKey as `${number}-${string}-${string}`,
+      weekEndDateKey: week.weekEndDateKey as `${number}-${string}-${string}`,
+      targetVolumePercent: week.targetVolumePercent,
+      preferredRunningDays:
+        runningSchedule?.preferredRunningDays ?? [
+          "monday",
+          "tuesday",
+          "wednesday",
+          "thursday",
+          "friday",
+          "saturday",
+          "sunday",
+        ],
+      trackAccess: Boolean((await ctx.db.get(request.userId))?.trackAccess),
+    });
+
+    const metadata = asMetadata(args.metadata);
+    const result = {
+      ...validated.proposal,
+      ...(metadata ? { metadata } : {}),
+      corrections: validated.corrections,
+    };
+
+    const existingWorkouts = await ctx.db
+      .query("workouts")
+      .withIndex("by_week_id", (queryBuilder) => queryBuilder.eq("weekId", week._id))
+      .collect();
+    for (const workout of existingWorkouts) {
+      await ctx.db.delete(workout._id);
+    }
+
+    const now = Date.now();
+    for (const workout of validated.proposal.workouts) {
+      await ctx.db.insert("workouts", {
+        weekId: week._id,
+        type: workout.type,
+        volumePercent: workout.volumePercent,
+        absoluteVolume: resolveAbsoluteWeekVolume(plan.volumeMode, plan.peakWeekVolume, workout.volumePercent),
+        scheduledDateKey: workout.scheduledDate,
+        notes: workout.notes,
+        venue: workout.venue,
+        origin: "planned",
+        status: "planned",
+        segments: workout.segments.map((segment, index) => ({
+          ...segment,
+          order: index + 1,
+        })),
+        createdAt: now,
+        updatedAt: now,
+      });
+    }
+
+    await ctx.db.patch(week._id, {
+      coachNotes: validated.proposal.coachNotes,
+      generated: true,
+      generatedByAiRequestId: request._id,
+      updatedAt: now,
+    });
+
+    await ctx.db.patch(request._id, {
+      status: "succeeded",
+      result,
+      errorCode: undefined,
+      errorMessage: undefined,
+      nextRetryAt: undefined,
+      completedAt: now,
+      updatedAt: now,
+    });
+
+    await ctx.db.insert("coachMessages", {
+      userId: request.userId,
+      author: "coach",
+      kind: "event",
+      body: `Week ${week.weekNumber} workouts are ready.`,
+      planId: plan._id,
+      relatedRequestId: request._id,
+      createdAt: now,
+    });
+
+    return {
+      corrections: validated.corrections,
+    };
+  },
+});
+
 export const markRequestQueuedForRetry = internalMutation({
   args: {
     requestId: v.id("aiRequests"),
@@ -1029,7 +1416,10 @@ export const markRequestFailed = internalMutation({
       userId: request.userId,
       author: "coach",
       kind: "event",
-      body: `Plan generation failed: ${args.errorMessage}`,
+      body:
+        request.callType === "weekDetailGeneration"
+          ? `Week detail generation failed: ${args.errorMessage}`
+          : `Plan generation failed: ${args.errorMessage}`,
       relatedRequestId: request._id,
       createdAt: now,
     });
@@ -1115,6 +1505,70 @@ export const processPlanGenerationRequest = internalAction({
       await ctx.runMutation(internal.coach.markRequestFailed, {
         requestId: args.requestId,
         errorCode: "PLAN_GENERATION_FAILED",
+        errorMessage: message,
+      });
+    }
+  },
+});
+
+export const processWeekDetailGenerationRequest = internalAction({
+  args: {
+    requestId: v.id("aiRequests"),
+  },
+  handler: async (ctx, args) => {
+    const started = await ctx.runMutation(internal.coach.markRequestInProgress, {
+      requestId: args.requestId,
+    });
+    if (!started) {
+      return;
+    }
+
+    try {
+      const context = await ctx.runQuery(internal.coach.getWeekDetailGenerationContext, {
+        requestId: args.requestId,
+      });
+      if (!context) {
+        throw new Error("Could not load week-detail generation context.");
+      }
+
+      if (!isWeekGeneratable(context.plan, context.week.weekNumber, Date.now())) {
+        throw new Error("Only the current week and next week can be generated.");
+      }
+
+      const messages = buildWeekDetailGenerationMessages(context.promptInput);
+      const providerResponse = await callOpenRouter(messages);
+      const parsed = parseJsonPayloadFromModel(providerResponse.content);
+
+      const finalized = await ctx.runMutation(internal.coach.finalizeWeekDetailGenerationSuccess, {
+        requestId: args.requestId,
+        proposal: parsed,
+        metadata: {
+          model: providerResponse.model,
+          providerRequestId: providerResponse.requestId,
+        },
+      });
+
+      if (finalized && finalized.corrections.length > 0) {
+        await ctx.runMutation(internal.coach.appendDiagnostic, {
+          requestId: args.requestId,
+          code: "WEEK_DETAIL_AUTO_CORRECTED",
+          message: "Applied deterministic corrections to AI week-detail proposal.",
+          details: {
+            corrections: finalized.corrections,
+          },
+        });
+      }
+    } catch (error) {
+      const message = errorMessage(error);
+      await ctx.runMutation(internal.coach.appendDiagnostic, {
+        requestId: args.requestId,
+        code: "WEEK_DETAIL_GENERATION_FAILED",
+        message,
+      });
+
+      await ctx.runMutation(internal.coach.markRequestFailed, {
+        requestId: args.requestId,
+        errorCode: "WEEK_DETAIL_GENERATION_FAILED",
         errorMessage: message,
       });
     }

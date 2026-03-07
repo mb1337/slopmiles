@@ -68,7 +68,7 @@ export function MainTabs({
             onCreatePlanPress={() => setActiveTab("plan")}
           />
         ) : null}
-        {activeTab === "plan" ? <PlanScreen defaultVolumeMode={defaultVolumeMode} /> : null}
+        {activeTab === "plan" ? <PlanScreen defaultVolumeMode={defaultVolumeMode} unitPreference={unitPreference} /> : null}
         {activeTab === "history" ? <HistoryScreen unitPreference={unitPreference} /> : null}
         {activeTab === "coach" ? <CoachScreen /> : null}
         {activeTab === "settings" ? (
