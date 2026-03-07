@@ -69,3 +69,35 @@ export function formatDistanceForDisplay(distanceMeters: number | undefined, uni
 
   return `${(normalizedMeters / 1000).toFixed(2)} km`;
 }
+
+export function formatPaceSecondsPerMeterForDisplay(
+  paceSecondsPerMeter: number | undefined,
+  unitPreference: UnitPreference,
+): string {
+  if (typeof paceSecondsPerMeter !== "number" || !Number.isFinite(paceSecondsPerMeter) || paceSecondsPerMeter <= 0) {
+    return "-";
+  }
+
+  const unitMeters = prefersImperialDistance(unitPreference) ? 1609.344 : 1000;
+  const paceSeconds = paceSecondsPerMeter * unitMeters;
+  const roundedPaceSeconds = Math.round(paceSeconds);
+  const minutes = Math.floor(roundedPaceSeconds / 60);
+  const seconds = roundedPaceSeconds % 60;
+  return `${minutes}:${String(seconds).padStart(2, "0")} / ${prefersImperialDistance(unitPreference) ? "mi" : "km"}`;
+}
+
+export function formatElevationForDisplay(
+  elevationMeters: number | undefined,
+  unitPreference: UnitPreference,
+): string {
+  if (typeof elevationMeters !== "number" || !Number.isFinite(elevationMeters)) {
+    return "-";
+  }
+
+  const normalizedMeters = Math.max(0, elevationMeters);
+  if (prefersImperialDistance(unitPreference)) {
+    return `${Math.round(normalizedMeters * 3.28084)} ft`;
+  }
+
+  return `${Math.round(normalizedMeters)} m`;
+}

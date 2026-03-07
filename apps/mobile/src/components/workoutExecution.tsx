@@ -10,7 +10,11 @@ import {
 import { api, type Id } from "../convex";
 import { ChoiceRow, PrimaryButton, SecondaryButton, TagGrid } from "./common";
 import { styles } from "../styles";
-import { formatDistanceForDisplay, prefersImperialDistance } from "../units";
+import {
+  formatDistanceForDisplay,
+  formatElevationForDisplay,
+  formatPaceSecondsPerMeterForDisplay,
+} from "../units";
 
 const RPE_OPTIONS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10"] as const;
 
@@ -19,28 +23,6 @@ function formatDuration(seconds: number): string {
   const minutes = Math.floor(rounded / 60);
   const remainingSeconds = rounded % 60;
   return `${minutes}:${String(remainingSeconds).padStart(2, "0")}`;
-}
-
-function formatPace(
-  durationSeconds: number,
-  distanceMeters: number | undefined,
-  unitPreference: UnitPreference,
-): string {
-  if (typeof distanceMeters !== "number" || distanceMeters <= 0 || durationSeconds <= 0) {
-    return "-";
-  }
-
-  const useImperial = prefersImperialDistance(unitPreference);
-  const distance = useImperial ? distanceMeters / 1609.344 : distanceMeters / 1000;
-  if (distance <= 0) {
-    return "-";
-  }
-
-  const paceSeconds = durationSeconds / distance;
-  const minutes = Math.floor(paceSeconds / 60);
-  const seconds = Math.round(paceSeconds % 60);
-
-  return `${minutes}:${String(seconds).padStart(2, "0")} / ${useImperial ? "mi" : "km"}`;
 }
 
 function formatHeartRate(heartRate?: number): string {
@@ -118,6 +100,46 @@ function matchBadgeStyle(status: "matched" | "unmatched" | "needsReview") {
     default:
       return styles.statusBadgeUnmatched;
   }
+}
+
+function formatPlannedTarget(
+  segment: {
+    plannedSeconds: number | null;
+    plannedMeters: number | null;
+    plannedPaceSecondsPerMeter: number | null;
+  },
+  unitPreference: UnitPreference,
+): string {
+  if (segment.plannedSeconds === null && segment.plannedMeters === null) {
+    return "Extra / unmatched rep";
+  }
+
+  const volume =
+    typeof segment.plannedSeconds === "number"
+      ? formatDuration(segment.plannedSeconds)
+      : formatDistanceForDisplay(segment.plannedMeters ?? undefined, unitPreference);
+  const pace = formatPaceSecondsPerMeterForDisplay(segment.plannedPaceSecondsPerMeter ?? undefined, unitPreference);
+  return `${volume} @ ${pace}`;
+}
+
+function formatActualRep(
+  rep: {
+    actualSeconds: number | null;
+    actualMeters: number | null;
+    actualPaceSecondsPerMeter: number | null;
+    actualPaceSource: "gap" | "raw" | null;
+  },
+  unitPreference: UnitPreference,
+): string {
+  const volume = [
+    typeof rep.actualSeconds === "number" ? formatDuration(rep.actualSeconds) : null,
+    typeof rep.actualMeters === "number" ? formatDistanceForDisplay(rep.actualMeters, unitPreference) : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  const pace = formatPaceSecondsPerMeterForDisplay(rep.actualPaceSecondsPerMeter ?? undefined, unitPreference);
+  const paceLabel = rep.actualPaceSource === "gap" ? `GAP ${pace}` : pace;
+  return [volume, paceLabel].filter(Boolean).join(" · ");
 }
 
 export function WorkoutExecutionDetail({
@@ -251,6 +273,18 @@ export function WorkoutExecutionDetail({
   }
 
   const { execution, importedWorkout } = detail;
+  const rawPace = formatPaceSecondsPerMeterForDisplay(importedWorkout.rawPaceSecondsPerMeter ?? undefined, unitPreference);
+  const gapPace = formatPaceSecondsPerMeterForDisplay(
+    importedWorkout.gradeAdjustedPaceSecondsPerMeter ?? undefined,
+    unitPreference,
+  );
+  const elevationSummary =
+    typeof importedWorkout.elevationAscentMeters === "number" || typeof importedWorkout.elevationDescentMeters === "number"
+      ? `+${formatElevationForDisplay(importedWorkout.elevationAscentMeters ?? 0, unitPreference)} / -${formatElevationForDisplay(
+          importedWorkout.elevationDescentMeters ?? 0,
+          unitPreference,
+        )}`
+      : null;
 
   return (
     <View style={styles.executionBlock}>
@@ -272,20 +306,59 @@ export function WorkoutExecutionDetail({
         </View>
         <View style={styles.metricCard}>
           <Text style={styles.metricLabel}>Pace</Text>
-          <Text style={styles.metricValue}>
-            {formatPace(importedWorkout.durationSeconds, importedWorkout.distanceMeters, unitPreference)}
-          </Text>
+          <Text style={styles.metricValue}>{rawPace}</Text>
         </View>
+        {importedWorkout.gradeAdjustedPaceSecondsPerMeter ? (
+          <View style={styles.metricCard}>
+            <Text style={styles.metricLabel}>GAP</Text>
+            <Text style={styles.metricValue}>{gapPace}</Text>
+          </View>
+        ) : null}
         <View style={styles.metricCard}>
           <Text style={styles.metricLabel}>Avg HR</Text>
           <Text style={styles.metricValue}>{formatHeartRate(importedWorkout.averageHeartRate)}</Text>
         </View>
+        {elevationSummary ? (
+          <View style={styles.metricCard}>
+            <Text style={styles.metricLabel}>Elevation</Text>
+            <Text style={styles.metricValue}>{elevationSummary}</Text>
+          </View>
+        ) : null}
       </View>
 
       {linkedWorkoutSummary ? (
         <View style={styles.subtleBlock}>
           <Text style={styles.label}>Linked workout</Text>
           <Text style={styles.bodyText}>{linkedWorkoutSummary}</Text>
+        </View>
+      ) : null}
+
+      {detail.segmentComparisons.length > 0 ? (
+        <View style={styles.executionSection}>
+          <Text style={styles.executionSectionTitle}>Planned vs Actual Reps</Text>
+          {detail.segmentComparisons.map((segment) => (
+            <View key={`${executionId}:segment:${segment.plannedSegmentOrder}`} style={styles.subtleBlock}>
+              <Text style={styles.label}>
+                {segment.plannedLabel} {segment.plannedPaceZone ? `(${segment.plannedPaceZone})` : ""}
+              </Text>
+              <Text style={styles.helperText}>
+                Adherence {Math.round(segment.adherenceScore * 100)}%
+                {segment.inferred ? " · includes inferred rep boundaries" : ""}
+              </Text>
+              {segment.reps.map((rep) => (
+                <View
+                  key={`${executionId}:segment:${segment.plannedSegmentOrder}:rep:${rep.repIndex}`}
+                  style={styles.historyIntervalRow}
+                >
+                  <Text style={styles.historyIntervalLabel}>Rep {rep.repIndex}</Text>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.helperText}>Planned: {formatPlannedTarget(rep, unitPreference)}</Text>
+                    <Text style={styles.helperText}>Actual: {formatActualRep(rep, unitPreference)}</Text>
+                  </View>
+                </View>
+              ))}
+            </View>
+          ))}
         </View>
       ) : null}
 

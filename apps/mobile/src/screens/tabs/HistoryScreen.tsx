@@ -7,7 +7,11 @@ import { api } from "../../convex";
 import { WorkoutExecutionDetail } from "../../components/workoutExecution";
 import { Panel } from "../../components/common";
 import { styles } from "../../styles";
-import { formatDistanceForDisplay } from "../../units";
+import {
+  formatDistanceForDisplay,
+  formatElevationForDisplay,
+  formatPaceSecondsPerMeterForDisplay,
+} from "../../units";
 
 function formatDuration(seconds: number): string {
   const rounded = Math.max(0, Math.round(seconds));
@@ -100,9 +104,23 @@ export function HistoryScreen({
                 </Text>
               </View>
               <Text style={styles.helperText}>
-                {formatDistanceForDisplay(workout.distanceMeters, unitPreference)} · {formatDuration(workout.durationSeconds)} · Avg HR{" "}
+                {formatDistanceForDisplay(workout.distanceMeters, unitPreference)} · {formatDuration(workout.durationSeconds)} · Pace{" "}
+                {formatPaceSecondsPerMeterForDisplay(workout.rawPaceSecondsPerMeter ?? undefined, unitPreference)} · Avg HR{" "}
                 {formatHeartRate(workout.averageHeartRate)}
               </Text>
+              {workout.gradeAdjustedPaceSecondsPerMeter || workout.elevationAscentMeters || workout.elevationDescentMeters ? (
+                <Text style={styles.helperText}>
+                  {workout.gradeAdjustedPaceSecondsPerMeter
+                    ? `GAP ${formatPaceSecondsPerMeterForDisplay(workout.gradeAdjustedPaceSecondsPerMeter, unitPreference)}`
+                    : "GAP unavailable"}
+                  {typeof workout.elevationAscentMeters === "number" || typeof workout.elevationDescentMeters === "number"
+                    ? ` · Elevation +${formatElevationForDisplay(workout.elevationAscentMeters ?? 0, unitPreference)} / -${formatElevationForDisplay(
+                        workout.elevationDescentMeters ?? 0,
+                        unitPreference,
+                      )}`
+                    : ""}
+                </Text>
+              ) : null}
               {expanded ? (
                 <>
                   {workout.intervalChains?.length ? (

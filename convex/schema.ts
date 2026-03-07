@@ -64,6 +64,8 @@ const healthKitIntervalValidator = v.object({
   endedAt: v.number(),
   durationSeconds: v.number(),
   distanceMeters: v.optional(v.number()),
+  rawPaceSecondsPerMeter: v.optional(v.number()),
+  gradeAdjustedPaceSecondsPerMeter: v.optional(v.number()),
   averageHeartRate: v.optional(v.number()),
 });
 const healthKitIntervalChainValidator = v.object({
@@ -268,6 +270,10 @@ export default defineSchema({
     endedAt: v.number(),
     durationSeconds: v.number(),
     distanceMeters: v.optional(v.number()),
+    rawPaceSecondsPerMeter: v.optional(v.number()),
+    gradeAdjustedPaceSecondsPerMeter: v.optional(v.number()),
+    elevationAscentMeters: v.optional(v.number()),
+    elevationDescentMeters: v.optional(v.number()),
     averageHeartRate: v.optional(v.number()),
     maxHeartRate: v.optional(v.number()),
     intervalChains: v.optional(v.array(healthKitIntervalChainValidator)),

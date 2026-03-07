@@ -119,6 +119,10 @@ export type WorkoutExecutionSummary = {
   actualEndedAt: number;
   actualDurationSeconds: number;
   actualDistanceMeters?: number;
+  actualRawPaceSecondsPerMeter?: number | null;
+  actualGradeAdjustedPaceSecondsPerMeter?: number | null;
+  elevationAscentMeters?: number | null;
+  elevationDescentMeters?: number | null;
   actualAverageHeartRate?: number;
   rpe?: number | null;
   modifiers: EffortModifier[];
@@ -243,4 +247,5 @@ export function nextOnboardingStep(step: OnboardingStep): OnboardingStep {
 }
 
 export * from "./calendar";
+export * from "./gap";
 export * from "./vdot";

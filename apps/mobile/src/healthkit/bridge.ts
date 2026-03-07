@@ -11,6 +11,11 @@ import {
   queryWorkoutSamples,
   requestAuthorization,
 } from "@kingstinct/react-native-healthkit";
+import {
+  aggregateGapMicroSegmentsForInterval,
+  analyzeRouteForGap,
+  calculatePaceSecondsPerMeter,
+} from "@slopmiles/domain";
 import { Platform } from "react-native";
 
 export type HealthKitAuthorizationStatus = "authorized" | "denied" | "notDetermined" | "unavailable";
@@ -27,6 +32,10 @@ export type HealthKitImportedWorkout = {
   endedAt: number;
   durationSeconds: number;
   distanceMeters?: number;
+  rawPaceSecondsPerMeter?: number;
+  gradeAdjustedPaceSecondsPerMeter?: number;
+  elevationAscentMeters?: number;
+  elevationDescentMeters?: number;
   averageHeartRate?: number;
   maxHeartRate?: number;
   intervalChains?: HealthKitWorkoutIntervalChain[];
@@ -40,6 +49,8 @@ export type HealthKitWorkoutInterval = {
   endedAt: number;
   durationSeconds: number;
   distanceMeters?: number;
+  rawPaceSecondsPerMeter?: number;
+  gradeAdjustedPaceSecondsPerMeter?: number;
   averageHeartRate?: number;
 };
 
@@ -81,6 +92,10 @@ function toDistanceMeters(quantity: number, unit: string): number | undefined {
 
   if (normalizedUnit === "mi" || normalizedUnit === "mile" || normalizedUnit === "miles") {
     return quantity * 1609.344;
+  }
+
+  if (normalizedUnit === "ft" || normalizedUnit === "foot" || normalizedUnit === "feet") {
+    return quantity * 0.3048;
   }
 
   return undefined;
@@ -160,6 +175,8 @@ async function queryHeartRateStats(workout: WorkoutProxy): Promise<{ averageHear
 }
 
 type WorkoutProxy = Awaited<ReturnType<typeof queryWorkoutSamples>>[number];
+type RouteGapAnalysis = NonNullable<ReturnType<typeof analyzeRouteForGap>>;
+type RouteLocationForGap = Parameters<typeof analyzeRouteForGap>[0][number];
 
 function resolveEventIntervalType(eventType: WorkoutEventType): HealthKitWorkoutInterval["type"] | null {
   if (eventType === WorkoutEventType.lap) {
@@ -200,6 +217,56 @@ async function resolveWorkoutDistanceMeters(workout: WorkoutProxy): Promise<numb
   }
 
   return undefined;
+}
+
+function resolveWorkoutElevationFromMetadata(
+  workout: WorkoutProxy,
+): { elevationAscentMeters?: number; elevationDescentMeters?: number } {
+  const elevationAscentMeters = workout.metadataElevationAscended
+    ? toDistanceMeters(workout.metadataElevationAscended.quantity, workout.metadataElevationAscended.unit)
+    : undefined;
+  const elevationDescentMeters = workout.metadataElevationDescended
+    ? toDistanceMeters(workout.metadataElevationDescended.quantity, workout.metadataElevationDescended.unit)
+    : undefined;
+
+  return {
+    ...(typeof elevationAscentMeters === "number" ? { elevationAscentMeters } : {}),
+    ...(typeof elevationDescentMeters === "number" ? { elevationDescentMeters } : {}),
+  };
+}
+
+function resolveRouteGapAnalysis(
+  routeLocations: RouteLocationForGap[] | undefined,
+  workout: WorkoutProxy,
+): RouteGapAnalysis | null {
+  if (!routeLocations || routeLocations.length === 0) {
+    return null;
+  }
+
+  const elevationFromMetadata = resolveWorkoutElevationFromMetadata(workout);
+  return analyzeRouteForGap(routeLocations, {
+    targetAscentMeters: elevationFromMetadata.elevationAscentMeters,
+    targetDescentMeters: elevationFromMetadata.elevationDescentMeters,
+  });
+}
+
+async function resolveWorkoutRouteLocations(workout: WorkoutProxy): Promise<RouteLocationForGap[] | undefined> {
+  const routes = await workout.getWorkoutRoutes().catch(() => undefined);
+  if (!routes || routes.length === 0) {
+    return undefined;
+  }
+
+  return routes.flatMap((route) =>
+    route.locations.map((location) => ({
+      latitude: location.latitude,
+      longitude: location.longitude,
+      altitudeMeters: location.altitude,
+      timestampMs: location.date.getTime(),
+      distanceFromPreviousMeters: location.distance,
+      horizontalAccuracyMeters: location.horizontalAccuracy,
+      verticalAccuracyMeters: location.verticalAccuracy,
+    })),
+  );
 }
 
 async function queryIntervalStats(
@@ -292,7 +359,10 @@ function resolveIntervalDistanceMeters(
   return totalDistanceMeters > 0 ? totalDistanceMeters : undefined;
 }
 
-async function resolveWorkoutIntervals(workout: WorkoutProxy): Promise<HealthKitWorkoutInterval[] | undefined> {
+async function resolveWorkoutIntervals(
+  workout: WorkoutProxy,
+  routeGapAnalysis: RouteGapAnalysis | null,
+): Promise<HealthKitWorkoutInterval[] | undefined> {
   const events = workout.events;
   if (!events || events.length === 0) {
     return undefined;
@@ -323,6 +393,11 @@ async function resolveWorkoutIntervals(workout: WorkoutProxy): Promise<HealthKit
 
       const averageHeartRate = await queryIntervalStats(workout, event.startDate, event.endDate);
       const distanceMeters = resolveIntervalDistanceMeters(distanceSlices, startedAt, endedAt);
+      const gapAggregate = routeGapAnalysis
+        ? aggregateGapMicroSegmentsForInterval(routeGapAnalysis.microSegments, startedAt, endedAt)
+        : null;
+      const rawPaceSecondsPerMeter =
+        gapAggregate?.rawPaceSecondsPerMeter ?? calculatePaceSecondsPerMeter(Math.round((endedAt - startedAt) / 1000), distanceMeters);
 
       return {
         type,
@@ -330,6 +405,10 @@ async function resolveWorkoutIntervals(workout: WorkoutProxy): Promise<HealthKit
         endedAt,
         durationSeconds: Math.round((endedAt - startedAt) / 1000),
         ...(typeof distanceMeters === "number" ? { distanceMeters } : {}),
+        ...(typeof rawPaceSecondsPerMeter === "number" ? { rawPaceSecondsPerMeter } : {}),
+        ...(typeof gapAggregate?.gradeAdjustedPaceSecondsPerMeter === "number"
+          ? { gradeAdjustedPaceSecondsPerMeter: gapAggregate.gradeAdjustedPaceSecondsPerMeter }
+          : {}),
         ...(typeof averageHeartRate === "number" ? { averageHeartRate } : {}),
       } satisfies HealthKitWorkoutInterval;
     }),
@@ -503,19 +582,38 @@ export async function seedRecentHealthKitImport({
 
   const workouts = await Promise.all(
     runningWorkouts.map(async (workout) => {
-      const [heartRateStats, distanceMeters, intervals] = await Promise.all([
+      const durationSeconds = resolveWorkoutDurationSeconds(workout);
+      const [heartRateStats, distanceMeters, routeLocations] = await Promise.all([
         queryHeartRateStats(workout),
         resolveWorkoutDistanceMeters(workout),
-        resolveWorkoutIntervals(workout),
+        resolveWorkoutRouteLocations(workout),
       ]);
+      const routeGapAnalysis = resolveRouteGapAnalysis(routeLocations, workout);
+      const intervals = await resolveWorkoutIntervals(workout, routeGapAnalysis);
       const intervalChains = resolveWorkoutIntervalChains(intervals);
+      const rawPaceSecondsPerMeter = calculatePaceSecondsPerMeter(durationSeconds, distanceMeters);
+      const elevationFromMetadata = resolveWorkoutElevationFromMetadata(workout);
 
       return {
         externalWorkoutId: workout.uuid,
         startedAt: workout.startDate.getTime(),
         endedAt: workout.endDate.getTime(),
-        durationSeconds: resolveWorkoutDurationSeconds(workout),
+        durationSeconds,
         distanceMeters,
+        ...(typeof rawPaceSecondsPerMeter === "number" ? { rawPaceSecondsPerMeter } : {}),
+        ...(typeof routeGapAnalysis?.gradeAdjustedPaceSecondsPerMeter === "number"
+          ? { gradeAdjustedPaceSecondsPerMeter: routeGapAnalysis.gradeAdjustedPaceSecondsPerMeter }
+          : {}),
+        ...(typeof elevationFromMetadata.elevationAscentMeters === "number"
+          ? { elevationAscentMeters: elevationFromMetadata.elevationAscentMeters }
+          : typeof routeGapAnalysis?.elevationAscentMeters === "number"
+            ? { elevationAscentMeters: routeGapAnalysis.elevationAscentMeters }
+            : {}),
+        ...(typeof elevationFromMetadata.elevationDescentMeters === "number"
+          ? { elevationDescentMeters: elevationFromMetadata.elevationDescentMeters }
+          : typeof routeGapAnalysis?.elevationDescentMeters === "number"
+            ? { elevationDescentMeters: routeGapAnalysis.elevationDescentMeters }
+            : {}),
         averageHeartRate: heartRateStats.averageHeartRate,
         maxHeartRate: heartRateStats.maxHeartRate,
         intervalChains,

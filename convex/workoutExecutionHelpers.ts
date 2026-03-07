@@ -1,6 +1,11 @@
 import { addDays, dateKeyFromEpochMs, diffDays, type DateKey } from "../packages/domain/src/calendar";
 import type { DatabaseReader, DatabaseWriter, MutationCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
+import {
+  buildStructuredSegmentComparisons,
+  resolveActualPaceMetrics,
+  type SegmentComparison,
+} from "./workoutMetrics";
 
 type ReaderCtx = {
   db: DatabaseReader;
@@ -90,6 +95,74 @@ function formatModifier(modifier: Doc<"workoutExecutions">["modifiers"][number])
     default:
       return modifier;
   }
+}
+
+function flattenImportedIntervals(workout: Doc<"healthKitWorkouts">) {
+  return (workout.intervalChains ?? [])
+    .flatMap((chain) => chain.intervals)
+    .sort((left, right) => {
+      if (left.startedAt !== right.startedAt) {
+        return left.startedAt - right.startedAt;
+      }
+      return left.endedAt - right.endedAt;
+    });
+}
+
+function buildSegmentComparisons(
+  plannedWorkout: Doc<"workouts"> | null,
+  importedWorkout: Doc<"healthKitWorkouts">,
+  currentVdot: number | null | undefined,
+): SegmentComparison[] {
+  if (!plannedWorkout) {
+    return [];
+  }
+
+  return buildStructuredSegmentComparisons({
+    segments: plannedWorkout.segments,
+    intervals: flattenImportedIntervals(importedWorkout),
+    currentVdot,
+  });
+}
+
+function resolveWorkoutPaceMetrics(importedWorkout: Doc<"healthKitWorkouts">) {
+  return resolveActualPaceMetrics({
+    rawPaceSecondsPerMeter: importedWorkout.rawPaceSecondsPerMeter,
+    gradeAdjustedPaceSecondsPerMeter: importedWorkout.gradeAdjustedPaceSecondsPerMeter,
+  });
+}
+
+function summarizeStructuredComparisons(segmentComparisons: SegmentComparison[]): {
+  averageAdherence: number;
+  inferredRepCount: number;
+} | null {
+  if (segmentComparisons.length === 0) {
+    return null;
+  }
+
+  const repComparisons = segmentComparisons.flatMap((segment) => segment.reps);
+  const averageAdherence =
+    segmentComparisons.reduce((sum, segment) => sum + segment.adherenceScore, 0) / segmentComparisons.length;
+  const inferredRepCount = repComparisons.filter((rep) => rep.inferred).length;
+
+  return {
+    averageAdherence: roundScore(averageAdherence),
+    inferredRepCount,
+  };
+}
+
+function describeTerrainContext(importedWorkout: Doc<"healthKitWorkouts">): string {
+  const paceMetrics = resolveWorkoutPaceMetrics(importedWorkout);
+  if (!paceMetrics.hasMeaningfulGapDifference) {
+    return "";
+  }
+
+  const hasElevation =
+    typeof importedWorkout.elevationAscentMeters === "number" || typeof importedWorkout.elevationDescentMeters === "number";
+  if (!hasElevation) {
+    return "Terrain changed the raw pace meaningfully, so GAP is the better read for effort.";
+  }
+
+  return "Terrain changed the raw pace meaningfully, so GAP is the better read for effort on this route.";
 }
 
 function isStructuredImportedWorkout(workout: Doc<"healthKitWorkouts">): boolean {
@@ -366,6 +439,10 @@ function buildExecutionSummary(
     actualEndedAt: importedWorkout.endedAt,
     actualDurationSeconds: importedWorkout.durationSeconds,
     actualDistanceMeters: importedWorkout.distanceMeters,
+    actualRawPaceSecondsPerMeter: importedWorkout.rawPaceSecondsPerMeter ?? null,
+    actualGradeAdjustedPaceSecondsPerMeter: importedWorkout.gradeAdjustedPaceSecondsPerMeter ?? null,
+    elevationAscentMeters: importedWorkout.elevationAscentMeters ?? null,
+    elevationDescentMeters: importedWorkout.elevationDescentMeters ?? null,
     actualAverageHeartRate: importedWorkout.averageHeartRate,
     rpe: execution.rpe ?? null,
     modifiers: execution.modifiers,
@@ -497,6 +574,10 @@ async function generateFeedback(
     user.maxHeartRate > 0
       ? importedWorkout.averageHeartRate / user.maxHeartRate
       : null;
+  const paceMetrics = resolveWorkoutPaceMetrics(importedWorkout);
+  const terrainContext = describeTerrainContext(importedWorkout);
+  const segmentComparisons = buildSegmentComparisons(plannedWorkout, importedWorkout, user?.currentVDOT ?? null);
+  const structuredSummary = summarizeStructuredComparisons(segmentComparisons);
 
   if (!plannedWorkout || !plan) {
     const planId = plan?._id;
@@ -524,6 +605,7 @@ async function generateFeedback(
       commentary: [
         "This run is currently treated as unplanned extra volume.",
         "Let it count, but do not compensate by adding even more mileage on top of it.",
+        terrainContext,
         ...notes,
       ].join(" "),
       adjustments,
@@ -549,6 +631,9 @@ async function generateFeedback(
           `This ${workoutLabel} was completed, but the effort looked heavier than planned.`,
           elevatedHeartRate ? "Average heart rate sat above a normal easy-day range." : "",
           highRpe ? `You also tagged it at RPE ${execution.rpe}/10.` : "",
+          terrainContext
+            ? "The hills explain part of the slower raw pace, but the corrected effort still looks hot for an easy day."
+            : "",
           "That combination usually points to accumulating fatigue more than missed fitness.",
           ...notes,
         ]
@@ -562,6 +647,7 @@ async function generateFeedback(
     return {
       commentary: [
         `This ${workoutLabel} stayed close to plan.`,
+        terrainContext,
         "Nothing here suggests a change in direction.",
         ...notes,
       ].join(" "),
@@ -576,6 +662,7 @@ async function generateFeedback(
       return {
         commentary: [
           "This long run came up noticeably short of the planned volume.",
+          terrainContext,
           "Treat it as information, not a debt that needs immediate repayment.",
           ...notes,
         ].join(" "),
@@ -587,6 +674,7 @@ async function generateFeedback(
     return {
       commentary: [
         "This long run landed close enough to plan to keep the week moving forward.",
+        terrainContext,
         ...notes,
       ].join(" "),
       adjustments,
@@ -594,14 +682,52 @@ async function generateFeedback(
     };
   }
 
-  if ((plannedWorkout.type === "tempo" || plannedWorkout.type === "intervals") && lowToModerateRpe) {
-    if (typeof completionRatio !== "number" || completionRatio >= 0.9) {
+  if (plannedWorkout.type === "tempo" || plannedWorkout.type === "intervals") {
+    if (structuredSummary && lowToModerateRpe && structuredSummary.averageAdherence >= 0.78) {
       return {
         commentary: [
-          `This ${workoutLabel} was close to the prescribed volume and the effort stayed controlled.`,
+          `This ${workoutLabel} matched the prescribed reps well.`,
+          structuredSummary.inferredRepCount > 0 ? "A few rep boundaries were reconstructed from the recorded interval data." : "",
+          terrainContext,
           "That is a good sign that the current targets are appropriate.",
           ...notes,
         ].join(" "),
+        adjustments,
+        planId: plan._id,
+      };
+    }
+
+    if (structuredSummary && structuredSummary.averageAdherence < 0.6) {
+      if (highRpe) {
+        adjustments.push("Hold the next hard session to the plan. Do not add extra volume on top of a hard-feeling day.");
+      }
+
+      return {
+        commentary: [
+          `This ${workoutLabel} drifted away from the prescribed rep targets.`,
+          terrainContext
+            ? "Even after correcting the route with GAP, the rep execution still looks off the intended pace."
+            : "",
+          highRpe ? `RPE was ${execution.rpe}/10, which supports the read that the session ran harder than planned.` : "",
+          ...notes,
+        ]
+          .filter(Boolean)
+          .join(" "),
+        adjustments,
+        planId: plan._id,
+      };
+    }
+
+    if (lowToModerateRpe && (typeof completionRatio !== "number" || completionRatio >= 0.9)) {
+      return {
+        commentary: [
+          `This ${workoutLabel} was close to the prescribed volume and the effort stayed controlled.`,
+          terrainContext,
+          "That is a good sign that the current targets are appropriate.",
+          ...notes,
+        ]
+          .filter(Boolean)
+          .join(" "),
         adjustments,
         planId: plan._id,
       };
@@ -616,6 +742,7 @@ async function generateFeedback(
     commentary: [
       `This ${workoutLabel} was logged against the plan.`,
       typeof execution.rpe === "number" ? `RPE came in at ${execution.rpe}/10.` : "",
+      paceMetrics.preferredPaceSource === "gap" ? "Pace evaluation used GAP because terrain materially changed the raw pace." : "",
       "Use the next few runs to confirm whether this was a one-day blip or the start of a fatigue trend.",
       ...notes,
     ]
@@ -772,15 +899,18 @@ export async function getExecutionDetailRecord(
     return null;
   }
 
-  const [importedWorkout, plannedWorkout, plan] = await Promise.all([
+  const [importedWorkout, plannedWorkout, plan, user] = await Promise.all([
     ctx.db.get(execution.healthKitWorkoutId),
     execution.plannedWorkoutId ? ctx.db.get(execution.plannedWorkoutId) : Promise.resolve(null),
     execution.planId ? ctx.db.get(execution.planId) : Promise.resolve(null),
+    ctx.db.get(execution.userId),
   ]);
 
   if (!importedWorkout) {
     return null;
   }
+
+  const segmentComparisons = buildSegmentComparisons(plannedWorkout, importedWorkout, user?.currentVDOT ?? null);
 
   return {
     execution: buildExecutionSummary(execution, importedWorkout),
@@ -790,6 +920,10 @@ export async function getExecutionDetailRecord(
       endedAt: importedWorkout.endedAt,
       durationSeconds: importedWorkout.durationSeconds,
       distanceMeters: importedWorkout.distanceMeters,
+      rawPaceSecondsPerMeter: importedWorkout.rawPaceSecondsPerMeter,
+      gradeAdjustedPaceSecondsPerMeter: importedWorkout.gradeAdjustedPaceSecondsPerMeter,
+      elevationAscentMeters: importedWorkout.elevationAscentMeters,
+      elevationDescentMeters: importedWorkout.elevationDescentMeters,
       averageHeartRate: importedWorkout.averageHeartRate,
       maxHeartRate: importedWorkout.maxHeartRate,
       intervalChains: importedWorkout.intervalChains,
@@ -808,6 +942,7 @@ export async function getExecutionDetailRecord(
           segments: plannedWorkout.segments,
         }
       : null,
+    segmentComparisons,
     plan: plan
       ? {
           _id: plan._id,
