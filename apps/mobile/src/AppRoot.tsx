@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, Text, View } from "react-native";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { ActivityIndicator, AppState, Text, View } from "react-native";
 import { useMutation } from "convex/react";
 import { useAuthActions } from "@convex-dev/auth/react";
 import { type CompetitivenessLevel, type OnboardingStep, type PersonalityPreset } from "@slopmiles/domain";
@@ -8,10 +8,20 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { api } from "./convex";
 import { PrimaryButton, SecondaryButton } from "./components/common";
 import {
+  importHealthKitWorkoutsByIds,
   requestHealthKitAuthorization,
   seedRecentHealthKitImport,
   type HealthKitPermissionResult,
 } from "./healthkit/bridge";
+import {
+  addPendingWorkoutSyncListener,
+  completePendingWorkoutSync,
+  ensureBackgroundSyncRegistered,
+  getPendingWorkoutSync,
+  primeBackgroundSyncAfterBackfill,
+  type HealthKitBackgroundRegistrationResult,
+} from "./healthkit/backgroundSync";
+import { findMissingPendingWorkoutIds } from "./healthkit/backgroundSyncCoordinator";
 import { MainTabs } from "./screens/MainTabs";
 import { OnboardingFlow } from "./screens/OnboardingFlow";
 import { styles } from "./styles";
@@ -52,6 +62,7 @@ export default function AppRoot() {
   const updatePersonalityPreference = useMutation(api.users.updatePersonality);
   const setHealthKitAuthorizationStatus = useMutation(api.healthkit.setAuthorizationStatus);
   const seedHealthKitImportWorkouts = useMutation(api.healthkit.seedImportWorkouts);
+  const setHealthKitSyncStatus = useMutation(api.healthkit.setSyncStatus);
   const completeStep = useMutation(api.onboarding.completeStep);
   const saveHealthKitAuthorization = useMutation(api.onboarding.saveHealthKitAuthorization);
   const saveProfileBasics = useMutation(api.onboarding.saveProfileBasics);
@@ -66,6 +77,12 @@ export default function AppRoot() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [backgroundSyncStatus, setBackgroundSyncStatus] = useState<HealthKitBackgroundRegistrationResult>({
+    enabled: false,
+    reason: "Connect HealthKit to enable automatic background sync.",
+  });
+  const backgroundSyncDrainInFlight = useRef(false);
+  const backgroundSyncNeedsAnotherPass = useRef(false);
 
   const signOutSafely = async () => {
     try {
@@ -162,14 +179,113 @@ export default function AppRoot() {
     [session],
   );
 
-  const importHealthKitSeed = async () => {
+  const importHealthKitSeed = async (source: "manual" | "background" = "manual") => {
     const payload = await seedRecentHealthKitImport();
-    return seedHealthKitImportWorkouts({
+    const importResult = await seedHealthKitImportWorkouts({
       workouts: payload.workouts,
       restingHeartRate: payload.restingHeartRate,
       inferredMaxHeartRate: payload.inferredMaxHeartRate,
+      source,
     });
+
+    if (source === "manual") {
+      const backgroundStatus = await primeBackgroundSyncAfterBackfill(payload.windowEndedAt);
+      setBackgroundSyncStatus(backgroundStatus);
+    }
+
+    return importResult;
   };
+
+  useEffect(() => {
+    if (!session?.user.healthKitAuthorized) {
+      setBackgroundSyncStatus({
+        enabled: false,
+        reason: "Connect HealthKit to enable automatic background sync.",
+      });
+      return;
+    }
+
+    let cancelled = false;
+
+    const refreshBackgroundSyncStatus = async (): Promise<HealthKitBackgroundRegistrationResult> => {
+      const status = await ensureBackgroundSyncRegistered();
+      if (!cancelled) {
+        setBackgroundSyncStatus(status);
+      }
+      return status;
+    };
+
+    const drainPendingBackgroundSync = async () => {
+      if (backgroundSyncDrainInFlight.current) {
+        backgroundSyncNeedsAnotherPass.current = true;
+        return;
+      }
+
+      backgroundSyncDrainInFlight.current = true;
+      try {
+        do {
+          backgroundSyncNeedsAnotherPass.current = false;
+
+          const registration = await refreshBackgroundSyncStatus();
+          if (!registration.enabled) {
+            break;
+          }
+
+          const pendingSync = await getPendingWorkoutSync();
+          if (!pendingSync) {
+            break;
+          }
+
+          try {
+            const workouts = await importHealthKitWorkoutsByIds(pendingSync.workoutExternalIds);
+            const missingWorkoutIds = findMissingPendingWorkoutIds(
+              pendingSync.workoutExternalIds,
+              workouts.map((workout) => workout.externalWorkoutId),
+            );
+            if (missingWorkoutIds.length > 0) {
+              throw new Error(
+                `HealthKit background sync could not load ${missingWorkoutIds.length} pending workout${missingWorkoutIds.length === 1 ? "" : "s"}.`,
+              );
+            }
+            await seedHealthKitImportWorkouts({
+              workouts,
+              source: "background",
+            });
+            await completePendingWorkoutSync({
+              pendingSyncId: pendingSync.pendingSyncId,
+              success: true,
+            });
+            backgroundSyncNeedsAnotherPass.current = true;
+          } catch (syncError) {
+            await setHealthKitSyncStatus({
+              source: "background",
+              error: String(syncError),
+            });
+            break;
+          }
+        } while (backgroundSyncNeedsAnotherPass.current);
+      } finally {
+        backgroundSyncDrainInFlight.current = false;
+      }
+    };
+
+    void drainPendingBackgroundSync();
+
+    const syncSubscription = addPendingWorkoutSyncListener(() => {
+      void drainPendingBackgroundSync();
+    });
+    const appStateSubscription = AppState.addEventListener("change", (nextState) => {
+      if (nextState === "active") {
+        void drainPendingBackgroundSync();
+      }
+    });
+
+    return () => {
+      cancelled = true;
+      syncSubscription?.remove();
+      appStateSubscription.remove();
+    };
+  }, [seedHealthKitImportWorkouts, session?.user.healthKitAuthorized, setHealthKitSyncStatus]);
 
   const resetApp = async () => {
     if (!session) {
@@ -238,6 +354,8 @@ export default function AppRoot() {
         competitivenessLevel={session.competitiveness.level}
         personality={session.personality}
         healthKitAuthorized={session.user.healthKitAuthorized}
+        backgroundSyncEnabled={backgroundSyncStatus.enabled}
+        backgroundSyncReason={backgroundSyncStatus.reason}
         currentVDOT={session.user.currentVDOT ?? null}
         onResetApp={resetApp}
         onUpdateName={(name) =>
@@ -310,9 +428,13 @@ export default function AppRoot() {
             let importResult: { processedCount: number; insertedCount: number; updatedCount: number } | null = null;
             let importError: string | undefined;
             try {
-              importResult = await importHealthKitSeed();
+              importResult = await importHealthKitSeed("manual");
             } catch (error) {
               importError = String(error);
+              await setHealthKitSyncStatus({
+                source: "manual",
+                error: importError,
+              });
             }
 
             return {
@@ -360,8 +482,12 @@ export default function AppRoot() {
 
           if (permission.authorized) {
             try {
-              await importHealthKitSeed();
+              await importHealthKitSeed("manual");
             } catch (error) {
+              await setHealthKitSyncStatus({
+                source: "manual",
+                error: String(error),
+              });
               setError(`HealthKit connected, but initial import failed: ${String(error)}`);
             }
           }

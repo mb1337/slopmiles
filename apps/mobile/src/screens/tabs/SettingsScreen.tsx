@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Alert, ScrollView, Text, TextInput, View } from "react-native";
+import { useQuery } from "convex/react";
 import {
   COMPETITIVENESS_LEVELS,
   PERSONALITY_PRESETS,
@@ -14,6 +15,7 @@ import {
 } from "@slopmiles/domain";
 import { useAuthActions } from "@convex-dev/auth/react";
 
+import { api } from "../../convex";
 import {
   ChoiceRow,
   Counter,
@@ -203,6 +205,14 @@ function formatAvailabilitySummary(
     .join(" · ");
 }
 
+function formatSyncTimestamp(timestamp: number | null | undefined): string {
+  if (typeof timestamp !== "number") {
+    return "Never";
+  }
+
+  return new Date(timestamp).toLocaleString();
+}
+
 export function SettingsScreen({
   userName,
   unitPreference,
@@ -212,6 +222,8 @@ export function SettingsScreen({
   competitivenessLevel,
   personality,
   healthKitAuthorized,
+  backgroundSyncEnabled,
+  backgroundSyncReason,
   onResetApp,
   onUpdateName,
   onUpdateUnitPreference,
@@ -230,6 +242,8 @@ export function SettingsScreen({
   competitivenessLevel: CompetitivenessLevel;
   personality: Personality;
   healthKitAuthorized: boolean;
+  backgroundSyncEnabled: boolean;
+  backgroundSyncReason?: string;
   onResetApp: () => Promise<void>;
   onUpdateName: (name: string) => Promise<void>;
   onUpdateUnitPreference: (unitPreference: UnitPreference) => Promise<void>;
@@ -241,6 +255,7 @@ export function SettingsScreen({
   onSyncHealthKit: () => Promise<HealthKitSyncResult>;
 }) {
   const { signOut } = useAuthActions();
+  const healthKitImportSummary = useQuery(api.healthkit.getImportSummary, {});
   const [name, setName] = useState(userName);
   const [selectedUnitPreference, setSelectedUnitPreference] = useState<UnitPreference>(unitPreference);
   const [selectedVolumePreference, setSelectedVolumePreference] = useState<VolumeMode>(volumePreference);
@@ -725,6 +740,17 @@ export function SettingsScreen({
         <Text style={styles.bodyText}>
           Status: {healthKitAuthorized ? "Connected" : "Not connected"}. Connect or re-sync to keep recent running history and matching current.
         </Text>
+        <Text style={styles.helperText}>
+          Background sync: {backgroundSyncEnabled ? "Enabled" : "Unavailable"}
+          {backgroundSyncReason ? ` · ${backgroundSyncReason}` : ""}
+        </Text>
+        <Text style={styles.helperText}>
+          Last sync: {formatSyncTimestamp(healthKitImportSummary?.lastSyncAt)}
+          {healthKitImportSummary?.lastSyncSource ? ` via ${healthKitImportSummary.lastSyncSource}` : ""}
+        </Text>
+        {healthKitImportSummary?.lastSyncError ? (
+          <Text style={styles.helperText}>Latest sync issue: {healthKitImportSummary.lastSyncError}</Text>
+        ) : null}
         {healthKitMessage ? <Text style={styles.helperText}>{healthKitMessage}</Text> : null}
         {healthKitError ? <Text style={styles.errorText}>{healthKitError}</Text> : null}
         <PrimaryButton

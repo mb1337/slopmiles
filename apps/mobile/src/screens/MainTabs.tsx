@@ -26,6 +26,8 @@ export function MainTabs({
   competitivenessLevel,
   personality,
   healthKitAuthorized,
+  backgroundSyncEnabled,
+  backgroundSyncReason,
   currentVDOT,
   onResetApp,
   onUpdateName,
@@ -45,6 +47,8 @@ export function MainTabs({
   competitivenessLevel: CompetitivenessLevel;
   personality: Personality;
   healthKitAuthorized: boolean;
+  backgroundSyncEnabled: boolean;
+  backgroundSyncReason?: string;
   currentVDOT: number | null;
   onResetApp: () => Promise<void>;
   onUpdateName: (name: string) => Promise<void>;
@@ -112,6 +116,8 @@ export function MainTabs({
             competitivenessLevel={competitivenessLevel}
             personality={personality}
             healthKitAuthorized={healthKitAuthorized}
+            backgroundSyncEnabled={backgroundSyncEnabled}
+            backgroundSyncReason={backgroundSyncReason}
             onResetApp={onResetApp}
             onUpdateName={onUpdateName}
             onUpdateUnitPreference={onUpdateUnitPreference}

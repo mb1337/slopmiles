@@ -72,6 +72,7 @@ export type HealthKitSeedPayload = {
   workouts: HealthKitImportedWorkout[];
   restingHeartRate?: number;
   inferredMaxHeartRate?: number;
+  windowEndedAt: number;
 };
 
 const HEALTHKIT_READ_TYPES = [
@@ -557,6 +558,76 @@ function resolveWorkoutIntervalChains(
   return chains.length > 0 ? chains : undefined;
 }
 
+async function serializeWorkout(workout: WorkoutProxy): Promise<HealthKitImportedWorkout> {
+  const durationSeconds = resolveWorkoutDurationSeconds(workout);
+  const [heartRateStats, distanceMeters, routeLocations] = await Promise.all([
+    queryHeartRateStats(workout),
+    resolveWorkoutDistanceMeters(workout),
+    resolveWorkoutRouteLocations(workout),
+  ]);
+  const routeGapAnalysis = resolveRouteGapAnalysis(routeLocations, workout);
+  const intervals = await resolveWorkoutIntervals(workout, routeGapAnalysis);
+  const intervalChains = resolveWorkoutIntervalChains(intervals);
+  const rawPaceSecondsPerMeter = calculatePaceSecondsPerMeter(durationSeconds, distanceMeters);
+  const elevationFromMetadata = resolveWorkoutElevationFromMetadata(workout);
+
+  return {
+    externalWorkoutId: workout.uuid,
+    startedAt: workout.startDate.getTime(),
+    endedAt: workout.endDate.getTime(),
+    durationSeconds,
+    distanceMeters,
+    ...(typeof rawPaceSecondsPerMeter === "number" ? { rawPaceSecondsPerMeter } : {}),
+    ...(typeof routeGapAnalysis?.gradeAdjustedPaceSecondsPerMeter === "number"
+      ? { gradeAdjustedPaceSecondsPerMeter: routeGapAnalysis.gradeAdjustedPaceSecondsPerMeter }
+      : {}),
+    ...(typeof routeGapAnalysis?.equivalentFlatDistanceMeters === "number"
+      ? { equivalentFlatDistanceMeters: routeGapAnalysis.equivalentFlatDistanceMeters }
+      : {}),
+    ...(typeof elevationFromMetadata.elevationAscentMeters === "number"
+      ? { elevationAscentMeters: elevationFromMetadata.elevationAscentMeters }
+      : typeof routeGapAnalysis?.elevationAscentMeters === "number"
+        ? { elevationAscentMeters: routeGapAnalysis.elevationAscentMeters }
+        : {}),
+    ...(typeof elevationFromMetadata.elevationDescentMeters === "number"
+      ? { elevationDescentMeters: elevationFromMetadata.elevationDescentMeters }
+      : typeof routeGapAnalysis?.elevationDescentMeters === "number"
+        ? { elevationDescentMeters: routeGapAnalysis.elevationDescentMeters }
+        : {}),
+    averageHeartRate: heartRateStats.averageHeartRate,
+    maxHeartRate: heartRateStats.maxHeartRate,
+    intervalChains,
+    sourceName: workout.sourceRevision.source.name,
+    sourceBundleIdentifier: workout.sourceRevision.source.bundleIdentifier,
+  } satisfies HealthKitImportedWorkout;
+}
+
+async function serializeWorkouts(workouts: WorkoutProxy[]): Promise<HealthKitImportedWorkout[]> {
+  return Promise.all(workouts.map((workout) => serializeWorkout(workout)));
+}
+
+export async function importHealthKitWorkoutsByIds(externalWorkoutIds: string[]): Promise<HealthKitImportedWorkout[]> {
+  if (Platform.OS !== "ios" || externalWorkoutIds.length === 0 || !isHealthDataAvailable()) {
+    return [];
+  }
+
+  const queriedWorkouts = await queryWorkoutSamples({
+    limit: externalWorkoutIds.length,
+    ascending: false,
+    filter: {
+      uuids: externalWorkoutIds,
+    },
+  });
+
+  const runningWorkouts = queriedWorkouts.filter((workout) => workout.workoutActivityType === WorkoutActivityType.running);
+  const serializedWorkouts = await serializeWorkouts(runningWorkouts);
+  const workoutOrder = new Map(externalWorkoutIds.map((workoutId, index) => [workoutId, index]));
+
+  return serializedWorkouts.sort(
+    (left, right) => (workoutOrder.get(left.externalWorkoutId) ?? Number.MAX_SAFE_INTEGER) - (workoutOrder.get(right.externalWorkoutId) ?? Number.MAX_SAFE_INTEGER),
+  );
+}
+
 export async function seedRecentHealthKitImport({
   lookbackDays = 84,
   limit = 200,
@@ -567,12 +638,14 @@ export async function seedRecentHealthKitImport({
   if (Platform.OS !== "ios") {
     return {
       workouts: [],
+      windowEndedAt: Date.now(),
     };
   }
 
   if (!isHealthDataAvailable()) {
     return {
       workouts: [],
+      windowEndedAt: Date.now(),
     };
   }
 
@@ -592,52 +665,7 @@ export async function seedRecentHealthKitImport({
       },
     },
   });
-
-  const workouts = await Promise.all(
-    runningWorkouts.map(async (workout) => {
-      const durationSeconds = resolveWorkoutDurationSeconds(workout);
-      const [heartRateStats, distanceMeters, routeLocations] = await Promise.all([
-        queryHeartRateStats(workout),
-        resolveWorkoutDistanceMeters(workout),
-        resolveWorkoutRouteLocations(workout),
-      ]);
-      const routeGapAnalysis = resolveRouteGapAnalysis(routeLocations, workout);
-      const intervals = await resolveWorkoutIntervals(workout, routeGapAnalysis);
-      const intervalChains = resolveWorkoutIntervalChains(intervals);
-      const rawPaceSecondsPerMeter = calculatePaceSecondsPerMeter(durationSeconds, distanceMeters);
-      const elevationFromMetadata = resolveWorkoutElevationFromMetadata(workout);
-
-      return {
-        externalWorkoutId: workout.uuid,
-        startedAt: workout.startDate.getTime(),
-        endedAt: workout.endDate.getTime(),
-        durationSeconds,
-        distanceMeters,
-        ...(typeof rawPaceSecondsPerMeter === "number" ? { rawPaceSecondsPerMeter } : {}),
-        ...(typeof routeGapAnalysis?.gradeAdjustedPaceSecondsPerMeter === "number"
-          ? { gradeAdjustedPaceSecondsPerMeter: routeGapAnalysis.gradeAdjustedPaceSecondsPerMeter }
-          : {}),
-        ...(typeof routeGapAnalysis?.equivalentFlatDistanceMeters === "number"
-          ? { equivalentFlatDistanceMeters: routeGapAnalysis.equivalentFlatDistanceMeters }
-          : {}),
-        ...(typeof elevationFromMetadata.elevationAscentMeters === "number"
-          ? { elevationAscentMeters: elevationFromMetadata.elevationAscentMeters }
-          : typeof routeGapAnalysis?.elevationAscentMeters === "number"
-            ? { elevationAscentMeters: routeGapAnalysis.elevationAscentMeters }
-            : {}),
-        ...(typeof elevationFromMetadata.elevationDescentMeters === "number"
-          ? { elevationDescentMeters: elevationFromMetadata.elevationDescentMeters }
-          : typeof routeGapAnalysis?.elevationDescentMeters === "number"
-            ? { elevationDescentMeters: routeGapAnalysis.elevationDescentMeters }
-            : {}),
-        averageHeartRate: heartRateStats.averageHeartRate,
-        maxHeartRate: heartRateStats.maxHeartRate,
-        intervalChains,
-        sourceName: workout.sourceRevision.source.name,
-        sourceBundleIdentifier: workout.sourceRevision.source.bundleIdentifier,
-      } satisfies HealthKitImportedWorkout;
-    }),
-  );
+  const workouts = await serializeWorkouts(runningWorkouts);
 
   const [restingHeartRateSample, dateOfBirth] = await Promise.all([
     getMostRecentQuantitySample("HKQuantityTypeIdentifierRestingHeartRate").catch(() => undefined),
@@ -653,5 +681,6 @@ export async function seedRecentHealthKitImport({
     restingHeartRate:
       typeof restingHeartRateSample?.quantity === "number" ? Math.round(restingHeartRateSample.quantity) : undefined,
     inferredMaxHeartRate,
+    windowEndedAt: now.getTime(),
   };
 }

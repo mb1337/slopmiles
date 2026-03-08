@@ -28,6 +28,7 @@ import {
   workoutTypes,
   workoutVenues,
   effortModifiers,
+  healthKitSyncSources,
 } from "./constants";
 
 const weekdayValidator = v.union(...weekdays.map((day) => v.literal(day)));
@@ -58,6 +59,7 @@ const distanceUnitValidator = v.union(...distanceUnits.map((unit) => v.literal(u
 const strengthWorkoutStatusValidator = v.union(...strengthWorkoutStatuses.map((status) => v.literal(status)));
 const planInterruptionTypeValidator = v.union(...planInterruptionTypes.map((type) => v.literal(type)));
 const effortModifierValidator = v.union(...effortModifiers.map((modifier) => v.literal(modifier)));
+const healthKitSyncSourceValidator = v.union(...healthKitSyncSources.map((source) => v.literal(source)));
 const workoutSegmentValidator = v.object({
   order: v.number(),
   label: v.string(),
@@ -113,6 +115,9 @@ export default defineSchema({
     currentVDOT: v.optional(v.number()),
     maxHeartRate: v.optional(v.number()),
     restingHeartRate: v.optional(v.number()),
+    healthKitLastSyncAt: v.optional(v.number()),
+    healthKitLastSyncSource: v.optional(healthKitSyncSourceValidator),
+    healthKitLastSyncError: v.optional(v.string()),
     createdAt: v.number(),
     updatedAt: v.number(),
   })

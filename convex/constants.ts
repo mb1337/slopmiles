@@ -51,6 +51,7 @@ export {
 export const aiCallTypes = ["planGeneration", "weekDetailGeneration"] as const;
 export const aiRequestStatuses = ["queued", "inProgress", "succeeded", "failed"] as const;
 export const aiRequestPriorities = ["userBlocking", "interactive", "background"] as const;
+export const healthKitSyncSources = ["manual", "background"] as const;
 
 export type Weekday = (typeof weekdays)[number];
 export type OnboardingStep = (typeof onboardingSteps)[number];
@@ -61,6 +62,7 @@ export type StrengthEquipment = (typeof strengthEquipmentOptions)[number];
 export type AiCallType = (typeof aiCallTypes)[number];
 export type AiRequestStatus = (typeof aiRequestStatuses)[number];
 export type AiRequestPriority = (typeof aiRequestPriorities)[number];
+export type HealthKitSyncSource = (typeof healthKitSyncSources)[number];
 export type WorkoutType = (typeof workoutTypes)[number];
 export type WorkoutVenue = (typeof workoutVenues)[number];
 export type WorkoutOrigin = (typeof workoutOrigins)[number];

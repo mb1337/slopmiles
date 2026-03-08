@@ -1,6 +1,7 @@
 {
   "platforms": ["apple"],
   "apple": {
-    "modules": ["SlopMilesHealthKitBridgeModule"]
+    "modules": ["SlopMilesHealthKitBridgeModule"],
+    "appDelegateSubscribers": ["SlopMilesHealthKitBackgroundSubscriber"]
   }
 }

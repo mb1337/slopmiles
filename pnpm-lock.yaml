@@ -60,6 +60,9 @@ importers:
       expo-apple-authentication:
         specifier: ^55.0.8
         version: 55.0.8(expo@55.0.5)(react-native@0.83.2(@babel/core@7.29.0)(@types/react@19.2.14)(react@19.2.0))
+      expo-modules-core:
+        specifier: ^55.0.14
+        version: 55.0.14(react-native@0.83.2(@babel/core@7.29.0)(@types/react@19.2.14)(react@19.2.0))(react@19.2.0)
       expo-secure-store:
         specifier: ^55.0.8
         version: 55.0.8(expo@55.0.5)
@@ -84,6 +87,9 @@ importers:
       react-native-ui-datepicker:
         specifier: ^3.1.2
         version: 3.1.2(react-native@0.83.2(@babel/core@7.29.0)(@types/react@19.2.14)(react@19.2.0))(react@19.2.0)
+      slopmiles-healthkit:
+        specifier: file:modules/slopmiles-healthkit
+        version: file:apps/mobile/modules/slopmiles-healthkit(expo-modules-core@55.0.14(react-native@0.83.2(@babel/core@7.29.0)(@types/react@19.2.14)(react@19.2.0))(react@19.2.0))(expo@55.0.5)
     devDependencies:
       '@types/react':
         specifier: ^19.2.14
@@ -3126,6 +3132,12 @@ packages:
   slash@3.0.0:
     resolution: {integrity: sha512-g9Q1haeby36OSStwb4ntCGGGaKsaVSjQ68fBxoQcutl5fS1vuY18H3wSt3jFyFtrkx+Kz0V1G85A4MyAdDMi2Q==}
     engines: {node: '>=8'}
+
+  slopmiles-healthkit@file:apps/mobile/modules/slopmiles-healthkit:
+    resolution: {directory: apps/mobile/modules/slopmiles-healthkit, type: directory}
+    peerDependencies:
+      expo: '*'
+      expo-modules-core: '*'
 
   slugify@1.6.6:
     resolution: {integrity: sha512-h+z7HKHYXj6wJU+AnS/+IH8Uh9fdcX1Lrhg1/VMdf9PwoBQXFcXiAdsy2tSK0P6gKwJLXp02r90ahUCqHk9rrw==}
@@ -6978,6 +6990,11 @@ snapshots:
   sisteransi@1.0.5: {}
 
   slash@3.0.0: {}
+
+  slopmiles-healthkit@file:apps/mobile/modules/slopmiles-healthkit(expo-modules-core@55.0.14(react-native@0.83.2(@babel/core@7.29.0)(@types/react@19.2.14)(react@19.2.0))(react@19.2.0))(expo@55.0.5):
+    dependencies:
+      expo: 55.0.5(@babel/core@7.29.0)(@expo/dom-webview@55.0.3)(react-dom@19.2.0(react@19.2.0))(react-native@0.83.2(@babel/core@7.29.0)(@types/react@19.2.14)(react@19.2.0))(react@19.2.0)(typescript@5.9.3)
+      expo-modules-core: 55.0.14(react-native@0.83.2(@babel/core@7.29.0)(@types/react@19.2.14)(react@19.2.0))(react@19.2.0)
 
   slugify@1.6.6: {}
 
