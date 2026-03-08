@@ -10,12 +10,12 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { CoachScreen } from "./tabs/CoachScreen";
-import { DashboardScreen } from "./tabs/DashboardScreen";
 import { HistoryScreen } from "./tabs/HistoryScreen";
 import { PlanScreen } from "./tabs/PlanScreen";
 import { SettingsScreen } from "./tabs/SettingsScreen";
+import { TodayScreen } from "./tabs/TodayScreen";
 import { styles } from "../styles";
-import type { HealthKitSyncResult, Tab } from "../types";
+import type { HealthKitSyncResult, HistoryRoute, PlanRoute, Tab } from "../types";
 
 export function MainTabs({
   userName,
@@ -56,21 +56,52 @@ export function MainTabs({
   onUpdatePersonality: (value: { preset: Personality["name"]; customDescription?: string }) => Promise<void>;
   onSyncHealthKit: () => Promise<HealthKitSyncResult>;
 }) {
-  const [activeTab, setActiveTab] = useState<Tab>("dashboard");
+  const [activeTab, setActiveTab] = useState<Tab>("today");
+  const [planRoute, setPlanRoute] = useState<PlanRoute>({ screen: "overview" });
+  const [historyRoute, setHistoryRoute] = useState<HistoryRoute>({ screen: "feed" });
+
+  const openPlan = (route: PlanRoute) => {
+    setPlanRoute(route);
+    setActiveTab("plan");
+  };
+
+  const openHistory = (route: HistoryRoute) => {
+    setHistoryRoute(route);
+    setActiveTab("history");
+  };
 
   return (
     <SafeAreaView style={styles.screen}>
       <View style={styles.tabContent}>
-        {activeTab === "dashboard" ? (
-          <DashboardScreen
+        {activeTab === "today" ? (
+          <TodayScreen
             userName={userName}
-            currentVDOT={currentVDOT}
-            onCreatePlanPress={() => setActiveTab("plan")}
+            unitPreference={unitPreference}
+            onOpenCreatePlan={() => openPlan({ screen: "create" })}
+            onOpenPlanOverview={() => openPlan({ screen: "overview" })}
+            onOpenWeek={(weekNumber) => openPlan({ screen: "week", weekNumber })}
+            onOpenWorkout={(workoutId, weekNumber) => openPlan({ screen: "workout", workoutId, weekNumber })}
+            onOpenHistoryDetail={(healthKitWorkoutId) => openHistory({ screen: "detail", healthKitWorkoutId })}
+            onOpenCoach={() => setActiveTab("coach")}
           />
         ) : null}
-        {activeTab === "plan" ? <PlanScreen defaultVolumeMode={defaultVolumeMode} unitPreference={unitPreference} /> : null}
-        {activeTab === "history" ? <HistoryScreen unitPreference={unitPreference} /> : null}
-        {activeTab === "coach" ? <CoachScreen /> : null}
+        {activeTab === "plan" ? (
+          <PlanScreen
+            defaultVolumeMode={defaultVolumeMode}
+            unitPreference={unitPreference}
+            route={planRoute}
+            onRouteChange={setPlanRoute}
+          />
+        ) : null}
+        {activeTab === "history" ? (
+          <HistoryScreen unitPreference={unitPreference} route={historyRoute} onRouteChange={setHistoryRoute} />
+        ) : null}
+        {activeTab === "coach" ? (
+          <CoachScreen
+            onOpenPlan={() => openPlan({ screen: "overview" })}
+            onOpenHistory={() => openHistory({ screen: "feed" })}
+          />
+        ) : null}
         {activeTab === "settings" ? (
           <SettingsScreen
             userName={userName}
@@ -95,7 +126,7 @@ export function MainTabs({
       </View>
       <View style={styles.tabBar}>
         {[
-          ["dashboard", "Dashboard"],
+          ["today", "Today"],
           ["plan", "Plan"],
           ["history", "History"],
           ["coach", "Coach"],

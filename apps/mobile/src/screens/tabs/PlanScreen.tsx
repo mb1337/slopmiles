@@ -1,149 +1,137 @@
 import { useEffect, useMemo, useState } from "react";
 import { Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import { useMutation, useQuery } from "convex/react";
-import { GOAL_TYPES, VOLUME_MODES, type UnitPreference, type VolumeMode } from "@slopmiles/domain";
+import { VOLUME_MODES, type UnitPreference, type VolumeMode } from "@slopmiles/domain";
 
 import { api, type Id } from "../../convex";
-import { ChoiceRow, Counter, Panel, PrimaryButton, SecondaryButton } from "../../components/common";
+import {
+  ChoiceRow,
+  CrossPlatformPickerSheet,
+  EmptyStateCard,
+  FieldGroup,
+  MetricGrid,
+  MetricStat,
+  PickerField,
+  PrimaryButton,
+  ScreenHeader,
+  SectionCard,
+  SecondaryButton,
+  StatusBanner,
+  StickyActionBar,
+} from "../../components/common";
 import { WorkoutExecutionDetail } from "../../components/workoutExecution";
 import { styles } from "../../styles";
+import type { PlanRoute } from "../../types";
 import { formatDistanceForDisplay } from "../../units";
 
-type PlanGenerationMetadata = {
-  model?: string;
-};
+const RACE_GOALS = ["5K", "10K", "Half Marathon", "Marathon", "Custom"] as const;
+const NON_RACE_GOALS = ["Base Building", "Recovery", "Custom"] as const;
+const PLAN_GOAL_TYPES = ["race", "nonRace"] as const;
 
-type PlanGenerationResult = {
-  numberOfWeeks: number;
-  peakWeekVolume: number;
-  weeklyVolumeProfile: Array<{
-    weekNumber: number;
-    percentOfPeak: number;
-  }>;
-  weeklyEmphasis: Array<{
-    weekNumber: number;
-    emphasis: string;
-  }>;
-  rationale: string;
-  metadata?: PlanGenerationMetadata;
-  corrections?: string[];
-};
+type PlanGoalType = (typeof PLAN_GOAL_TYPES)[number];
 
-type PlanWeekStructure = {
-  numberOfWeeks: number;
-  weeklyVolumeProfile?: Array<{
-    weekNumber: number;
-    percentOfPeak: number;
-  }>;
-  weeklyEmphasis?: Array<{
-    weekNumber: number;
-    emphasis: string;
-  }>;
-};
+function formatGoalTime(seconds: number): string {
+  const rounded = Math.max(0, Math.round(seconds));
+  const hours = Math.floor(rounded / 3600);
+  const minutes = Math.floor((rounded % 3600) / 60);
+  const remainder = rounded % 60;
 
-function buildWeekRows(plan: PlanWeekStructure) {
-  const percentByWeek = new Map<number, number>();
-  const emphasisByWeek = new Map<number, string>();
-
-  for (const entry of plan.weeklyVolumeProfile ?? []) {
-    percentByWeek.set(entry.weekNumber, entry.percentOfPeak);
+  if (hours > 0) {
+    return `${hours}:${String(minutes).padStart(2, "0")}:${String(remainder).padStart(2, "0")}`;
   }
 
-  for (const entry of plan.weeklyEmphasis ?? []) {
-    emphasisByWeek.set(entry.weekNumber, entry.emphasis);
-  }
-
-  const rows: Array<{ weekNumber: number; percent: number | null; emphasis: string | null }> = [];
-  for (let weekNumber = 1; weekNumber <= plan.numberOfWeeks; weekNumber += 1) {
-    rows.push({
-      weekNumber,
-      percent: percentByWeek.get(weekNumber) ?? null,
-      emphasis: emphasisByWeek.get(weekNumber) ?? null,
-    });
-  }
-
-  return rows;
+  return `${minutes}:${String(remainder).padStart(2, "0")}`;
 }
 
-function WeekStructure({ plan }: { plan: PlanWeekStructure }) {
-  const rows = buildWeekRows(plan);
-  const hasStructure = rows.some((row) => row.percent !== null || row.emphasis !== null);
-
-  if (!hasStructure) {
-    return <Text style={styles.helperText}>Weekly structure not available yet.</Text>;
-  }
-
-  return (
-    <View style={styles.weekStructureList}>
-      {rows.map((row) => (
-        <View key={row.weekNumber} style={styles.weekStructureRow}>
-          <Text style={styles.weekStructureWeek}>W{row.weekNumber}</Text>
-          <Text style={styles.weekStructurePercent}>
-            {row.percent === null ? "--" : `${Math.round(row.percent * 100)}%`}
-          </Text>
-          <Text style={styles.weekStructureEmphasis}>{row.emphasis ?? "-"}</Text>
-        </View>
-      ))}
-    </View>
-  );
+function formatDateKey(dateKey: string): string {
+  return new Intl.DateTimeFormat(undefined, {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    timeZone: "UTC",
+  }).format(new Date(`${dateKey}T00:00:00Z`));
 }
 
-function parsePlanGenerationResult(value: unknown): PlanGenerationResult | null {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return null;
+function formatDurationSeconds(seconds: number): string {
+  const rounded = Math.max(0, Math.round(seconds));
+  const minutes = Math.floor(rounded / 60);
+  const remainder = rounded % 60;
+  if (minutes === 0) {
+    return `${remainder}s`;
   }
-
-  const candidate = value as {
-    numberOfWeeks?: unknown;
-    peakWeekVolume?: unknown;
-    weeklyVolumeProfile?: unknown;
-    weeklyEmphasis?: unknown;
-    rationale?: unknown;
-    metadata?: {
-      model?: unknown;
-    };
-    corrections?: unknown;
-  };
-
-  const model = candidate.metadata?.model;
-  if (
-    typeof candidate.numberOfWeeks !== "number" ||
-    typeof candidate.peakWeekVolume !== "number" ||
-    !Array.isArray(candidate.weeklyVolumeProfile) ||
-    !Array.isArray(candidate.weeklyEmphasis) ||
-    typeof candidate.rationale !== "string"
-  ) {
-    return null;
+  if (remainder === 0) {
+    return `${minutes} min`;
   }
-
-  return {
-    numberOfWeeks: candidate.numberOfWeeks,
-    peakWeekVolume: candidate.peakWeekVolume,
-    weeklyVolumeProfile: candidate.weeklyVolumeProfile as PlanGenerationResult["weeklyVolumeProfile"],
-    weeklyEmphasis: candidate.weeklyEmphasis as PlanGenerationResult["weeklyEmphasis"],
-    rationale: candidate.rationale,
-    ...(typeof model === "string" ? { metadata: { model } } : {}),
-    ...(Array.isArray(candidate.corrections)
-      ? {
-          corrections: candidate.corrections.filter((entry): entry is string => typeof entry === "string"),
-        }
-      : {}),
-  };
+  return `${minutes}:${String(remainder).padStart(2, "0")}`;
 }
 
-function parseTargetDateText(value: string): number | null {
-  const trimmed = value.trim();
-  if (trimmed.length === 0) {
+function formatWorkoutType(type: string): string {
+  switch (type) {
+    case "easyRun":
+      return "Easy Run";
+    case "longRun":
+      return "Long Run";
+    case "tempo":
+      return "Tempo";
+    case "intervals":
+      return "Intervals";
+    case "recovery":
+      return "Recovery";
+    default:
+      return type;
+  }
+}
+
+function formatSegment(segment: {
+  label: string;
+  paceZone: string;
+  targetValue: number;
+  targetUnit: "seconds" | "meters";
+  repetitions?: number;
+  restValue?: number;
+  restUnit?: "seconds" | "meters";
+}): string {
+  const target = segment.targetUnit === "seconds" ? formatDurationSeconds(segment.targetValue) : `${Math.round(segment.targetValue)}m`;
+  const reps = segment.repetitions ? `${segment.repetitions} x ` : "";
+  const rest =
+    typeof segment.restValue === "number" && segment.restUnit
+      ? ` / ${segment.restUnit === "seconds" ? formatDurationSeconds(segment.restValue) : `${Math.round(segment.restValue)}m`} easy`
+      : "";
+
+  return `${segment.label}: ${reps}${target} @ ${segment.paceZone}${rest}`;
+}
+
+function formatAbsoluteVolume(volumeMode: VolumeMode, absoluteVolume: number, unitPreference: UnitPreference) {
+  if (volumeMode === "time") {
+    return formatDurationSeconds(absoluteVolume);
+  }
+
+  return formatDistanceForDisplay(absoluteVolume, unitPreference);
+}
+
+function normalizeDate(date: Date | null): number | null {
+  if (!date) {
     return null;
   }
 
-  const normalized = /^\d{4}-\d{2}-\d{2}$/.test(trimmed) ? `${trimmed}T00:00:00` : trimmed;
-  const parsed = Date.parse(normalized);
-  if (!Number.isFinite(parsed)) {
+  const normalized = new Date(date);
+  normalized.setHours(0, 0, 0, 0);
+  return normalized.getTime();
+}
+
+function formatTargetDate(date: Date | null): string | null {
+  if (!date) {
     return null;
   }
 
-  return parsed;
+  return date.toLocaleDateString();
+}
+
+function dateFromWeeksAhead(weeks: number) {
+  const date = new Date();
+  date.setDate(date.getDate() + weeks * 7);
+  date.setHours(0, 0, 0, 0);
+  return date;
 }
 
 function parseGoalTimeText(hoursText: string, minutesText: string, secondsText: string): number | null {
@@ -168,719 +156,777 @@ function parseGoalTimeText(hoursText: string, minutesText: string, secondsText: 
   return total > 0 ? total : null;
 }
 
-function formatGoalTime(seconds: number): string {
-  const rounded = Math.max(0, Math.round(seconds));
-  const hours = Math.floor(rounded / 3600);
-  const minutes = Math.floor((rounded % 3600) / 60);
-  const remainder = rounded % 60;
+function WeekStructure({
+  numberOfWeeks,
+  weeklyVolumeProfile,
+  weeklyEmphasis,
+}: {
+  numberOfWeeks: number;
+  weeklyVolumeProfile?: Array<{ weekNumber: number; percentOfPeak: number }>;
+  weeklyEmphasis?: Array<{ weekNumber: number; emphasis: string }>;
+}) {
+  const percentByWeek = new Map((weeklyVolumeProfile ?? []).map((entry) => [entry.weekNumber, entry.percentOfPeak]));
+  const emphasisByWeek = new Map((weeklyEmphasis ?? []).map((entry) => [entry.weekNumber, entry.emphasis]));
 
-  if (hours > 0) {
-    return `${hours}:${String(minutes).padStart(2, "0")}:${String(remainder).padStart(2, "0")}`;
-  }
-
-  return `${minutes}:${String(remainder).padStart(2, "0")}`;
-}
-
-function formatDurationSeconds(seconds: number): string {
-  const rounded = Math.max(0, Math.round(seconds));
-  const minutes = Math.floor(rounded / 60);
-  const remainder = rounded % 60;
-  if (minutes === 0) {
-    return `${remainder}s`;
-  }
-  if (remainder === 0) {
-    return `${minutes} min`;
-  }
-  return `${minutes}:${String(remainder).padStart(2, "0")}`;
-}
-
-function formatDateKey(dateKey: string): string {
-  return new Intl.DateTimeFormat(undefined, {
-    weekday: "short",
-    month: "short",
-    day: "numeric",
-    timeZone: "UTC",
-  }).format(new Date(`${dateKey}T00:00:00Z`));
-}
-
-function formatWorkoutType(type: string): string {
-  switch (type) {
-    case "easyRun":
-      return "Easy Run";
-    case "longRun":
-      return "Long Run";
-    case "tempo":
-      return "Tempo";
-    case "intervals":
-      return "Intervals";
-    case "recovery":
-      return "Recovery";
-    default:
-      return type;
-  }
-}
-
-function formatWorkoutStatus(status: string): string {
-  switch (status) {
-    case "completed":
-      return "Completed";
-    case "planned":
-      return "Planned";
-    case "modified":
-      return "Modified";
-    case "skipped":
-      return "Skipped";
-    default:
-      return status;
-  }
-}
-
-function workoutStatusBadgeStyle(status: string) {
-  switch (status) {
-    case "completed":
-      return styles.statusBadgeMatched;
-    case "modified":
-      return styles.statusBadgeNeedsReview;
-    default:
-      return styles.statusBadgeUnmatched;
-  }
-}
-
-function formatAbsoluteVolume(volumeMode: VolumeMode, absoluteVolume: number, unitPreference: UnitPreference): string {
-  if (volumeMode === "time") {
-    return formatDurationSeconds(absoluteVolume);
-  }
-
-  return formatDistanceForDisplay(absoluteVolume, unitPreference);
-}
-
-function formatSegmentValue(value: number, unit: "seconds" | "meters"): string {
-  return unit === "seconds" ? formatDurationSeconds(value) : `${Math.round(value)}m`;
-}
-
-function formatSegment(segment: {
-  label: string;
-  paceZone: string;
-  targetValue: number;
-  targetUnit: "seconds" | "meters";
-  repetitions?: number;
-  restValue?: number;
-  restUnit?: "seconds" | "meters";
-}): string {
-  const target = formatSegmentValue(segment.targetValue, segment.targetUnit);
-  const repsPrefix = segment.repetitions ? `${segment.repetitions} x ` : "";
-  const rest =
-    typeof segment.restValue === "number" && segment.restUnit ? ` / ${formatSegmentValue(segment.restValue, segment.restUnit)} easy` : "";
-  return `${segment.label}: ${repsPrefix}${target} @ ${segment.paceZone}${rest}`;
+  return (
+    <View style={styles.weekStructureList}>
+      {Array.from({ length: numberOfWeeks }, (_, index) => index + 1).map((weekNumber) => (
+        <View key={weekNumber} style={styles.weekStructureRow}>
+          <Text style={styles.weekStructureWeek}>W{weekNumber}</Text>
+          <Text style={styles.weekStructurePercent}>
+            {percentByWeek.has(weekNumber) ? `${Math.round((percentByWeek.get(weekNumber) ?? 0) * 100)}%` : "--"}
+          </Text>
+          <Text style={styles.weekStructureEmphasis}>{emphasisByWeek.get(weekNumber) ?? "-"}</Text>
+        </View>
+      ))}
+    </View>
+  );
 }
 
 export function PlanScreen({
   defaultVolumeMode,
   unitPreference,
+  route,
+  onRouteChange,
 }: {
   defaultVolumeMode: VolumeMode;
   unitPreference: UnitPreference;
+  route: PlanRoute;
+  onRouteChange: (route: PlanRoute) => void;
 }) {
-  const requestPlanGeneration = useMutation(api.coach.requestPlanGeneration);
-  const retryPlanGeneration = useMutation(api.coach.retryPlanGeneration);
-  const createPlanFromGeneration = useMutation(api.coach.createPlanFromGeneration);
-  const requestWeekDetailGeneration = useMutation(api.coach.requestWeekDetailGeneration);
-  const retryWeekDetailGeneration = useMutation(api.coach.retryWeekDetailGeneration);
-  const activateDraftPlan = useMutation(api.plans.activateDraftPlan);
-  const updateDraftPlanBasics = useMutation(api.plans.updateDraftPlanBasics);
-  const updatePlanStatus = useMutation(api.plans.updatePlanStatus);
-  const planState = useQuery(api.plans.getPlanState, {});
-
-  const [goalType, setGoalType] = useState<(typeof GOAL_TYPES)[number]>("race");
-  const [goalLabel, setGoalLabel] = useState("5K");
-  const [targetDateText, setTargetDateText] = useState("");
-  const [goalTimeHours, setGoalTimeHours] = useState("0");
-  const [goalTimeMinutes, setGoalTimeMinutes] = useState("0");
-  const [goalTimeSecondsText, setGoalTimeSecondsText] = useState("0");
-  const [numberOfWeeks, setNumberOfWeeks] = useState(10);
-  const [volumeMode, setVolumeMode] = useState<VolumeMode>(defaultVolumeMode);
-  const [creating, setCreating] = useState(false);
-  const [creatingDraft, setCreatingDraft] = useState(false);
-  const [draftPeakOverrideText, setDraftPeakOverrideText] = useState("");
-  const [draftPeakInputs, setDraftPeakInputs] = useState<Record<string, string>>({});
-  const [selectedWeekNumber, setSelectedWeekNumber] = useState<number | null>(null);
-  const [selectedWorkoutId, setSelectedWorkoutId] = useState<Id<"workouts"> | null>(null);
-  const [planError, setPlanError] = useState<string | null>(null);
-  const [planMessage, setPlanMessage] = useState<string | null>(null);
-  const [proposalChatDraft, setProposalChatDraft] = useState("");
-  const planGenerationRequest = useQuery(api.coach.getLatestPlanGenerationRequest, {});
-
-  const hasActivePlan = Boolean(planState?.activePlan);
-  const proposal = parsePlanGenerationResult(planGenerationRequest?.result);
-  const generationMetadata = proposal?.metadata;
-  const draftGenerated = Boolean(planGenerationRequest?.consumedByPlanId);
-
-  const targetDate = parseTargetDateText(targetDateText);
-  const goalTimeSeconds = parseGoalTimeText(goalTimeHours, goalTimeMinutes, goalTimeSecondsText);
-  const needsTargetDate = goalType === "race";
-  const canGenerate = goalLabel.trim().length > 0 && (!needsTargetDate || targetDate !== null);
-
-  const trainingWeeks = planState?.activePlan?.trainingWeeks ?? [];
-  const weekDetail = useQuery(
-    api.plans.getWeekDetail,
-    planState?.activePlan && selectedWeekNumber
+  const planOverview = useQuery(api.mobileUx.getPlanOverview, {});
+  const weekAgenda = useQuery(
+    api.mobileUx.getWeekAgenda,
+    planOverview?.activePlan && route.screen === "week"
       ? {
-          planId: planState.activePlan._id,
-          weekNumber: selectedWeekNumber,
+          planId: planOverview.activePlan._id,
+          weekNumber: route.weekNumber,
+        }
+      : "skip",
+  );
+  const workoutDetail = useQuery(
+    api.mobileUx.getWorkoutDetailView,
+    route.screen === "workout"
+      ? {
+          workoutId: route.workoutId,
         }
       : "skip",
   );
 
+  const requestPlanGeneration = useMutation(api.coach.requestPlanGeneration);
+  const retryPlanGeneration = useMutation(api.coach.retryPlanGeneration);
+  const createPlanFromGeneration = useMutation(api.coach.createPlanFromGeneration);
+  const activateDraftPlan = useMutation(api.plans.activateDraftPlan);
+  const updateDraftPlanBasics = useMutation(api.plans.updateDraftPlanBasics);
+  const updatePlanStatus = useMutation(api.plans.updatePlanStatus);
+  const requestWeekDetailGeneration = useMutation(api.coach.requestWeekDetailGeneration);
+  const retryWeekDetailGeneration = useMutation(api.coach.retryWeekDetailGeneration);
+  const skipWorkout = useMutation(api.workouts.skipWorkout);
+  const rescheduleWorkout = useMutation(api.workouts.rescheduleWorkout);
+
+  const [createStep, setCreateStep] = useState(0);
+  const [goalType, setGoalType] = useState<PlanGoalType>("race");
+  const [goalPreset, setGoalPreset] = useState<string>("5K");
+  const [customGoalLabel, setCustomGoalLabel] = useState("");
+  const [targetDateValue, setTargetDateValue] = useState<Date | null>(() => dateFromWeeksAhead(12));
+  const [goalTimeHours, setGoalTimeHours] = useState("0");
+  const [goalTimeMinutes, setGoalTimeMinutes] = useState("0");
+  const [goalTimeSecondsText, setGoalTimeSecondsText] = useState("0");
+  const [numberOfWeeks, setNumberOfWeeks] = useState("10");
+  const [volumeMode, setVolumeMode] = useState<VolumeMode>(defaultVolumeMode);
+  const [raceDatePickerOpen, setRaceDatePickerOpen] = useState(false);
+  const [proposalPeakOverride, setProposalPeakOverride] = useState("");
+  const [draftPeakInputs, setDraftPeakInputs] = useState<Record<string, string>>({});
+  const [selectedRescheduleDate, setSelectedRescheduleDate] = useState<string>("");
+  const [busyLabel, setBusyLabel] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+
+  const activePlan = planOverview?.activePlan ?? null;
+  const proposal = planOverview?.proposal?.result ?? null;
+  const selectedGoalLabel = goalPreset === "Custom" ? customGoalLabel.trim() : goalPreset;
+  const targetDate = normalizeDate(targetDateValue);
+  const formattedTargetDate = formatTargetDate(targetDateValue);
+  const goalTimeSeconds = parseGoalTimeText(goalTimeHours, goalTimeMinutes, goalTimeSecondsText);
+  const createStepCount = 3;
+
   useEffect(() => {
-    if (!planState?.activePlan) {
-      setSelectedWeekNumber(null);
-      setSelectedWorkoutId(null);
+    if (!proposal) {
       return;
     }
 
-    const preferredWeek =
-      planState.activePlan.currentWeekNumber ??
-      trainingWeeks[0]?.weekNumber ??
-      null;
-
-    setSelectedWeekNumber((current) => {
-      if (current && trainingWeeks.some((week) => week.weekNumber === current)) {
-        return current;
-      }
-      return preferredWeek;
-    });
-  }, [planState?.activePlan, trainingWeeks]);
+    setProposalPeakOverride(String(Math.round(proposal.peakWeekVolume)));
+  }, [proposal?.peakWeekVolume]);
 
   useEffect(() => {
-    setSelectedWorkoutId(null);
-  }, [selectedWeekNumber]);
+    if (route.screen !== "workout") {
+      setSelectedRescheduleDate("");
+      return;
+    }
 
-  const selectedWeekSummary = useMemo(
-    () => trainingWeeks.find((week) => week.weekNumber === selectedWeekNumber) ?? null,
-    [selectedWeekNumber, trainingWeeks],
+    if (!selectedRescheduleDate && workoutDetail?.rescheduleOptions[0]) {
+      setSelectedRescheduleDate(workoutDetail.rescheduleOptions[0]);
+    }
+  }, [route.screen, selectedRescheduleDate, workoutDetail?.rescheduleOptions]);
+
+  const currentGoalOptions = useMemo(
+    () => (goalType === "race" ? [...RACE_GOALS] : [...NON_RACE_GOALS]),
+    [goalType],
   );
 
-  const canGenerateSelectedWeek = Boolean(weekDetail?.canGenerate);
-  const isWeekRequestInFlight = weekDetail?.latestRequest?.status === "queued" || weekDetail?.latestRequest?.status === "inProgress";
-  const isWeekRequestFailed = weekDetail?.latestRequest?.status === "failed";
-
-  const onCreatePlan = async () => {
-    if (!canGenerate) {
-      setPlanError(needsTargetDate ? "Race goals require a valid target date." : "Goal label cannot be empty.");
-      return;
+  useEffect(() => {
+    setGoalPreset(goalType === "race" ? "5K" : "Base Building");
+    setCustomGoalLabel("");
+    if (goalType !== "race") {
+      setGoalTimeHours("0");
+      setGoalTimeMinutes("0");
+      setGoalTimeSecondsText("0");
+    } else {
+      setTargetDateValue((current) => current ?? dateFromWeeksAhead(12));
     }
+  }, [goalType]);
 
-    setCreating(true);
-    setPlanError(null);
-    setPlanMessage(null);
+  const runWithStatus = async (label: string, action: () => Promise<void>) => {
+    setBusyLabel(label);
+    setError(null);
+    setMessage(null);
     try {
-      const result = await requestPlanGeneration({
-        goalType,
-        goalLabel: goalLabel.trim(),
-        targetDate: targetDate ?? undefined,
-        goalTimeSeconds: goalTimeSeconds ?? undefined,
-        volumeMode,
-        requestedNumberOfWeeks: goalType === "race" ? undefined : numberOfWeeks,
-      });
-
-      setPlanMessage(
-        result.deduped
-          ? "Using existing in-progress generation request."
-          : "Plan generation requested from coach. Waiting for response...",
-      );
-    } catch (error) {
-      setPlanError(String(error));
+      await action();
+    } catch (actionError) {
+      setError(String(actionError));
     } finally {
-      setCreating(false);
+      setBusyLabel(null);
     }
   };
 
-  const onRetryPlanGeneration = async () => {
-    if (!planGenerationRequest) {
-      return;
-    }
+  const canAdvanceCreateStep =
+    createStep === 0
+      ? selectedGoalLabel.length > 0
+      : createStep === 1
+        ? goalType !== "race" || targetDate !== null
+        : true;
 
-    try {
-      setPlanError(null);
-      setPlanMessage(null);
-      await retryPlanGeneration({
-        requestId: planGenerationRequest._id,
-      });
-      setPlanMessage("Retry queued. Waiting for coach response...");
-    } catch (error) {
-      setPlanError(String(error));
-    }
-  };
+  const canSubmitCreate =
+    selectedGoalLabel.length > 0 &&
+    (goalType !== "race" || targetDate !== null) &&
+    (goalType === "race" || (Number.isFinite(Number(numberOfWeeks)) && Number(numberOfWeeks) >= 4));
 
-  const onCreateDraftFromProposal = async () => {
-    if (!planGenerationRequest) {
-      return;
-    }
-
-    setCreatingDraft(true);
-    setPlanError(null);
-    setPlanMessage(null);
-    try {
-      await createPlanFromGeneration({
-        requestId: planGenerationRequest._id,
-        peakWeekVolumeOverride:
-          draftPeakOverrideText.trim().length > 0 && Number.isFinite(Number(draftPeakOverrideText))
-            ? Number(draftPeakOverrideText)
-            : undefined,
-      });
-      setPlanMessage("Draft created from coach proposal.");
-    } catch (error) {
-      setPlanError(String(error));
-    } finally {
-      setCreatingDraft(false);
-    }
-  };
-
-  const onUpdateDraftPeak = async (planId: Id<"trainingPlans">) => {
-    const raw = draftPeakInputs[String(planId)]?.trim() ?? "";
-    const peakWeekVolume = Number(raw);
-    if (!raw || !Number.isFinite(peakWeekVolume) || peakWeekVolume <= 0) {
-      setPlanError("Draft peak volume must be a positive number.");
-      return;
-    }
-
-    try {
-      setPlanError(null);
-      setPlanMessage(null);
-      await updateDraftPlanBasics({ planId, peakWeekVolume });
-      setPlanMessage("Draft peak volume updated.");
-    } catch (error) {
-      setPlanError(String(error));
-    }
-  };
-
-  const onActivateDraft = async (planId: Id<"trainingPlans">) => {
-    try {
-      setPlanError(null);
-      setPlanMessage(null);
-      await activateDraftPlan({
-        planId,
-        canonicalTimeZoneId: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
-      });
-      setPlanMessage("Draft activated. Current week generation queued.");
-    } catch (error) {
-      setPlanError(String(error));
-    }
-  };
-
-  const onAbandonPlan = async (planId: Id<"trainingPlans">) => {
-    try {
-      setPlanError(null);
-      setPlanMessage(null);
-      await updatePlanStatus({ planId, status: "abandoned" });
-      setPlanMessage("Active plan abandoned. You can activate a draft now.");
-    } catch (error) {
-      setPlanError(String(error));
-    }
-  };
-
-  const onCompletePlan = async (planId: Id<"trainingPlans">) => {
-    try {
-      setPlanError(null);
-      setPlanMessage(null);
-      await updatePlanStatus({ planId, status: "completed" });
-      setPlanMessage("Active plan marked complete.");
-    } catch (error) {
-      setPlanError(String(error));
-    }
-  };
-
-  const onGenerateWeek = async () => {
-    if (!planState?.activePlan || !selectedWeekNumber) {
-      return;
-    }
-
-    try {
-      setPlanError(null);
-      setPlanMessage(null);
-      await requestWeekDetailGeneration({
-        planId: planState.activePlan._id,
-        weekNumber: selectedWeekNumber,
-      });
-      setPlanMessage(`Week ${selectedWeekNumber} generation queued.`);
-    } catch (error) {
-      setPlanError(String(error));
-    }
-  };
-
-  const onRetryWeek = async () => {
-    if (!weekDetail?.latestRequest?._id) {
-      return;
-    }
-
-    try {
-      setPlanError(null);
-      setPlanMessage(null);
-      await retryWeekDetailGeneration({
-        requestId: weekDetail.latestRequest._id,
-      });
-      setPlanMessage(`Week ${selectedWeekNumber} retry queued.`);
-    } catch (error) {
-      setPlanError(String(error));
-    }
-  };
-
-  return (
+  const renderCreateFlow = () => (
     <ScrollView contentContainerStyle={styles.container}>
-      <Text style={styles.kicker}>Plan</Text>
-      <Text style={styles.heading}>{hasActivePlan ? "Active plan" : "No active plan"}</Text>
+      <ScreenHeader
+        eyebrow="Plan"
+        title="Create a plan"
+        subtitle={`Step ${createStep + 1} of ${createStepCount}. Keep decisions structured, then ask the coach to build the draft.`}
+        actionLabel="Back to overview"
+        onAction={() => onRouteChange({ screen: "overview" })}
+      />
 
-      {planError ? <Text style={styles.errorText}>{planError}</Text> : null}
-      {planMessage ? <Text style={styles.helperText}>{planMessage}</Text> : null}
+      {error ? <StatusBanner tone="error" message={error} /> : null}
+      {message ? <StatusBanner tone="success" message={message} /> : null}
 
-      <Panel title="Create Plan">
-        <Text style={styles.label}>Goal type</Text>
-        <ChoiceRow
-          options={GOAL_TYPES}
-          selected={goalType}
-          onChange={(value) => setGoalType(value as (typeof GOAL_TYPES)[number])}
-        />
-        <Text style={styles.label}>Goal label</Text>
-        <TextInput
-          style={styles.input}
-          value={goalLabel}
-          onChangeText={setGoalLabel}
-          autoCapitalize="words"
-          placeholder="5K, Half Marathon, Base Building"
-          placeholderTextColor="#7a848c"
-        />
-        <Text style={styles.label}>{goalType === "race" ? "Target date (required)" : "Target date (optional)"}</Text>
-        <TextInput
-          style={styles.input}
-          value={targetDateText}
-          onChangeText={setTargetDateText}
-          autoCapitalize="none"
-          placeholder="YYYY-MM-DD"
-          placeholderTextColor="#7a848c"
-        />
-        <Text style={styles.label}>Goal time (optional)</Text>
-        <View style={styles.timeInputRow}>
-          <View style={styles.timeInputBlock}>
-            <Text style={styles.helperText}>Hours</Text>
-            <TextInput
-              style={styles.input}
-              value={goalTimeHours}
-              onChangeText={setGoalTimeHours}
-              keyboardType="number-pad"
-              placeholder="0"
-              placeholderTextColor="#7a848c"
+      {createStep === 0 ? (
+        <SectionCard title="Goal" description="Choose the goal type first, then pick a preset or define a custom target.">
+          <FieldGroup label="Goal type">
+            <ChoiceRow
+              options={PLAN_GOAL_TYPES}
+              selected={goalType}
+              onChange={(value) => {
+                setGoalType(value as PlanGoalType);
+                setError(null);
+              }}
             />
-          </View>
-          <View style={styles.timeInputBlock}>
-            <Text style={styles.helperText}>Minutes</Text>
-            <TextInput
-              style={styles.input}
-              value={goalTimeMinutes}
-              onChangeText={setGoalTimeMinutes}
-              keyboardType="number-pad"
-              placeholder="45"
-              placeholderTextColor="#7a848c"
-            />
-          </View>
-          <View style={styles.timeInputBlock}>
-            <Text style={styles.helperText}>Seconds</Text>
-            <TextInput
-              style={styles.input}
-              value={goalTimeSecondsText}
-              onChangeText={setGoalTimeSecondsText}
-              keyboardType="number-pad"
-              placeholder="0"
-              placeholderTextColor="#7a848c"
-            />
-          </View>
-        </View>
-        <Text style={styles.label}>Weeks</Text>
-        <Counter value={numberOfWeeks} min={4} max={24} onChange={setNumberOfWeeks} />
-        <Text style={styles.label}>Volume mode</Text>
-        <ChoiceRow
-          options={VOLUME_MODES}
-          selected={volumeMode}
-          onChange={(value) => setVolumeMode(value as VolumeMode)}
-        />
-        <PrimaryButton
-          label={creating ? "Requesting Coach Plan..." : "Generate Plan with Coach"}
-          onPress={onCreatePlan}
-          disabled={creating || !canGenerate}
-        />
-      </Panel>
-
-      <Panel title="Plan Generation">
-        {!planGenerationRequest ? (
-          <Text style={styles.bodyText}>No plan generation requested yet.</Text>
-        ) : (
-          <>
-            <Text style={styles.bodyText}>Status: {planGenerationRequest.status}</Text>
-            {planGenerationRequest.status === "inProgress" || planGenerationRequest.status === "queued" ? (
-              <Text style={styles.helperText}>Your coach is building the plan...</Text>
-            ) : null}
-            {planGenerationRequest.status === "failed" ? (
-              <Text style={styles.errorText}>Couldn't reach your coach - check your connection.</Text>
-            ) : null}
-            {proposal ? (
-              <>
-                <Text style={styles.bodyText}>
-                  Proposed peak: {Math.round(proposal.peakWeekVolume)} {volumeMode === "time" ? "min" : "m"}
-                </Text>
-                <Text style={styles.bodyText}>Proposed weeks: {proposal.numberOfWeeks}</Text>
-                <Text style={styles.helperText}>
-                  Override draft peak volume if you want a different ceiling before activation.
-                </Text>
-                <TextInput
-                  style={styles.input}
-                  value={draftPeakOverrideText}
-                  onChangeText={setDraftPeakOverrideText}
-                  keyboardType="decimal-pad"
-                  placeholder={String(Math.round(proposal.peakWeekVolume))}
-                  placeholderTextColor="#7a848c"
-                />
-                <Text style={styles.helperText}>{proposal.rationale}</Text>
-                <WeekStructure plan={proposal} />
-                {generationMetadata?.model ? (
-                  <Text style={styles.helperText}>Model: {generationMetadata.model}</Text>
-                ) : null}
-                {proposal.corrections && proposal.corrections.length > 0 ? (
-                  <Text style={styles.helperText}>Validator corrections applied: {proposal.corrections.length}</Text>
-                ) : null}
-                {draftGenerated ? (
-                  <Text style={styles.helperText}>Draft plan already created from this proposal.</Text>
-                ) : (
-                  <PrimaryButton
-                    label={creatingDraft ? "Creating Draft..." : "Create Draft from Proposal"}
-                    onPress={onCreateDraftFromProposal}
-                    disabled={creatingDraft || planGenerationRequest.status !== "succeeded"}
-                  />
-                )}
-              </>
-            ) : null}
-            {planGenerationRequest.status === "succeeded" && !proposal ? (
-              <Text style={styles.helperText}>Plan generation succeeded. Loading proposal...</Text>
-            ) : null}
-            {planGenerationRequest.status === "failed" ? (
-              <PrimaryButton label="Retry Generation" onPress={onRetryPlanGeneration} />
-            ) : null}
-          </>
-        )}
-      </Panel>
-
-      {proposal ? (
-        <Panel title="Refine Proposal">
-          <Text style={styles.helperText}>
-            Use the peak override above for direct volume changes. Use the Coach tab for goal, timeline, and schedule tradeoff questions before activating.
-          </Text>
-          <TextInput
-            style={[styles.input, styles.textArea]}
-            value={proposalChatDraft}
-            onChangeText={setProposalChatDraft}
-            placeholder="Draft a note to yourself about what you still want to pressure-test..."
-            placeholderTextColor="#7a848c"
-            multiline
-          />
-        </Panel>
-      ) : null}
-
-      {planState?.activePlan ? (
-        <Panel title="Current Active Plan">
-          <Text style={styles.bodyText}>
-            {planState.activePlan.goal.label} - {planState.activePlan.numberOfWeeks} weeks - peak{" "}
-            {Math.round(planState.activePlan.peakWeekVolume)} {planState.activePlan.volumeMode === "time" ? "min" : "m"}
-          </Text>
-          {planState.activePlan.goal.targetDate ? (
-            <Text style={styles.helperText}>Target date: {new Date(planState.activePlan.goal.targetDate).toLocaleDateString()}</Text>
-          ) : null}
-          {typeof planState.activePlan.goal.goalTimeSeconds === "number" ? (
-            <Text style={styles.helperText}>Goal time: {formatGoalTime(planState.activePlan.goal.goalTimeSeconds)}</Text>
-          ) : null}
-          {planState.activePlan.startDateKey ? (
-            <Text style={styles.helperText}>
-              Canonical week 1 starts {planState.activePlan.startDateKey} in {planState.activePlan.canonicalTimeZoneId}
-            </Text>
-          ) : null}
-
-          <Text style={styles.label}>Weeks</Text>
-          <View style={styles.weekList}>
-            {trainingWeeks.map((week) => {
-              const isSelected = week.weekNumber === selectedWeekNumber;
-              const badge =
-                week.weekNumber === planState.activePlan.currentWeekNumber
-                  ? "Current"
-                  : week.weekNumber === planState.activePlan.nextWeekNumber
-                    ? "Next"
-                    : null;
-
-              return (
-                <Pressable
-                  key={String(week._id)}
-                  style={[styles.weekListRow, isSelected ? styles.weekListRowActive : null]}
-                  onPress={() => setSelectedWeekNumber(week.weekNumber)}
-                >
-                  <View style={styles.weekListHeader}>
-                    <Text style={styles.weekListTitle}>Week {week.weekNumber}</Text>
-                    {badge ? <Text style={styles.weekBadge}>{badge}</Text> : null}
-                  </View>
-                  <Text style={styles.helperText}>
-                    {Math.round(week.targetVolumePercent * 100)}% of peak · {week.emphasis || "No emphasis"}
-                  </Text>
-                  <Text style={styles.helperText}>
-                    {formatDateKey(week.weekStartDateKey)} - {formatDateKey(week.weekEndDateKey)} ·{" "}
-                    {week.generated ? "Generated" : "Outline only"}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </View>
-
-          {selectedWeekSummary ? (
-            <View style={styles.weekDetailBlock}>
-              <Text style={styles.weekDetailHeading}>Week {selectedWeekSummary.weekNumber}</Text>
-              <Text style={styles.helperText}>
-                {formatDateKey(selectedWeekSummary.weekStartDateKey)} - {formatDateKey(selectedWeekSummary.weekEndDateKey)}
-              </Text>
-              <Text style={styles.bodyText}>
-                Target volume:{" "}
-                {formatAbsoluteVolume(planState.activePlan.volumeMode, selectedWeekSummary.targetVolumeAbsolute, unitPreference)}
-                {" · "}
-                {Math.round(selectedWeekSummary.targetVolumePercent * 100)}% of peak
-              </Text>
-              <Text style={styles.helperText}>Emphasis: {selectedWeekSummary.emphasis || "No emphasis yet"}</Text>
-
-              {weekDetail === undefined ? (
-                <Text style={styles.helperText}>Loading week detail...</Text>
-              ) : (
-                <>
-                  {weekDetail.latestRequest?.status === "failed" ? (
-                    <Text style={styles.errorText}>{weekDetail.latestRequest.errorMessage ?? "Generation failed."}</Text>
-                  ) : null}
-                  {isWeekRequestInFlight ? (
-                    <Text style={styles.helperText}>Coach is building this week now...</Text>
-                  ) : null}
-                  {!selectedWeekSummary.generated ? (
-                    canGenerateSelectedWeek ? (
-                      isWeekRequestFailed ? (
-                        <PrimaryButton label="Retry Generation" onPress={onRetryWeek} disabled={isWeekRequestInFlight} />
-                      ) : (
-                        <PrimaryButton label="Generate Workouts" onPress={onGenerateWeek} disabled={isWeekRequestInFlight} />
-                      )
-                    ) : (
-                      <Text style={styles.helperText}>Only the current week and next week can be generated.</Text>
-                    )
-                  ) : null}
-
-                  {weekDetail.week.coachNotes ? (
-                    <Text style={styles.helperText}>{weekDetail.week.coachNotes}</Text>
-                  ) : null}
-
-                  {weekDetail.workouts.length > 0 ? (
-                    <View style={styles.workoutList}>
-                      {weekDetail.workouts.map((workout) => {
-                        const expanded = selectedWorkoutId === workout._id;
-                        return (
-                          <Pressable
-                            key={String(workout._id)}
-                            style={[styles.workoutCard, expanded ? styles.workoutCardActive : null]}
-                            onPress={() =>
-                              setSelectedWorkoutId((current) => (current === workout._id ? null : workout._id))
-                            }
-                          >
-                            <View style={styles.statusRow}>
-                              <Text style={styles.workoutTitle}>
-                                {formatDateKey(workout.scheduledDateKey)} · {formatWorkoutType(workout.type)}
-                              </Text>
-                              <Text style={[styles.statusBadge, workoutStatusBadgeStyle(workout.status)]}>
-                                {formatWorkoutStatus(workout.status)}
-                              </Text>
-                            </View>
-                            <Text style={styles.helperText}>
-                              {formatAbsoluteVolume(planState.activePlan.volumeMode, workout.absoluteVolume, unitPreference)}
-                              {" · "}
-                              {Math.round(workout.volumePercent * 100)}% of peak · {workout.venue}
-                            </Text>
-                            {expanded ? (
-                              <>
-                                {workout.notes ? <Text style={styles.bodyText}>{workout.notes}</Text> : null}
-                                {workout.segments.length > 0 ? (
-                                  <View style={styles.segmentList}>
-                                    {workout.segments.map((segment, index) => (
-                                      <Text key={`${String(workout._id)}-${index}`} style={styles.helperText}>
-                                        {formatSegment(segment)}
-                                      </Text>
-                                    ))}
-                                  </View>
-                                ) : null}
-                                {workout.execution ? (
-                                  <WorkoutExecutionDetail
-                                    executionId={workout.execution._id}
-                                    unitPreference={unitPreference}
-                                  />
-                                ) : (
-                                  <Text style={styles.helperText}>
-                                    No imported run is linked to this workout yet.
-                                  </Text>
-                                )}
-                              </>
-                            ) : null}
-                          </Pressable>
-                        );
-                      })}
-                    </View>
-                  ) : selectedWeekSummary.generated ? (
-                    <Text style={styles.helperText}>No workouts returned for this week.</Text>
-                  ) : null}
-                </>
-              )}
-            </View>
-          ) : null}
-
-          <PrimaryButton label="Mark Plan Complete" onPress={() => onCompletePlan(planState.activePlan!._id)} />
-          <SecondaryButton label="Abandon Active Plan" onPress={() => onAbandonPlan(planState.activePlan!._id)} />
-        </Panel>
-      ) : null}
-
-      <Panel title="Draft Plans">
-        {planState?.draftPlans.length ? (
-          planState.draftPlans.map((draft) => (
-            <View key={String(draft._id)} style={styles.listItem}>
-              <Text style={styles.bodyText}>
-                {draft.goal.label} - {draft.numberOfWeeks} weeks - peak {Math.round(draft.peakWeekVolume)}{" "}
-                {draft.volumeMode === "time" ? "min" : "m"}
-              </Text>
-              {draft.goal.targetDate ? (
-                <Text style={styles.helperText}>Target date: {new Date(draft.goal.targetDate).toLocaleDateString()}</Text>
-              ) : null}
-              {typeof draft.goal.goalTimeSeconds === "number" ? (
-                <Text style={styles.helperText}>Goal time: {formatGoalTime(draft.goal.goalTimeSeconds)}</Text>
-              ) : null}
-              <WeekStructure plan={draft} />
-              <Text style={styles.label}>Peak week override</Text>
+          </FieldGroup>
+          <FieldGroup label="Goal selection">
+            <ChoiceRow options={currentGoalOptions} selected={goalPreset} onChange={setGoalPreset} />
+          </FieldGroup>
+          {goalPreset === "Custom" ? (
+            <FieldGroup
+              label="Custom goal label"
+              helperText={goalType === "race" ? "Examples: 15K, 50K, 100 miles" : "Examples: Run every day, return from injury"}
+            >
               <TextInput
                 style={styles.input}
-                value={draftPeakInputs[String(draft._id)] ?? ""}
-                onChangeText={(value) =>
-                  setDraftPeakInputs((current) => ({
-                    ...current,
-                    [String(draft._id)]: value,
-                  }))
-                }
-                keyboardType="decimal-pad"
-                placeholder={String(Math.round(draft.peakWeekVolume))}
+                value={customGoalLabel}
+                onChangeText={setCustomGoalLabel}
+                placeholder="Describe the goal"
                 placeholderTextColor="#7a848c"
               />
-              <SecondaryButton label="Save Draft Peak" onPress={() => onUpdateDraftPeak(draft._id)} />
+            </FieldGroup>
+          ) : null}
+        </SectionCard>
+      ) : null}
+
+      {createStep === 1 ? (
+        <SectionCard title="Timeline" description="Race goals require a date. Goal time is optional and acts as a target check.">
+          {goalType === "race" ? (
+            <>
+              <FieldGroup label="Target date" helperText="Pick a race date from the shared calendar, or tap a quick option to fill a likely race date.">
+                <View style={styles.tagRow}>
+                  {[8, 12, 16].map((weeks) => (
+                    <SecondaryButton
+                      key={weeks}
+                      label={`${weeks} weeks`}
+                      onPress={() => {
+                        setTargetDateValue(dateFromWeeksAhead(weeks));
+                      }}
+                    />
+                  ))}
+                </View>
+                <PickerField
+                  value={formattedTargetDate}
+                  placeholder="Select a race date"
+                  onPress={() => {
+                    setRaceDatePickerOpen(true);
+                  }}
+                />
+                {formattedTargetDate ? <Text style={styles.helperText}>Target date preview: {formattedTargetDate}</Text> : null}
+              </FieldGroup>
+              <FieldGroup label="Goal time (optional)">
+                <View style={styles.timeInputRow}>
+                  <View style={styles.timeInputBlock}>
+                    <Text style={styles.helperText}>Hours</Text>
+                    <TextInput
+                      style={styles.input}
+                      value={goalTimeHours}
+                      onChangeText={setGoalTimeHours}
+                      keyboardType="number-pad"
+                      placeholder="0"
+                      placeholderTextColor="#7a848c"
+                    />
+                  </View>
+                  <View style={styles.timeInputBlock}>
+                    <Text style={styles.helperText}>Minutes</Text>
+                    <TextInput
+                      style={styles.input}
+                      value={goalTimeMinutes}
+                      onChangeText={setGoalTimeMinutes}
+                      keyboardType="number-pad"
+                      placeholder="45"
+                      placeholderTextColor="#7a848c"
+                    />
+                  </View>
+                  <View style={styles.timeInputBlock}>
+                    <Text style={styles.helperText}>Seconds</Text>
+                    <TextInput
+                      style={styles.input}
+                      value={goalTimeSecondsText}
+                      onChangeText={setGoalTimeSecondsText}
+                      keyboardType="number-pad"
+                      placeholder="0"
+                      placeholderTextColor="#7a848c"
+                    />
+                  </View>
+                </View>
+                {goalTimeSeconds ? <Text style={styles.helperText}>Goal time preview: {formatGoalTime(goalTimeSeconds)}</Text> : null}
+              </FieldGroup>
+            </>
+          ) : (
+            <FieldGroup label="Plan length (weeks)" helperText="Non-race goals keep the requested duration.">
+              <TextInput
+                style={styles.input}
+                value={numberOfWeeks}
+                onChangeText={setNumberOfWeeks}
+                keyboardType="number-pad"
+                placeholder="10"
+                placeholderTextColor="#7a848c"
+              />
+            </FieldGroup>
+          )}
+        </SectionCard>
+      ) : null}
+
+      {createStep === 2 ? (
+        <SectionCard title="Review" description="Use time or distance as the main planning unit, then send the request.">
+          <FieldGroup label="Volume mode">
+            <ChoiceRow
+              options={VOLUME_MODES}
+              selected={volumeMode}
+              onChange={(value) => setVolumeMode(value as VolumeMode)}
+            />
+          </FieldGroup>
+          <MetricGrid>
+            <MetricStat label="Goal type" value={goalType} />
+            <MetricStat label="Goal" value={selectedGoalLabel || "Custom goal"} />
+            <MetricStat label="Volume" value={volumeMode} />
+            <MetricStat label="Plan" value={goalType === "race" ? "Race build" : `${numberOfWeeks} weeks`} />
+          </MetricGrid>
+          {goalType === "race" ? <Text style={styles.helperText}>Target date: {formattedTargetDate ?? "Add a valid race date"}</Text> : null}
+          {goalType === "race" && goalTimeSeconds ? <Text style={styles.helperText}>Goal time: {formatGoalTime(goalTimeSeconds)}</Text> : null}
+          {goalType !== "race" ? <Text style={styles.helperText}>Requested weeks: {numberOfWeeks}</Text> : null}
+        </SectionCard>
+      ) : null}
+
+      <StickyActionBar>
+        {createStep > 0 ? <SecondaryButton label="Back" onPress={() => setCreateStep((step) => step - 1)} /> : null}
+        {createStep < createStepCount - 1 ? (
+          <PrimaryButton
+            label="Continue"
+            onPress={() => setCreateStep((step) => Math.min(createStepCount - 1, step + 1))}
+            disabled={!canAdvanceCreateStep}
+          />
+        ) : (
+          <PrimaryButton
+            label={busyLabel === "request-plan" ? "Requesting coach plan..." : "Request coach proposal"}
+            disabled={!canSubmitCreate || busyLabel !== null}
+            onPress={() =>
+              void runWithStatus("request-plan", async () => {
+                await requestPlanGeneration({
+                  goalType,
+                  goalLabel: selectedGoalLabel,
+                  targetDate: targetDate ?? undefined,
+                  goalTimeSeconds: goalType === "race" ? goalTimeSeconds ?? undefined : undefined,
+                  volumeMode,
+                  requestedNumberOfWeeks: goalType === "race" ? undefined : Number(numberOfWeeks),
+                });
+                setMessage("Plan generation requested. The latest proposal will appear in Proposal Review.");
+                onRouteChange({ screen: "proposal" });
+              })
+            }
+          />
+        )}
+      </StickyActionBar>
+
+      <CrossPlatformPickerSheet
+        visible={raceDatePickerOpen}
+        title="Target race date"
+        mode="date"
+        value={targetDateValue ?? dateFromWeeksAhead(12)}
+        minimumDate={new Date()}
+        onCancel={() => {
+          setRaceDatePickerOpen(false);
+        }}
+        onConfirm={(nextDate) => {
+          const normalized = new Date(nextDate);
+          normalized.setHours(0, 0, 0, 0);
+          setTargetDateValue(normalized);
+          setRaceDatePickerOpen(false);
+        }}
+      />
+    </ScrollView>
+  );
+
+  const renderProposalView = () => (
+    <ScrollView contentContainerStyle={styles.container}>
+      <ScreenHeader
+        eyebrow="Plan"
+        title="Proposal review"
+        subtitle="Review the latest coach-generated structure before you create or activate a draft."
+        actionLabel="Overview"
+        onAction={() => onRouteChange({ screen: "overview" })}
+      />
+
+      {error ? <StatusBanner tone="error" message={error} /> : null}
+      {message ? <StatusBanner tone="success" message={message} /> : null}
+
+      {!planOverview?.proposal ? (
+        <EmptyStateCard
+          title="No proposal yet"
+          body="Start the guided create flow, then come back here once the coach finishes building the structure."
+          actionLabel="Create plan"
+          onAction={() => onRouteChange({ screen: "create" })}
+        />
+      ) : (
+        <>
+          <SectionCard title="Generation status" description={`Requested ${new Date(planOverview.proposal.createdAt).toLocaleString()}`}>
+            <Text style={styles.bodyText}>Status: {planOverview.proposal.status}</Text>
+            {planOverview.proposal.errorMessage ? <Text style={styles.errorText}>{planOverview.proposal.errorMessage}</Text> : null}
+            {planOverview.proposal.status === "failed" ? (
               <PrimaryButton
-                label={hasActivePlan ? "Cannot activate while active exists" : "Activate Draft"}
-                disabled={hasActivePlan}
-                onPress={() => onActivateDraft(draft._id)}
+                label={busyLabel === "retry-proposal" ? "Retrying..." : "Retry generation"}
+                disabled={busyLabel !== null}
+                onPress={() =>
+                  void runWithStatus("retry-proposal", async () => {
+                    await retryPlanGeneration({ requestId: planOverview.proposal!._id });
+                    setMessage("Retry queued.");
+                  })
+                }
+              />
+            ) : null}
+          </SectionCard>
+
+          {proposal ? (
+            <>
+              <SectionCard title="Coach proposal" description={proposal.rationale}>
+                <MetricGrid>
+                  <MetricStat label="Peak week" value={`${Math.round(proposal.peakWeekVolume)} ${volumeMode === "time" ? "min" : "m"}`} />
+                  <MetricStat label="Weeks" value={String(proposal.numberOfWeeks)} />
+                </MetricGrid>
+                <FieldGroup label="Peak week override" helperText="Adjust the ceiling before you create the draft.">
+                  <TextInput
+                    style={styles.input}
+                    value={proposalPeakOverride}
+                    onChangeText={setProposalPeakOverride}
+                    keyboardType="decimal-pad"
+                    placeholder={String(Math.round(proposal.peakWeekVolume))}
+                    placeholderTextColor="#7a848c"
+                  />
+                </FieldGroup>
+                <WeekStructure
+                  numberOfWeeks={proposal.numberOfWeeks}
+                  weeklyVolumeProfile={proposal.weeklyVolumeProfile}
+                  weeklyEmphasis={proposal.weeklyEmphasis}
+                />
+                <PrimaryButton
+                  label={busyLabel === "create-draft" ? "Creating draft..." : "Create draft from proposal"}
+                  disabled={busyLabel !== null || planOverview.proposal.consumedByPlanId !== null || planOverview.proposal.status !== "succeeded"}
+                  onPress={() =>
+                    void runWithStatus("create-draft", async () => {
+                      await createPlanFromGeneration({
+                        requestId: planOverview.proposal!._id,
+                        peakWeekVolumeOverride:
+                          proposalPeakOverride.trim().length > 0 && Number.isFinite(Number(proposalPeakOverride))
+                            ? Number(proposalPeakOverride)
+                            : undefined,
+                      });
+                      setMessage("Draft created from proposal.");
+                      onRouteChange({ screen: "overview" });
+                    })
+                  }
+                />
+              </SectionCard>
+            </>
+          ) : null}
+        </>
+      )}
+    </ScrollView>
+  );
+
+  const renderOverview = () => (
+    <ScrollView contentContainerStyle={styles.container}>
+      <ScreenHeader
+        eyebrow="Plan"
+        title={activePlan ? "Plan overview" : "Plan workspace"}
+        subtitle="Create drafts, review the latest proposal, and open the current week without digging through one giant panel."
+        actionLabel="Create"
+        onAction={() => onRouteChange({ screen: "create" })}
+      />
+
+      {error ? <StatusBanner tone="error" message={error} /> : null}
+      {message ? <StatusBanner tone="success" message={message} /> : null}
+
+      {planOverview === undefined ? <StatusBanner message="Loading plan state..." /> : null}
+
+      {!activePlan ? (
+        <EmptyStateCard
+          title="No active plan"
+          body="Generate a proposal, create a draft, and activate it when the structure looks right."
+          actionLabel="Start create flow"
+          onAction={() => onRouteChange({ screen: "create" })}
+        />
+      ) : (
+        <SectionCard title={activePlan.goal.label} description={`${activePlan.numberOfWeeks} weeks · peak ${Math.round(activePlan.peakWeekVolume)} ${activePlan.volumeMode === "time" ? "min" : "m"}`}>
+          <MetricGrid>
+            <MetricStat label="Current week" value={activePlan.currentWeekNumber ? String(activePlan.currentWeekNumber) : "-"} />
+            <MetricStat label="Next week" value={activePlan.nextWeekNumber ? String(activePlan.nextWeekNumber) : "-"} />
+          </MetricGrid>
+          <View style={styles.weekList}>
+            {activePlan.trainingWeeks.map((week) => (
+              <Pressable key={String(week._id)} style={styles.weekListRow} onPress={() => onRouteChange({ screen: "week", weekNumber: week.weekNumber })}>
+                <View style={styles.weekListHeader}>
+                  <Text style={styles.weekListTitle}>Week {week.weekNumber}</Text>
+                  {week.weekNumber === activePlan.currentWeekNumber ? <Text style={styles.weekBadge}>Current</Text> : null}
+                </View>
+                <Text style={styles.helperText}>
+                  {Math.round(week.targetVolumePercent * 100)}% of peak · {week.emphasis || "No emphasis"}
+                </Text>
+                <Text style={styles.helperText}>
+                  {formatDateKey(week.weekStartDateKey)} - {formatDateKey(week.weekEndDateKey)} · {week.generated ? "Generated" : "Outline only"}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+        </SectionCard>
+      )}
+
+      <SectionCard title="Latest proposal" description="The newest coach-generated structure, if one exists.">
+        {planOverview?.proposal ? (
+          <>
+            <Text style={styles.bodyText}>Status: {planOverview.proposal.status}</Text>
+            <SecondaryButton label="Open proposal review" onPress={() => onRouteChange({ screen: "proposal" })} />
+          </>
+        ) : (
+          <Text style={styles.bodyText}>No proposal in progress yet.</Text>
+        )}
+      </SectionCard>
+
+      <SectionCard title="Draft plans" description="Drafts stay separate from the active plan until you activate them.">
+        {planOverview?.draftPlans.length ? (
+          planOverview.draftPlans.map((draft) => (
+            <View key={String(draft._id)} style={styles.subtleBlock}>
+              <Text style={styles.sectionCardTitle}>{draft.goal.label}</Text>
+              <Text style={styles.helperText}>
+                {draft.numberOfWeeks} weeks · peak {Math.round(draft.peakWeekVolume)} {draft.volumeMode === "time" ? "min" : "m"}
+              </Text>
+              <FieldGroup label="Peak week override">
+                <TextInput
+                  style={styles.input}
+                  value={draftPeakInputs[String(draft._id)] ?? ""}
+                  onChangeText={(value) =>
+                    setDraftPeakInputs((current) => ({
+                      ...current,
+                      [String(draft._id)]: value,
+                    }))
+                  }
+                  keyboardType="decimal-pad"
+                  placeholder={String(Math.round(draft.peakWeekVolume))}
+                  placeholderTextColor="#7a848c"
+                />
+              </FieldGroup>
+              <SecondaryButton
+                label={busyLabel === `save-draft-${String(draft._id)}` ? "Saving..." : "Save draft peak"}
+                disabled={busyLabel !== null}
+                onPress={() =>
+                  void runWithStatus(`save-draft-${String(draft._id)}`, async () => {
+                    const raw = draftPeakInputs[String(draft._id)]?.trim() ?? "";
+                    const peakWeekVolume = Number(raw);
+                    if (!raw || !Number.isFinite(peakWeekVolume) || peakWeekVolume <= 0) {
+                      throw new Error("Draft peak volume must be a positive number.");
+                    }
+                    await updateDraftPlanBasics({ planId: draft._id, peakWeekVolume });
+                    setMessage("Draft peak volume updated.");
+                  })
+                }
+              />
+              <PrimaryButton
+                label={busyLabel === `activate-draft-${String(draft._id)}` ? "Activating..." : "Activate draft"}
+                disabled={busyLabel !== null || Boolean(activePlan)}
+                onPress={() =>
+                  void runWithStatus(`activate-draft-${String(draft._id)}`, async () => {
+                    await activateDraftPlan({
+                      planId: draft._id,
+                      canonicalTimeZoneId: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
+                    });
+                    setMessage("Draft activated.");
+                  })
+                }
               />
             </View>
           ))
         ) : (
-          <Text style={styles.bodyText}>No draft plans yet.</Text>
+          <Text style={styles.bodyText}>No drafts yet.</Text>
         )}
-      </Panel>
+      </SectionCard>
+
+      {activePlan ? (
+        <SectionCard title="Plan controls" description="Keep destructive actions out of the main browsing flow.">
+          <SecondaryButton
+            label={busyLabel === "complete-plan" ? "Completing..." : "Mark plan complete"}
+            disabled={busyLabel !== null}
+            onPress={() =>
+              void runWithStatus("complete-plan", async () => {
+                await updatePlanStatus({ planId: activePlan._id, status: "completed" });
+                setMessage("Plan marked complete.");
+              })
+            }
+          />
+          <SecondaryButton
+            label={busyLabel === "abandon-plan" ? "Closing..." : "Abandon active plan"}
+            disabled={busyLabel !== null}
+            onPress={() =>
+              void runWithStatus("abandon-plan", async () => {
+                await updatePlanStatus({ planId: activePlan._id, status: "abandoned" });
+                setMessage("Plan abandoned.");
+              })
+            }
+          />
+        </SectionCard>
+      ) : null}
     </ScrollView>
   );
+
+  const renderWeekAgenda = () => (
+    <ScrollView contentContainerStyle={styles.container}>
+      <ScreenHeader
+        eyebrow="Plan"
+        title={weekAgenda ? `Week ${weekAgenda.week.weekNumber}` : "Week agenda"}
+        subtitle={weekAgenda ? `${formatDateKey(weekAgenda.week.weekStartDateKey)} - ${formatDateKey(weekAgenda.week.weekEndDateKey)}` : "Loading week..."}
+        actionLabel="Overview"
+        onAction={() => onRouteChange({ screen: "overview" })}
+      />
+
+      {error ? <StatusBanner tone="error" message={error} /> : null}
+      {message ? <StatusBanner tone="success" message={message} /> : null}
+      {weekAgenda === undefined ? <StatusBanner message="Loading week agenda..." /> : null}
+
+      {weekAgenda ? (
+        <>
+          <SectionCard title="Week summary" description={weekAgenda.week.emphasis || "No emphasis"}>
+            <MetricGrid>
+              <MetricStat
+                label="Target"
+                value={formatAbsoluteVolume(weekAgenda.plan.volumeMode, weekAgenda.week.targetVolumeAbsolute, unitPreference)}
+                hint={`${Math.round(weekAgenda.week.targetVolumePercent * 100)}% of peak`}
+              />
+              <MetricStat label="Status" value={weekAgenda.week.generated ? "Generated" : "Outline only"} />
+            </MetricGrid>
+            {weekAgenda.week.coachNotes ? <Text style={styles.bodyText}>{weekAgenda.week.coachNotes}</Text> : null}
+            {!weekAgenda.week.generated ? (
+              <PrimaryButton
+                label={
+                  weekAgenda.latestRequest?.status === "failed"
+                    ? busyLabel === "retry-week"
+                      ? "Retrying..."
+                      : "Retry generation"
+                    : busyLabel === "generate-week"
+                      ? "Generating..."
+                      : "Generate workouts"
+                }
+                disabled={busyLabel !== null || !weekAgenda.canGenerate}
+                onPress={() =>
+                  void runWithStatus(
+                    weekAgenda.latestRequest?.status === "failed" ? "retry-week" : "generate-week",
+                    async () => {
+                      if (weekAgenda.latestRequest?.status === "failed" && weekAgenda.latestRequest?._id) {
+                        await retryWeekDetailGeneration({ requestId: weekAgenda.latestRequest._id });
+                      } else if (activePlan) {
+                        await requestWeekDetailGeneration({
+                          planId: activePlan._id,
+                          weekNumber: weekAgenda.week.weekNumber,
+                        });
+                      }
+                      setMessage(`Week ${weekAgenda.week.weekNumber} generation queued.`);
+                    },
+                  )
+                }
+              />
+            ) : null}
+          </SectionCard>
+
+          {weekAgenda.days.map((day) => (
+            <SectionCard key={day.dateKey} title={formatDateKey(day.dateKey)} description={`${day.workouts.length} workout${day.workouts.length === 1 ? "" : "s"}`}>
+              {day.workouts.map((workout) => (
+                <View key={String(workout._id)} style={styles.subtleBlock}>
+                  <View style={styles.statusRow}>
+                    <Text style={styles.sectionCardTitle}>{formatWorkoutType(workout.type)}</Text>
+                    <Text style={[styles.statusBadge, workout.status === "completed" ? styles.statusBadgeMatched : workout.status === "modified" ? styles.statusBadgeNeedsReview : styles.statusBadgeUnmatched]}>
+                      {workout.status}
+                    </Text>
+                  </View>
+                  <Text style={styles.helperText}>
+                    {formatAbsoluteVolume(weekAgenda.plan.volumeMode, workout.absoluteVolume, unitPreference)} · {workout.venue}
+                  </Text>
+                  <PrimaryButton
+                    label="Open workout"
+                    onPress={() => onRouteChange({ screen: "workout", weekNumber: weekAgenda.week.weekNumber, workoutId: workout._id })}
+                  />
+                </View>
+              ))}
+            </SectionCard>
+          ))}
+        </>
+      ) : null}
+    </ScrollView>
+  );
+
+  const renderWorkoutView = () => (
+    <ScrollView contentContainerStyle={styles.container}>
+      <ScreenHeader
+        eyebrow="Plan"
+        title={workoutDetail ? `${formatWorkoutType(workoutDetail.workout.type)}` : "Workout detail"}
+        subtitle={workoutDetail ? `${formatDateKey(workoutDetail.workout.scheduledDateKey)} · Week ${workoutDetail.week.weekNumber}` : "Loading workout..."}
+        actionLabel={route.screen === "workout" ? `Week ${route.weekNumber}` : "Back"}
+        onAction={() => onRouteChange({ screen: "week", weekNumber: route.screen === "workout" ? route.weekNumber : 1 })}
+      />
+
+      {error ? <StatusBanner tone="error" message={error} /> : null}
+      {message ? <StatusBanner tone="success" message={message} /> : null}
+      {workoutDetail === undefined ? <StatusBanner message="Loading workout detail..." /> : null}
+
+      {workoutDetail ? (
+        <>
+          <SectionCard title="Workout summary" description={`${workoutDetail.plan.goalLabel} · ${workoutDetail.plan.volumeMode} mode`}>
+            <MetricGrid>
+              <MetricStat
+                label="Target"
+                value={formatAbsoluteVolume(workoutDetail.plan.volumeMode, workoutDetail.workout.absoluteVolume, unitPreference)}
+                hint={`${Math.round(workoutDetail.workout.volumePercent * 100)}% of peak`}
+              />
+              <MetricStat label="Venue" value={workoutDetail.workout.venue} />
+            </MetricGrid>
+            {workoutDetail.workout.notes ? <Text style={styles.bodyText}>{workoutDetail.workout.notes}</Text> : null}
+          </SectionCard>
+
+          <SectionCard title="Segments" description="Ordered from summary down into pace-zone detail.">
+            {workoutDetail.workout.segments.length > 0 ? (
+              workoutDetail.workout.segments.map((segment, index) => (
+                <Text key={`${String(workoutDetail.workout._id)}-${index}`} style={styles.helperText}>
+                  {formatSegment(segment)}
+                </Text>
+              ))
+            ) : (
+              <Text style={styles.bodyText}>No structured segments were attached to this workout.</Text>
+            )}
+          </SectionCard>
+
+          {workoutDetail.executionDetail ? (
+            <SectionCard title="Actual run summary" description="Check-in, matching, and advanced breakdown stay together here.">
+              <WorkoutExecutionDetail executionId={workoutDetail.executionDetail.execution._id} unitPreference={unitPreference} />
+            </SectionCard>
+          ) : (
+            <SectionCard title="Actual run summary" description="No imported workout is currently linked.">
+              <Text style={styles.bodyText}>If the run was imported but not matched yet, review it from History and link it there.</Text>
+            </SectionCard>
+          )}
+
+          <StickyActionBar>
+            {workoutDetail.primaryAction === "checkIn" || workoutDetail.primaryAction === "viewActualRun" ? (
+              <PrimaryButton label={workoutDetail.primaryAction === "checkIn" ? "Scroll to check-in" : "View actual run"} onPress={() => undefined} />
+            ) : null}
+            {workoutDetail.primaryAction !== "viewActualRun" ? (
+              <SecondaryButton
+                label={busyLabel === "skip-workout" ? "Skipping..." : "Skip workout"}
+                disabled={busyLabel !== null}
+                onPress={() =>
+                  void runWithStatus("skip-workout", async () => {
+                    await skipWorkout({ workoutId: workoutDetail.workout._id });
+                    setMessage("Workout skipped.");
+                  })
+                }
+              />
+            ) : null}
+            {workoutDetail.rescheduleOptions.length > 0 ? (
+              <FieldGroup label="Move within this week">
+                <ChoiceRow
+                  options={workoutDetail.rescheduleOptions}
+                  selected={selectedRescheduleDate || workoutDetail.rescheduleOptions[0]!}
+                  onChange={setSelectedRescheduleDate}
+                />
+                <PrimaryButton
+                  label={busyLabel === "reschedule-workout" ? "Moving..." : "Reschedule workout"}
+                  disabled={busyLabel !== null || !selectedRescheduleDate}
+                  onPress={() =>
+                    void runWithStatus("reschedule-workout", async () => {
+                      await rescheduleWorkout({
+                        workoutId: workoutDetail.workout._id,
+                        newScheduledDateKey: selectedRescheduleDate,
+                      });
+                      setMessage(`Workout moved to ${selectedRescheduleDate}.`);
+                    })
+                  }
+                />
+              </FieldGroup>
+            ) : null}
+          </StickyActionBar>
+        </>
+      ) : null}
+    </ScrollView>
+  );
+
+  if (route.screen === "create") {
+    return renderCreateFlow();
+  }
+
+  if (route.screen === "proposal") {
+    return renderProposalView();
+  }
+
+  if (route.screen === "week") {
+    return renderWeekAgenda();
+  }
+
+  if (route.screen === "workout") {
+    return renderWorkoutView();
+  }
+
+  return renderOverview();
 }

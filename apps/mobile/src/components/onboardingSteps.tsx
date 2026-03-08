@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Pressable, Text, TextInput, View } from "react-native";
 
 import {
@@ -17,7 +17,7 @@ import {
 import { styles } from "../styles";
 import type { Id } from "../convex";
 import { defaultDistanceInputUnit, formatDistanceForDisplay } from "../units";
-import { ChoiceRow, Counter, Panel, PrimaryButton, SecondaryButton, TagGrid } from "./common";
+import { ChoiceRow, Counter, FieldGroup, Panel, PrimaryButton, SecondaryButton, TagGrid } from "./common";
 
 type ImportedWorkoutSummary = {
   _id: Id<"healthKitWorkouts">;
@@ -77,6 +77,26 @@ function toMeters(distance: number, unit: "km" | "mi" | "m"): number {
 
 function roundVdot(vdot: number): number {
   return Math.round(vdot * 10) / 10;
+}
+
+function personalityPreview(preset: PersonalityPreset, customDescription: string): string {
+  if (preset === "cheerleader") {
+    return "You stacked another strong day. Let's keep the momentum and build on it.";
+  }
+
+  if (preset === "noNonsense") {
+    return "Hit the key session. Keep easy days easy and stop overcomplicating the week.";
+  }
+
+  if (preset === "nerd") {
+    return "Your aerobic work is setting up the threshold sessions exactly the way we want.";
+  }
+
+  if (preset === "zen") {
+    return "Stay patient with the process. Today's work is one calm step in the larger arc.";
+  }
+
+  return customDescription.trim() || "Describe your ideal coach voice and the app will use that tone.";
 }
 
 export function StepCard({
@@ -194,9 +214,18 @@ export function EstablishVdotStep({
       ? roundVdot(calculateVdotFromRaceTime(manualDistanceMeters, manualTimeSeconds))
       : null;
 
+  useEffect(() => {
+    if (topHistoryWorkouts.length === 0) {
+      setEntryMode("manual");
+    }
+  }, [topHistoryWorkouts.length]);
+
   return (
     <Panel title="Establish VDOT">
       <Text style={styles.bodyText}>Pick a recent result source to set your starting training paces.</Text>
+      <Text style={styles.helperText}>
+        Recommended source: {topHistoryWorkouts.length > 0 ? "recent history" : "manual result"}.
+      </Text>
       <ChoiceRow options={["history", "manual"]} selected={entryMode} onChange={(value) => setEntryMode(value as "history" | "manual")} />
 
       {entryMode === "history" ? (
@@ -385,7 +414,9 @@ export function RunningScheduleStep({
 }) {
   const [preferredRunningDays, setPreferredRunningDays] = useState<Weekday[]>(defaultDays);
   const [runningDaysPerWeek, setRunningDaysPerWeek] = useState(defaultDaysPerWeek);
-  const [preferredLongRunDay, setPreferredLongRunDay] = useState<Weekday | null>(defaultLongRunDay);
+  const [preferredLongRunDay, setPreferredLongRunDay] = useState<Weekday | null>(
+    defaultLongRunDay ?? (defaultDays.includes("sunday") ? "sunday" : defaultDays[0] ?? null),
+  );
   const [preferredQualityDays, setPreferredQualityDays] = useState<Weekday[]>(defaultQualityDays);
 
   const toggleDay = (day: Weekday) => {
@@ -420,30 +451,34 @@ export function RunningScheduleStep({
 
   return (
     <Panel title="Running Schedule">
-      <Text style={styles.label}>Preferred running days</Text>
-      <TagGrid options={WEEKDAYS} selected={preferredRunningDays} onToggle={(day) => toggleDay(day as Weekday)} />
+      <FieldGroup label="Preferred running days">
+        <TagGrid options={WEEKDAYS} selected={preferredRunningDays} onToggle={(day) => toggleDay(day as Weekday)} />
+      </FieldGroup>
 
-      <Text style={styles.label}>Target days per week</Text>
-      <Counter
-        value={clampedRunningDays}
-        min={1}
-        max={Math.max(1, maxDays)}
-        onChange={setRunningDaysPerWeek}
-      />
+      <FieldGroup label="Target days per week">
+        <Counter
+          value={clampedRunningDays}
+          min={1}
+          max={Math.max(1, maxDays)}
+          onChange={setRunningDaysPerWeek}
+        />
+      </FieldGroup>
 
-      <Text style={styles.label}>Preferred long run day</Text>
-      <ChoiceRow
-        options={["none", ...preferredRunningDays]}
-        selected={preferredLongRunDay ?? "none"}
-        onChange={(value) => setPreferredLongRunDay(value === "none" ? null : (value as Weekday))}
-      />
+      <FieldGroup label="Preferred long run day">
+        <ChoiceRow
+          options={["none", ...preferredRunningDays]}
+          selected={preferredLongRunDay ?? "none"}
+          onChange={(value) => setPreferredLongRunDay(value === "none" ? null : (value as Weekday))}
+        />
+      </FieldGroup>
 
-      <Text style={styles.label}>Preferred quality days (tap in priority order)</Text>
-      <TagGrid
-        options={preferredRunningDays}
-        selected={preferredQualityDays}
-        onToggle={(day) => toggleQualityDay(day as Weekday)}
-      />
+      <FieldGroup label="Preferred quality days" helperText="Tap the days you want to protect for quality work.">
+        <TagGrid
+          options={preferredRunningDays}
+          selected={preferredQualityDays}
+          onToggle={(day) => toggleQualityDay(day as Weekday)}
+        />
+      </FieldGroup>
 
       <PrimaryButton
         label="Save and continue"
@@ -547,6 +582,10 @@ export function PersonalityStep({
           />
         </>
       ) : null}
+      <View style={styles.subtleBlock}>
+        <Text style={styles.label}>Sample coach message</Text>
+        <Text style={styles.bodyText}>{personalityPreview(preset, customDescription)}</Text>
+      </View>
       <PrimaryButton
         label="Save and continue"
         disabled={busy || (preset === "custom" && customDescription.trim().length === 0)}

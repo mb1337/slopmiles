@@ -157,3 +157,121 @@ export const reconcileImportedWorkout = mutation({
     };
   },
 });
+
+export const skipWorkout = mutation({
+  args: {
+    workoutId: v.id("workouts"),
+    reason: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const userId = await requireAuthenticatedUserId(ctx);
+    const workout = await ctx.db.get(args.workoutId);
+    if (!workout) {
+      throw new Error("Workout not found.");
+    }
+
+    const week = await ctx.db.get(workout.weekId);
+    if (!week) {
+      throw new Error("Training week not found for workout.");
+    }
+
+    const plan = await ctx.db.get(week.planId);
+    if (!plan || plan.userId !== userId || plan.status !== "active") {
+      throw new Error("Workout not found on the active plan.");
+    }
+
+    const linkedExecution = await ctx.db
+      .query("workoutExecutions")
+      .withIndex("by_planned_workout_id", (queryBuilder) => queryBuilder.eq("plannedWorkoutId", workout._id))
+      .unique();
+    if (linkedExecution?.matchStatus === "matched") {
+      throw new Error("Completed workouts cannot be skipped.");
+    }
+
+    await ctx.db.patch(workout._id, {
+      status: "skipped",
+      updatedAt: Date.now(),
+    });
+
+    const goal = await ctx.db.get(plan.goalId);
+    const reason = args.reason?.trim();
+    await ctx.db.insert("coachMessages", {
+      userId,
+      author: "coach",
+      kind: "event",
+      body: reason
+        ? `Skipped ${workout.type} in week ${week.weekNumber} for ${goal?.label ?? "your active plan"}: ${reason}.`
+        : `Skipped ${workout.type} in week ${week.weekNumber} for ${goal?.label ?? "your active plan"}.`,
+      planId: plan._id,
+      createdAt: Date.now(),
+    });
+
+    return {
+      workoutId: workout._id,
+      status: "skipped" as const,
+    };
+  },
+});
+
+export const rescheduleWorkout = mutation({
+  args: {
+    workoutId: v.id("workouts"),
+    newScheduledDateKey: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const userId = await requireAuthenticatedUserId(ctx);
+    const workout = await ctx.db.get(args.workoutId);
+    if (!workout) {
+      throw new Error("Workout not found.");
+    }
+
+    const week = await ctx.db.get(workout.weekId);
+    if (!week) {
+      throw new Error("Training week not found for workout.");
+    }
+
+    const plan = await ctx.db.get(week.planId);
+    if (!plan || plan.userId !== userId || plan.status !== "active") {
+      throw new Error("Workout not found on the active plan.");
+    }
+
+    const normalizedDateKey = args.newScheduledDateKey.trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(normalizedDateKey)) {
+      throw new Error("newScheduledDateKey must use YYYY-MM-DD.");
+    }
+
+    if (normalizedDateKey < week.weekStartDateKey || normalizedDateKey > week.weekEndDateKey) {
+      throw new Error("Workout can only be rescheduled within the same training week.");
+    }
+
+    const linkedExecution = await ctx.db
+      .query("workoutExecutions")
+      .withIndex("by_planned_workout_id", (queryBuilder) => queryBuilder.eq("plannedWorkoutId", workout._id))
+      .unique();
+    if (linkedExecution?.matchStatus === "matched") {
+      throw new Error("Completed workouts cannot be rescheduled.");
+    }
+
+    await ctx.db.patch(workout._id, {
+      scheduledDateKey: normalizedDateKey,
+      status: "modified",
+      updatedAt: Date.now(),
+    });
+
+    const goal = await ctx.db.get(plan.goalId);
+    await ctx.db.insert("coachMessages", {
+      userId,
+      author: "coach",
+      kind: "event",
+      body: `Moved ${workout.type} in ${goal?.label ?? "your active plan"} to ${normalizedDateKey}.`,
+      planId: plan._id,
+      createdAt: Date.now(),
+    });
+
+    return {
+      workoutId: workout._id,
+      status: "modified" as const,
+      scheduledDateKey: normalizedDateKey,
+    };
+  },
+});

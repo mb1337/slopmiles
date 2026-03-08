@@ -23,7 +23,8 @@
     "react-dom": "19.2.0",
     "react-native": "0.83.2",
     "react-native-nitro-modules": "^0.34.1",
-    "react-native-safe-area-context": "~5.6.2"
+    "react-native-safe-area-context": "~5.6.2",
+    "react-native-ui-datepicker": "^3.1.2"
   },
   "devDependencies": {
     "@types/react": "^19.2.14",

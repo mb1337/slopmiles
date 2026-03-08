@@ -63,7 +63,7 @@ async function ensureOnboardingState(ctx: MutationCtx, userId: Id<"users">) {
 
 async function advance(ctx: MutationCtx, userId: Id<"users">, completedStep: OnboardingStep) {
   const state = await ensureOnboardingState(ctx, userId);
-  const complete = completedStep === "done";
+  const complete = completedStep === "done" || completedStep === "notifications";
 
   await ctx.db.patch(state._id, {
     currentStep: complete ? "done" : nextStep(completedStep),

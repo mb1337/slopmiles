@@ -22,6 +22,7 @@ import {
   StepCard,
   TrackAccessStep,
 } from "../components/onboardingSteps";
+import { ScreenHeader } from "../components/common";
 import { api, type Id } from "../convex";
 import { requestHealthKitAuthorization, type HealthKitPermissionResult } from "../healthkit/bridge";
 import { styles } from "../styles";
@@ -77,10 +78,13 @@ export function OnboardingFlow({
   return (
     <SafeAreaView style={styles.screen}>
       <ScrollView contentContainerStyle={styles.container}>
-        <Text style={styles.kicker}>SlopMiles</Text>
-        <Text style={styles.heading}>Onboarding</Text>
+        <ScreenHeader
+          eyebrow="SlopMiles"
+          title="Onboarding"
+          subtitle={`Step ${ONBOARDING_STEPS.indexOf(session.onboardingState.currentStep) + 1} of ${ONBOARDING_STEPS.length}`}
+        />
         <Text style={styles.helperText}>
-          Step {ONBOARDING_STEPS.indexOf(session.onboardingState.currentStep) + 1} of {ONBOARDING_STEPS.length}
+          Keep each step to one decision, then continue. Completed steps stay saved if you leave and return.
         </Text>
         {error ? <Text style={styles.errorText}>{error}</Text> : null}
 

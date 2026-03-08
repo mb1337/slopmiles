@@ -50,4 +50,15 @@ export type HealthKitSyncResult = {
   reason?: string;
 };
 
-export type Tab = "dashboard" | "plan" | "history" | "coach" | "settings";
+export type Tab = "today" | "plan" | "history" | "coach" | "settings";
+
+export type PlanRoute =
+  | { screen: "overview" }
+  | { screen: "create" }
+  | { screen: "proposal" }
+  | { screen: "week"; weekNumber: number }
+  | { screen: "workout"; weekNumber: number; workoutId: Id<"workouts"> };
+
+export type HistoryRoute =
+  | { screen: "feed" }
+  | { screen: "detail"; healthKitWorkoutId: Id<"healthKitWorkouts"> };

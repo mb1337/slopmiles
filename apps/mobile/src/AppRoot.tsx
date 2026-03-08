@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, Text, View } from "react-native";
 import { useMutation } from "convex/react";
 import { useAuthActions } from "@convex-dev/auth/react";
@@ -151,6 +151,17 @@ export default function AppRoot() {
     await runMutation(fn);
   };
 
+  const normalizedRunningSchedule = useMemo(
+    () =>
+      session
+        ? {
+            ...session.runningSchedule,
+            availabilityWindows: session.runningSchedule.availabilityWindows ?? {},
+          }
+        : null,
+    [session],
+  );
+
   const importHealthKitSeed = async () => {
     const payload = await seedRecentHealthKitImport();
     return seedHealthKitImportWorkouts({
@@ -222,10 +233,7 @@ export default function AppRoot() {
         userName={session.user.name}
         unitPreference={session.user.unitPreference}
         defaultVolumeMode={session.user.volumePreference}
-        runningSchedule={{
-          ...session.runningSchedule,
-          availabilityWindows: session.runningSchedule.availabilityWindows ?? {},
-        }}
+        runningSchedule={normalizedRunningSchedule!}
         trackAccess={session.user.trackAccess}
         competitivenessLevel={session.competitiveness.level}
         personality={session.personality}

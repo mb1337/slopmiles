@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Alert, ScrollView, Text, TextInput, View } from "react-native";
 import {
   COMPETITIVENESS_LEVELS,
@@ -14,75 +14,193 @@ import {
 } from "@slopmiles/domain";
 import { useAuthActions } from "@convex-dev/auth/react";
 
-import { ChoiceRow, Counter, Panel, PrimaryButton, SecondaryButton, TagGrid } from "../../components/common";
+import {
+  ChoiceRow,
+  Counter,
+  CrossPlatformPickerSheet,
+  FieldGroup,
+  Panel,
+  PickerField,
+  PrimaryButton,
+  ScreenHeader,
+  SecondaryButton,
+  TagGrid,
+} from "../../components/common";
 import { styles } from "../../styles";
 import type { HealthKitSyncResult } from "../../types";
 
-function serializeAvailabilityWindows(value: RunningSchedule["availabilityWindows"]): Partial<Record<Weekday, string>> {
-  const result: Partial<Record<Weekday, string>> = {};
+type AvailabilityWindowField = {
+  start: string;
+  end: string;
+};
+
+type AvailabilityWindowFields = Partial<
+  Record<
+    Weekday,
+    {
+      morning?: AvailabilityWindowField;
+      night?: AvailabilityWindowField;
+    }
+  >
+>;
+
+const DEFAULT_WINDOW_PRESETS = {
+  morning: {
+    start: "06:00",
+    end: "07:30",
+  },
+  night: {
+    start: "17:30",
+    end: "19:00",
+  },
+} satisfies Record<"morning" | "night", AvailabilityWindowField>;
+
+function serializeAvailabilityWindows(value: RunningSchedule["availabilityWindows"]): AvailabilityWindowFields {
+  const result: AvailabilityWindowFields = {};
 
   for (const day of WEEKDAYS) {
     const windows = value?.[day];
     if (!windows || windows.length === 0) {
       continue;
     }
-    result[day] = windows.map((window) => `${window.start}-${window.end}`).join(", ");
+
+    if (windows.length === 1) {
+      const onlyWindow = windows[0];
+      if (!onlyWindow) {
+        continue;
+      }
+
+      const [hoursText] = onlyWindow.start.split(":");
+      const startHour = Number(hoursText);
+      const singlePart = Number.isFinite(startHour) && startHour >= 12 ? "night" : "morning";
+
+      result[day] = {
+        [singlePart]: {
+          start: onlyWindow.start,
+          end: onlyWindow.end,
+        },
+      };
+      continue;
+    }
+
+    result[day] = {
+      ...(windows[0]
+        ? {
+            morning: {
+              start: windows[0].start,
+              end: windows[0].end,
+            },
+          }
+        : {}),
+      ...(windows[1]
+        ? {
+            night: {
+              start: windows[1].start,
+              end: windows[1].end,
+            },
+          }
+        : {}),
+    };
   }
 
   return result;
 }
 
-function parseAvailabilityWindowText(raw: string): Array<{ start: string; end: string }> | null {
-  const trimmed = raw.trim();
-  if (trimmed.length === 0) {
-    return [];
+function isValidClockText(value: string): boolean {
+  if (!/^\d{2}:\d{2}$/.test(value)) {
+    return false;
   }
 
-  const parts = trimmed
-    .split(",")
-    .map((part) => part.trim())
-    .filter((part) => part.length > 0);
+  const [hoursText, minutesText] = value.split(":");
+  const hours = Number(hoursText);
+  const minutes = Number(minutesText);
+  return Number.isInteger(hours) && Number.isInteger(minutes) && hours >= 0 && hours <= 23 && minutes >= 0 && minutes <= 59;
+}
 
-  const windows: Array<{ start: string; end: string }> = [];
-  for (const part of parts) {
-    const match = /^(\d{2}:\d{2})\s*-\s*(\d{2}:\d{2})$/.exec(part);
-    if (!match) {
-      return null;
-    }
+function timeTextToDate(value: string): Date {
+  const date = new Date();
+  const [hoursText, minutesText] = value.split(":");
+  const hours = Number(hoursText);
+  const minutes = Number(minutesText);
+  date.setHours(Number.isFinite(hours) ? hours : 6, Number.isFinite(minutes) ? minutes : 0, 0, 0);
+  return date;
+}
 
-    const start = match[1];
-    const end = match[2];
-    if (!start || !end) {
-      return null;
-    }
+function dateToTimeText(date: Date): string {
+  return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+}
 
-    if (start >= end) {
-      return null;
-    }
-
-    windows.push({ start, end });
-  }
-
-  return windows;
+function formatTimeLabel(value: string): string {
+  return timeTextToDate(value).toLocaleTimeString([], {
+    hour: "numeric",
+    minute: "2-digit",
+  });
 }
 
 function buildAvailabilityWindows(
   preferredRunningDays: Weekday[],
-  textByDay: Partial<Record<Weekday, string>>,
+  valueByDay: AvailabilityWindowFields,
 ): RunningSchedule["availabilityWindows"] | null {
   const availabilityWindows: RunningSchedule["availabilityWindows"] = {};
 
   for (const day of preferredRunningDays) {
-    const parsed = parseAvailabilityWindowText(textByDay[day] ?? "");
-    if (parsed === null) {
+    const configured = valueByDay[day];
+    if (!configured?.morning && !configured?.night) {
+      continue;
+    }
+
+    const normalized: AvailabilityWindowField[] = [];
+    for (const window of [configured?.morning, configured?.night]) {
+      if (!window) {
+        continue;
+      }
+      const start = window.start.trim();
+      const end = window.end.trim();
+      if (start.length === 0 && end.length === 0) {
+        continue;
+      }
+      if (start.length === 0 || end.length === 0) {
+        return null;
+      }
+      if (!isValidClockText(start) || !isValidClockText(end)) {
+        return null;
+      }
+      if (start >= end) {
+        return null;
+      }
+      normalized.push({ start, end });
+    }
+
+    if (normalized.length === 2 && normalized[0] && normalized[1] && normalized[0].end > normalized[1].start) {
       return null;
     }
-    if (parsed.length > 0) {
-      availabilityWindows[day] = parsed;
+
+    if (normalized.length > 0) {
+      availabilityWindows[day] = normalized;
     }
   }
 
   return Object.keys(availabilityWindows).length > 0 ? availabilityWindows : {};
+}
+
+function formatAvailabilitySummary(
+  windows:
+    | {
+        morning?: AvailabilityWindowField;
+        night?: AvailabilityWindowField;
+      }
+    | undefined,
+): string {
+  if (!windows?.morning && !windows?.night) {
+    return "Any time";
+  }
+
+  return [
+    windows.morning ? `Morning ${windows.morning.start}-${windows.morning.end}` : null,
+    windows.night ? `Night ${windows.night.start}-${windows.night.end}` : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
 }
 
 export function SettingsScreen({
@@ -131,7 +249,7 @@ export function SettingsScreen({
   const [runningDaysPerWeek, setRunningDaysPerWeek] = useState(runningSchedule.runningDaysPerWeek);
   const [preferredLongRunDay, setPreferredLongRunDay] = useState<Weekday | null>(runningSchedule.preferredLongRunDay);
   const [preferredQualityDays, setPreferredQualityDays] = useState<Weekday[]>(runningSchedule.preferredQualityDays);
-  const [availabilityWindowText, setAvailabilityWindowText] = useState<Partial<Record<Weekday, string>>>(
+  const [availabilityWindowsByDay, setAvailabilityWindowsByDay] = useState<AvailabilityWindowFields>(
     serializeAvailabilityWindows(runningSchedule.availabilityWindows),
   );
   const [selectedCompetitiveness, setSelectedCompetitiveness] = useState<CompetitivenessLevel>(competitivenessLevel);
@@ -159,6 +277,40 @@ export function SettingsScreen({
   const [healthKitError, setHealthKitError] = useState<string | null>(null);
   const [signingOut, setSigningOut] = useState(false);
   const [signOutError, setSignOutError] = useState<string | null>(null);
+  const [activeTimePicker, setActiveTimePicker] = useState<{
+    day: Weekday;
+    part: "morning" | "night";
+    field: "start" | "end";
+  } | null>(null);
+  const lastAttemptedNameSave = useRef<string | null>(null);
+  const lastAttemptedPreferencesSave = useRef<string | null>(null);
+  const lastAttemptedScheduleSave = useRef<string | null>(null);
+  const lastAttemptedCoachingSave = useRef<string | null>(null);
+  const incomingScheduleSignature = useMemo(
+    () =>
+      JSON.stringify({
+        preferredRunningDays: runningSchedule.preferredRunningDays,
+        runningDaysPerWeek: runningSchedule.runningDaysPerWeek,
+        preferredLongRunDay: runningSchedule.preferredLongRunDay ?? null,
+        preferredQualityDays: runningSchedule.preferredQualityDays,
+        availabilityWindows: serializeAvailabilityWindows(runningSchedule.availabilityWindows),
+      }),
+    [
+      runningSchedule.availabilityWindows,
+      runningSchedule.preferredLongRunDay,
+      runningSchedule.preferredQualityDays,
+      runningSchedule.preferredRunningDays,
+      runningSchedule.runningDaysPerWeek,
+    ],
+  );
+  const incomingPersonalitySignature = useMemo(
+    () =>
+      JSON.stringify({
+        name: personality.name,
+        description: personality.description,
+      }),
+    [personality.description, personality.name],
+  );
 
   useEffect(() => {
     setName(userName);
@@ -175,8 +327,8 @@ export function SettingsScreen({
     setRunningDaysPerWeek(runningSchedule.runningDaysPerWeek);
     setPreferredLongRunDay(runningSchedule.preferredLongRunDay);
     setPreferredQualityDays(runningSchedule.preferredQualityDays);
-    setAvailabilityWindowText(serializeAvailabilityWindows(runningSchedule.availabilityWindows));
-  }, [runningSchedule]);
+    setAvailabilityWindowsByDay(serializeAvailabilityWindows(runningSchedule.availabilityWindows));
+  }, [incomingScheduleSignature]);
 
   useEffect(() => {
     setSelectedCompetitiveness(competitivenessLevel);
@@ -185,7 +337,7 @@ export function SettingsScreen({
   useEffect(() => {
     setSelectedPersonality(personality.name);
     setCustomPersonalityDescription(personality.name === "custom" ? personality.description : "");
-  }, [personality]);
+  }, [incomingPersonalitySignature]);
 
   const toggleDay = (day: Weekday) => {
     setPreferredRunningDays((previous) => {
@@ -195,7 +347,7 @@ export function SettingsScreen({
           setPreferredLongRunDay(null);
         }
         setPreferredQualityDays((current) => current.filter((item) => item !== day));
-        setAvailabilityWindowText((current) => {
+        setAvailabilityWindowsByDay((current) => {
           const nextWindows = { ...current };
           delete nextWindows[day];
           return nextWindows;
@@ -216,7 +368,90 @@ export function SettingsScreen({
     );
   };
 
+  const toggleAvailabilityPart = (day: Weekday, part: "morning" | "night") => {
+    setAvailabilityWindowsByDay((current) => {
+      const next = { ...current };
+      const currentDay = current[day] ?? {};
+      const hasPart = Boolean(currentDay[part]);
+
+      if (hasPart) {
+        const updatedDay = {
+          ...currentDay,
+          [part]: undefined,
+        };
+        if (!updatedDay.morning && !updatedDay.night) {
+          delete next[day];
+          return next;
+        }
+        next[day] = updatedDay;
+        return next;
+      }
+
+      next[day] = {
+        ...currentDay,
+        [part]: currentDay[part] ?? DEFAULT_WINDOW_PRESETS[part],
+      };
+      return next;
+    });
+    setScheduleMessage(null);
+    setScheduleError(null);
+  };
+
+  const updateAvailabilityWindow = (day: Weekday, part: "morning" | "night", field: "start" | "end", value: string) => {
+    setAvailabilityWindowsByDay((current) => {
+      const currentDay = current[day] ?? {};
+      return {
+        ...current,
+        [day]: {
+          ...currentDay,
+          [part]: {
+            ...(currentDay[part] ?? DEFAULT_WINDOW_PRESETS[part]),
+            [field]: value,
+          },
+        },
+      };
+    });
+    setScheduleMessage(null);
+    setScheduleError(null);
+  };
+
   const clampedRunningDays = Math.max(1, Math.min(runningDaysPerWeek, Math.max(1, preferredRunningDays.length)));
+  const baselineName = userName.trim();
+  const currentName = name.trim();
+  const baselinePreferencesSignature = JSON.stringify({
+    unitPreference,
+    volumePreference,
+    trackAccess,
+  });
+  const currentPreferencesSignature = JSON.stringify({
+    unitPreference: selectedUnitPreference,
+    volumePreference: selectedVolumePreference,
+    trackAccess: selectedTrackAccess,
+  });
+  const baselineScheduleSignature = JSON.stringify({
+    preferredRunningDays: runningSchedule.preferredRunningDays,
+    runningDaysPerWeek: runningSchedule.runningDaysPerWeek,
+    preferredLongRunDay: runningSchedule.preferredLongRunDay ?? null,
+    preferredQualityDays: runningSchedule.preferredQualityDays,
+    availabilityWindows: serializeAvailabilityWindows(runningSchedule.availabilityWindows),
+  });
+  const currentScheduleSignature = JSON.stringify({
+    preferredRunningDays,
+    runningDaysPerWeek: clampedRunningDays,
+    preferredLongRunDay,
+    preferredQualityDays,
+    availabilityWindows: availabilityWindowsByDay,
+  });
+  const baselineCoachingSignature = JSON.stringify({
+    competitivenessLevel,
+    personalityName: personality.name,
+    personalityDescription: personality.name === "custom" ? personality.description : "",
+  });
+  const currentCoachingSignature = JSON.stringify({
+    competitivenessLevel: selectedCompetitiveness,
+    personalityName: selectedPersonality,
+    personalityDescription: selectedPersonality === "custom" ? customPersonalityDescription.trim() : "",
+  });
 
   const runSaveName = async () => {
     const normalizedName = name.trim();
@@ -269,9 +504,9 @@ export function SettingsScreen({
       return;
     }
 
-    const availabilityWindows = buildAvailabilityWindows(preferredRunningDays, availabilityWindowText);
+    const availabilityWindows = buildAvailabilityWindows(preferredRunningDays, availabilityWindowsByDay);
     if (availabilityWindows === null) {
-      setScheduleError("Availability windows must use HH:MM-HH:MM entries separated by commas.");
+      setScheduleError("Time windows must have valid start and end times, and the night window must begin after the morning window.");
       setScheduleMessage(null);
       return;
     }
@@ -325,6 +560,91 @@ export function SettingsScreen({
       setSavingCoaching(false);
     }
   };
+
+  useEffect(() => {
+    if (currentName.length === 0) {
+      setNameError("Name cannot be empty.");
+      return;
+    }
+
+    setNameError(null);
+    if (currentName === baselineName || lastAttemptedNameSave.current === currentName) {
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      lastAttemptedNameSave.current = currentName;
+      void runSaveName();
+    }, 500);
+
+    return () => clearTimeout(timer);
+  }, [baselineName, currentName]);
+
+  useEffect(() => {
+    setPreferencesError(null);
+    if (
+      currentPreferencesSignature === baselinePreferencesSignature ||
+      lastAttemptedPreferencesSave.current === currentPreferencesSignature
+    ) {
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      lastAttemptedPreferencesSave.current = currentPreferencesSignature;
+      void runSavePreferences();
+    }, 300);
+
+    return () => clearTimeout(timer);
+  }, [baselinePreferencesSignature, currentPreferencesSignature]);
+
+  useEffect(() => {
+    if (preferredRunningDays.length === 0) {
+      setScheduleError("Choose at least one running day.");
+      return;
+    }
+
+    if (buildAvailabilityWindows(preferredRunningDays, availabilityWindowsByDay) === null) {
+      setScheduleError("Time windows must have valid start and end times, and the night window must begin after the morning window.");
+      return;
+    }
+
+    setScheduleError(null);
+    if (
+      currentScheduleSignature === baselineScheduleSignature ||
+      lastAttemptedScheduleSave.current === currentScheduleSignature
+    ) {
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      lastAttemptedScheduleSave.current = currentScheduleSignature;
+      void runSaveSchedule();
+    }, 500);
+
+    return () => clearTimeout(timer);
+  }, [availabilityWindowsByDay, baselineScheduleSignature, currentScheduleSignature, preferredRunningDays]);
+
+  useEffect(() => {
+    if (selectedPersonality === "custom" && customPersonalityDescription.trim().length === 0) {
+      setCoachingError("Custom personality needs a description.");
+      return;
+    }
+
+    setCoachingError(null);
+    if (
+      currentCoachingSignature === baselineCoachingSignature ||
+      lastAttemptedCoachingSave.current === currentCoachingSignature
+    ) {
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      lastAttemptedCoachingSave.current = currentCoachingSignature;
+      void runSaveCoaching();
+    }, 500);
+
+    return () => clearTimeout(timer);
+  }, [baselineCoachingSignature, currentCoachingSignature, customPersonalityDescription, selectedPersonality]);
 
   const runReset = async () => {
     setResetting(true);
@@ -395,193 +715,15 @@ export function SettingsScreen({
 
   return (
     <ScrollView contentContainerStyle={styles.container}>
-      <Text style={styles.kicker}>Settings</Text>
-      <Text style={styles.heading}>Profile and coaching</Text>
+      <ScreenHeader
+        eyebrow="Settings"
+        title="Profile and coaching"
+        subtitle="Put the frequent controls first: sync, profile, schedule, and coaching behavior."
+      />
 
-      <Panel title="Identity">
-        <Text style={styles.label}>Display name</Text>
-        <TextInput
-          style={styles.input}
-          value={name}
-          onChangeText={(value) => {
-            setName(value);
-            setNameMessage(null);
-            setNameError(null);
-          }}
-          autoCapitalize="words"
-          placeholder="Runner"
-          placeholderTextColor="#7a848c"
-        />
-        {nameMessage ? <Text style={styles.helperText}>{nameMessage}</Text> : null}
-        {nameError ? <Text style={styles.errorText}>{nameError}</Text> : null}
-        <PrimaryButton
-          label={savingName ? "Saving name..." : "Save display name"}
-          onPress={() => {
-            void runSaveName();
-          }}
-          disabled={savingName || name.trim().length === 0 || name.trim() === userName}
-        />
-      </Panel>
-
-      <Panel title="Planning Preferences">
-        <Text style={styles.bodyText}>Control how the coach frames volume and what workout formats it can assume.</Text>
-        <Text style={styles.label}>Unit preference</Text>
-        <ChoiceRow
-          options={["system", "metric", "imperial"]}
-          selected={selectedUnitPreference}
-          onChange={(value) => {
-            setSelectedUnitPreference(value as UnitPreference);
-            setPreferencesMessage(null);
-            setPreferencesError(null);
-          }}
-        />
-        <Text style={styles.label}>Volume mode</Text>
-        <ChoiceRow
-          options={VOLUME_MODES}
-          selected={selectedVolumePreference}
-          onChange={(value) => {
-            setSelectedVolumePreference(value as VolumeMode);
-            setPreferencesMessage(null);
-            setPreferencesError(null);
-          }}
-        />
-        <Text style={styles.label}>Track access</Text>
-        <ChoiceRow
-          options={["yes", "no"]}
-          selected={selectedTrackAccess ? "yes" : "no"}
-          onChange={(value) => {
-            setSelectedTrackAccess(value === "yes");
-            setPreferencesMessage(null);
-            setPreferencesError(null);
-          }}
-        />
-        {preferencesMessage ? <Text style={styles.helperText}>{preferencesMessage}</Text> : null}
-        {preferencesError ? <Text style={styles.errorText}>{preferencesError}</Text> : null}
-        <PrimaryButton
-          label={savingPreferences ? "Saving preferences..." : "Save planning preferences"}
-          onPress={() => {
-            void runSavePreferences();
-          }}
-          disabled={
-            savingPreferences ||
-            (selectedUnitPreference === unitPreference &&
-              selectedVolumePreference === volumePreference &&
-              selectedTrackAccess === trackAccess)
-          }
-        />
-      </Panel>
-
-      <Panel title="Running Schedule">
-        <Text style={styles.label}>Preferred running days</Text>
-        <TagGrid options={WEEKDAYS} selected={preferredRunningDays} onToggle={(day) => toggleDay(day as Weekday)} />
-
-        <Text style={styles.label}>Target days per week</Text>
-        <Counter value={clampedRunningDays} min={1} max={Math.max(1, preferredRunningDays.length)} onChange={setRunningDaysPerWeek} />
-
-        <Text style={styles.label}>Preferred long run day</Text>
-        <ChoiceRow
-          options={["none", ...preferredRunningDays]}
-          selected={preferredLongRunDay ?? "none"}
-          onChange={(value) => {
-            setPreferredLongRunDay(value === "none" ? null : (value as Weekday));
-            setScheduleMessage(null);
-            setScheduleError(null);
-          }}
-        />
-
-        <Text style={styles.label}>Preferred quality days</Text>
-        <TagGrid options={preferredRunningDays} selected={preferredQualityDays} onToggle={(day) => toggleQualityDay(day as Weekday)} />
-
-        <Text style={styles.label}>Availability windows</Text>
-        <Text style={styles.helperText}>Use `HH:MM-HH:MM`, comma-separated for multiple windows on the same day.</Text>
-        {preferredRunningDays.map((day) => (
-          <View key={day} style={styles.timeInputBlock}>
-            <Text style={styles.helperText}>{day}</Text>
-            <TextInput
-              style={styles.input}
-              value={availabilityWindowText[day] ?? ""}
-              onChangeText={(value) => {
-                setAvailabilityWindowText((current) => ({
-                  ...current,
-                  [day]: value,
-                }));
-                setScheduleMessage(null);
-                setScheduleError(null);
-              }}
-              autoCapitalize="none"
-              placeholder="06:00-07:30, 18:00-19:00"
-              placeholderTextColor="#7a848c"
-            />
-          </View>
-        ))}
-        {scheduleMessage ? <Text style={styles.helperText}>{scheduleMessage}</Text> : null}
-        {scheduleError ? <Text style={styles.errorText}>{scheduleError}</Text> : null}
-        <PrimaryButton
-          label={savingSchedule ? "Saving schedule..." : "Save running schedule"}
-          onPress={() => {
-            void runSaveSchedule();
-          }}
-          disabled={savingSchedule || preferredRunningDays.length === 0}
-        />
-      </Panel>
-
-      <Panel title="Coach Style">
-        <Text style={styles.label}>Competitiveness</Text>
-        <ChoiceRow
-          options={COMPETITIVENESS_LEVELS}
-          selected={selectedCompetitiveness}
-          onChange={(value) => {
-            setSelectedCompetitiveness(value as CompetitivenessLevel);
-            setCoachingMessage(null);
-            setCoachingError(null);
-          }}
-        />
-        <Text style={styles.label}>Personality</Text>
-        <ChoiceRow
-          options={PERSONALITY_PRESETS}
-          selected={selectedPersonality}
-          onChange={(value) => {
-            setSelectedPersonality(value as Personality["name"]);
-            setCoachingMessage(null);
-            setCoachingError(null);
-          }}
-        />
-        {selectedPersonality === "custom" ? (
-          <>
-            <Text style={styles.label}>Custom personality</Text>
-            <TextInput
-              style={[styles.input, styles.textArea]}
-              value={customPersonalityDescription}
-              onChangeText={(value) => {
-                setCustomPersonalityDescription(value);
-                setCoachingMessage(null);
-                setCoachingError(null);
-              }}
-              multiline
-              placeholder="Describe your ideal coach voice"
-              placeholderTextColor="#7a848c"
-            />
-          </>
-        ) : null}
-        {coachingMessage ? <Text style={styles.helperText}>{coachingMessage}</Text> : null}
-        {coachingError ? <Text style={styles.errorText}>{coachingError}</Text> : null}
-        <PrimaryButton
-          label={savingCoaching ? "Saving coach style..." : "Save coach style"}
-          onPress={() => {
-            void runSaveCoaching();
-          }}
-          disabled={
-            savingCoaching ||
-            (selectedCompetitiveness === competitivenessLevel &&
-              selectedPersonality === personality.name &&
-              (selectedPersonality !== "custom" || customPersonalityDescription.trim() === personality.description))
-          }
-        />
-      </Panel>
-
-      <Panel title="HealthKit">
+      <Panel title="HealthKit Sync">
         <Text style={styles.bodyText}>
-          Status: {healthKitAuthorized ? "Connected" : "Not connected"}. Connect or re-sync to import recent running workouts.
+          Status: {healthKitAuthorized ? "Connected" : "Not connected"}. Connect or re-sync to keep recent running history and matching current.
         </Text>
         {healthKitMessage ? <Text style={styles.helperText}>{healthKitMessage}</Text> : null}
         {healthKitError ? <Text style={styles.errorText}>{healthKitError}</Text> : null}
@@ -594,7 +736,204 @@ export function SettingsScreen({
         />
       </Panel>
 
-      <Panel title="Data Management">
+      <Panel title="Profile">
+        <FieldGroup label="Display name">
+        <TextInput
+          style={styles.input}
+          value={name}
+          onChangeText={(value) => {
+            setName(value);
+            setNameMessage(null);
+            setNameError(null);
+          }}
+          autoCapitalize="words"
+          placeholder="Runner"
+          placeholderTextColor="#7a848c"
+        />
+        </FieldGroup>
+        {nameMessage ? <Text style={styles.helperText}>{nameMessage}</Text> : null}
+        {nameError ? <Text style={styles.errorText}>{nameError}</Text> : null}
+        {savingName ? <Text style={styles.helperText}>Saving name...</Text> : null}
+      </Panel>
+
+      <Panel title="Planning Preferences">
+        <Text style={styles.bodyText}>Control how the coach frames volume and what workout formats it can assume.</Text>
+        <FieldGroup label="Unit preference">
+          <ChoiceRow
+            options={["system", "metric", "imperial"]}
+            selected={selectedUnitPreference}
+            onChange={(value) => {
+              setSelectedUnitPreference(value as UnitPreference);
+              setPreferencesMessage(null);
+              setPreferencesError(null);
+            }}
+          />
+        </FieldGroup>
+        <FieldGroup label="Volume mode">
+          <ChoiceRow
+            options={VOLUME_MODES}
+            selected={selectedVolumePreference}
+            onChange={(value) => {
+              setSelectedVolumePreference(value as VolumeMode);
+              setPreferencesMessage(null);
+              setPreferencesError(null);
+            }}
+          />
+        </FieldGroup>
+        <FieldGroup label="Track access">
+          <ChoiceRow
+            options={["yes", "no"]}
+            selected={selectedTrackAccess ? "yes" : "no"}
+            onChange={(value) => {
+              setSelectedTrackAccess(value === "yes");
+              setPreferencesMessage(null);
+              setPreferencesError(null);
+            }}
+          />
+        </FieldGroup>
+        {preferencesMessage ? <Text style={styles.helperText}>{preferencesMessage}</Text> : null}
+        {preferencesError ? <Text style={styles.errorText}>{preferencesError}</Text> : null}
+        {savingPreferences ? <Text style={styles.helperText}>Saving planning preferences...</Text> : null}
+      </Panel>
+
+      <Panel title="Running Schedule">
+        <FieldGroup label="Preferred running days">
+          <TagGrid options={WEEKDAYS} selected={preferredRunningDays} onToggle={(day) => toggleDay(day as Weekday)} />
+        </FieldGroup>
+        <FieldGroup label="Target days per week">
+          <Counter value={clampedRunningDays} min={1} max={Math.max(1, preferredRunningDays.length)} onChange={setRunningDaysPerWeek} />
+        </FieldGroup>
+        <View style={styles.subtleBlock}>
+          <FieldGroup label="Preferred long run day">
+            <ChoiceRow
+              options={["none", ...preferredRunningDays]}
+              selected={preferredLongRunDay ?? "none"}
+              onChange={(value) => {
+                setPreferredLongRunDay(value === "none" ? null : (value as Weekday));
+                setScheduleMessage(null);
+                setScheduleError(null);
+              }}
+            />
+          </FieldGroup>
+
+          <FieldGroup label="Preferred quality days">
+            <TagGrid options={preferredRunningDays} selected={preferredQualityDays} onToggle={(day) => toggleQualityDay(day as Weekday)} />
+          </FieldGroup>
+        </View>
+        <View style={styles.subtleBlock}>
+          <Text style={styles.label}>Availability windows</Text>
+          <Text style={styles.helperText}>Choose any time, one window, or two windows for each running day.</Text>
+          {preferredRunningDays.map((day) => (
+            <View key={day} style={styles.availabilityDayCard}>
+              <View style={styles.availabilityDayHeader}>
+                <Text style={styles.sectionCardTitle}>{day}</Text>
+                <Text style={styles.helperText}>{formatAvailabilitySummary(availabilityWindowsByDay[day])}</Text>
+              </View>
+              <TagGrid
+                options={["morning", "night"]}
+                selected={[
+                  ...(availabilityWindowsByDay[day]?.morning ? ["morning"] : []),
+                  ...(availabilityWindowsByDay[day]?.night ? ["night"] : []),
+                ]}
+                onToggle={(value) => toggleAvailabilityPart(day, value as "morning" | "night")}
+              />
+              {(["morning", "night"] as const)
+                .filter((part) => Boolean(availabilityWindowsByDay[day]?.[part]))
+                .map((part) => {
+                  const window = availabilityWindowsByDay[day]?.[part];
+                  if (!window) {
+                    return null;
+                  }
+
+                  return (
+                <View key={`${day}-${part}`} style={styles.availabilityWindowCard}>
+                  <Text style={styles.label}>{part}</Text>
+                  <View style={styles.timeInputRow}>
+                    <View style={styles.timeInputBlock}>
+                      <Text style={styles.helperText}>Start</Text>
+                      <PickerField
+                        value={formatTimeLabel(window.start)}
+                        placeholder="Set start"
+                        onPress={() => {
+                          setActiveTimePicker({
+                            day,
+                            part,
+                            field: "start",
+                          });
+                        }}
+                      />
+                    </View>
+                    <View style={styles.timeInputBlock}>
+                      <Text style={styles.helperText}>End</Text>
+                      <PickerField
+                        value={formatTimeLabel(window.end)}
+                        placeholder="Set end"
+                        onPress={() => {
+                          setActiveTimePicker({
+                            day,
+                            part,
+                            field: "end",
+                          });
+                        }}
+                      />
+                    </View>
+                  </View>
+                </View>
+                  );
+                })}
+            </View>
+          ))}
+        </View>
+        {scheduleMessage ? <Text style={styles.helperText}>{scheduleMessage}</Text> : null}
+        {scheduleError ? <Text style={styles.errorText}>{scheduleError}</Text> : null}
+        {savingSchedule ? <Text style={styles.helperText}>Saving running schedule...</Text> : null}
+      </Panel>
+
+      <Panel title="Coach Style">
+        <FieldGroup label="Competitiveness">
+          <ChoiceRow
+            options={COMPETITIVENESS_LEVELS}
+            selected={selectedCompetitiveness}
+            onChange={(value) => {
+              setSelectedCompetitiveness(value as CompetitivenessLevel);
+              setCoachingMessage(null);
+              setCoachingError(null);
+            }}
+          />
+        </FieldGroup>
+        <FieldGroup label="Personality">
+          <ChoiceRow
+            options={PERSONALITY_PRESETS}
+            selected={selectedPersonality}
+            onChange={(value) => {
+              setSelectedPersonality(value as Personality["name"]);
+              setCoachingMessage(null);
+              setCoachingError(null);
+            }}
+          />
+        </FieldGroup>
+        {selectedPersonality === "custom" ? (
+          <FieldGroup label="Custom personality">
+            <TextInput
+              style={[styles.input, styles.textArea]}
+              value={customPersonalityDescription}
+              onChangeText={(value) => {
+                setCustomPersonalityDescription(value);
+                setCoachingMessage(null);
+                setCoachingError(null);
+              }}
+              multiline
+              placeholder="Describe your ideal coach voice"
+              placeholderTextColor="#7a848c"
+            />
+          </FieldGroup>
+        ) : null}
+        {coachingMessage ? <Text style={styles.helperText}>{coachingMessage}</Text> : null}
+        {coachingError ? <Text style={styles.errorText}>{coachingError}</Text> : null}
+        {savingCoaching ? <Text style={styles.helperText}>Saving coach style...</Text> : null}
+      </Panel>
+
+      <Panel title="Advanced">
         <Text style={styles.bodyText}>Reset App wipes stored data, coach history, signs you out, and restarts onboarding on next sign-in.</Text>
         {resetError ? <Text style={styles.errorText}>{resetError}</Text> : null}
         <PrimaryButton
@@ -615,6 +954,35 @@ export function SettingsScreen({
           disabled={signingOut || resetting || syncingHealthKit}
         />
       </Panel>
+
+      <CrossPlatformPickerSheet
+        visible={activeTimePicker !== null}
+        title={
+          activeTimePicker
+            ? `${activeTimePicker.day} ${activeTimePicker.part} ${activeTimePicker.field === "start" ? "start" : "end"}`
+            : "Edit time"
+        }
+        mode="time"
+        value={
+          activeTimePicker
+            ? timeTextToDate(
+                availabilityWindowsByDay[activeTimePicker.day]?.[activeTimePicker.part]?.[activeTimePicker.field] ??
+                  DEFAULT_WINDOW_PRESETS[activeTimePicker.part][activeTimePicker.field],
+              )
+            : timeTextToDate(DEFAULT_WINDOW_PRESETS.morning.start)
+        }
+        onCancel={() => {
+          setActiveTimePicker(null);
+        }}
+        onConfirm={(nextDate) => {
+          if (!activeTimePicker) {
+            return;
+          }
+
+          updateAvailabilityWindow(activeTimePicker.day, activeTimePicker.part, activeTimePicker.field, dateToTimeText(nextDate));
+          setActiveTimePicker(null);
+        }}
+      />
     </ScrollView>
   );
 }
