@@ -49,6 +49,15 @@ export type UnitPreference = (typeof UNIT_PREFERENCES)[number];
 export const VOLUME_MODES = ["time", "distance"] as const;
 export type VolumeMode = (typeof VOLUME_MODES)[number];
 
+export const STRENGTH_EQUIPMENT_OPTIONS = [
+  "bodyweight",
+  "dumbbells",
+  "kettlebells",
+  "bands",
+  "fullGym",
+] as const;
+export type StrengthEquipment = (typeof STRENGTH_EQUIPMENT_OPTIONS)[number];
+
 export const GOAL_TYPES = ["race", "nonRace", "custom"] as const;
 export type GoalType = (typeof GOAL_TYPES)[number];
 
@@ -194,9 +203,96 @@ export type Personality = {
   description: string;
 };
 
+export type StrengthPreference = {
+  enabled: boolean;
+  equipment: StrengthEquipment[];
+};
+
 export type OnboardingState = {
   currentStep: OnboardingStep;
   isComplete: boolean;
+};
+
+export type WeekAvailabilityOverride = {
+  preferredRunningDays?: Weekday[];
+  availabilityWindows?: Partial<Record<Weekday, TimeWindow[]>>;
+  note?: string;
+};
+
+export type Course = {
+  id: string;
+  name: string;
+  distanceMeters: number;
+  distanceUnit: "meters" | "kilometers" | "miles";
+  surface: "road" | "track" | "trail" | "treadmill" | "mixed";
+  notes?: string;
+};
+
+export type RaceResult = {
+  id: string;
+  label: string;
+  plannedDate: number;
+  distanceMeters: number;
+  goalTimeSeconds?: number;
+  actualTimeSeconds?: number;
+  isPrimaryGoal: boolean;
+  planId?: string | null;
+};
+
+export type PeakVolumeChange = {
+  id: string;
+  planId: string;
+  previousPeakWeekVolume: number;
+  newPeakWeekVolume: number;
+  reason: string;
+  createdAt: number;
+};
+
+export type GoalChange = {
+  id: string;
+  planId: string;
+  previousGoalLabel: string;
+  newGoalLabel: string;
+  reason?: string;
+  createdAt: number;
+};
+
+export type AssessmentSummary = {
+  id: string;
+  planId: string;
+  body: string;
+  createdAt: number;
+};
+
+export type StrengthWorkoutSummary = {
+  id: string;
+  weekId: string;
+  title: string;
+  plannedMinutes: number;
+  exercises: Array<{
+    name: string;
+    sets: number;
+    reps?: number;
+    holdSeconds?: number;
+    restSeconds?: number;
+    equipment?: StrengthEquipment | null;
+    cues?: string;
+  }>;
+  status: "planned" | "completed";
+};
+
+export type ExportPackage = {
+  exportedAt: number;
+  profile: UserProfile;
+  runningSchedule: RunningSchedule | null;
+  competitiveness: CompetitivenessLevel;
+  personality: Personality;
+  strengthPreference: StrengthPreference;
+  plans: unknown[];
+  workouts: unknown[];
+  races: RaceResult[];
+  courses: Course[];
+  assessments: AssessmentSummary[];
 };
 
 export type VolumeResolutionInput =

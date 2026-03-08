@@ -1,6 +1,7 @@
 import { createRemoteJWKSet, jwtVerify, type JWTPayload } from "jose";
 import { convexAuth, createAccount, retrieveAccount } from "@convex-dev/auth/server";
 import { ConvexCredentials } from "@convex-dev/auth/providers/ConvexCredentials";
+import Apple from "@auth/core/providers/apple";
 import { internal } from "./_generated/api";
 
 declare const process:
@@ -33,6 +34,67 @@ function firstToken(value: string): string {
   return token ?? value;
 }
 
+function preferredAppleName(profile: Record<string, unknown>): string | undefined {
+  return (
+    stringOrUndefined(profile.given_name) ??
+    stringOrUndefined(profile.firstName) ??
+    stringOrUndefined(profile.name)
+  );
+}
+
+async function upsertAppleUser(ctx: any, args: {
+  appleSubject: string;
+  name?: string;
+  email?: string;
+  emailVerified?: boolean;
+  existingUserId?: string | null;
+}) {
+  const now = Date.now();
+  const normalizedName = args.name ? firstToken(args.name) : undefined;
+  const existingBySubject = await ctx.db
+    .query("users")
+    .withIndex("by_apple_subject", (queryBuilder: any) => queryBuilder.eq("appleSubject", args.appleSubject))
+    .unique();
+
+  const targetUserId = args.existingUserId ?? existingBySubject?._id ?? null;
+  if (targetUserId) {
+    const user = await ctx.db.get(targetUserId);
+    if (!user) {
+      throw new Error("Linked Apple user no longer exists.");
+    }
+
+    const currentName = user.name?.trim() ?? "";
+    const appleDefaultName = user.appleDefaultName?.trim() ?? "";
+    await ctx.db.patch(targetUserId, {
+      appleSubject: args.appleSubject,
+      ...(normalizedName && (appleDefaultName.length === 0 || appleDefaultName.toLowerCase() === "runner")
+        ? { appleDefaultName: normalizedName }
+        : {}),
+      ...(normalizedName && (currentName.length === 0 || currentName.toLowerCase() === "runner") ? { name: normalizedName } : {}),
+      ...(args.email ? { email: args.email } : {}),
+      ...(args.email && args.emailVerified ? { emailVerificationTime: now } : {}),
+      updatedAt: now,
+    });
+    return targetUserId;
+  }
+
+  return await ctx.db.insert("users", {
+    appleSubject: args.appleSubject,
+    appleDefaultName: normalizedName ?? "Runner",
+    name: normalizedName ?? "Runner",
+    unitPreference: "system",
+    volumePreference: "time",
+    trackAccess: false,
+    healthKitAuthorized: false,
+    strengthTrainingEnabled: false,
+    strengthEquipment: [],
+    createdAt: now,
+    updatedAt: now,
+    ...(args.email ? { email: args.email } : {}),
+    ...(args.email && args.emailVerified ? { emailVerificationTime: now } : {}),
+  });
+}
+
 function resolveAppleAudience(): string[] {
   const raw = process?.env?.AUTH_APPLE_NATIVE_AUDIENCE;
   if (!raw) {
@@ -61,6 +123,10 @@ async function verifyAppleIdentityToken(identityToken: string): Promise<AppleIde
 
 export const { auth, signIn, signOut, store, isAuthenticated } = convexAuth({
   providers: [
+    Apple({
+      clientId: process?.env?.AUTH_APPLE_ID ?? "",
+      clientSecret: process?.env?.AUTH_APPLE_SECRET ?? "",
+    }),
     ConvexCredentials({
       id: "apple-native",
       authorize: async (credentials, ctx) => {
@@ -142,4 +208,45 @@ export const { auth, signIn, signOut, store, isAuthenticated } = convexAuth({
       },
     }),
   ],
+  callbacks: {
+    async createOrUpdateUser(ctx, args) {
+      if (args.provider.id !== "apple") {
+        if (args.existingUserId) {
+          return args.existingUserId;
+        }
+        throw new Error(`Unsupported automatic user creation for provider ${args.provider.id}.`);
+      }
+
+      const appleSubject = stringOrUndefined(args.profile.sub);
+      if (!appleSubject) {
+        throw new Error("Apple profile is missing a subject.");
+      }
+
+      return await upsertAppleUser(ctx, {
+        appleSubject,
+        name: preferredAppleName(args.profile),
+        email: stringOrUndefined(args.profile.email),
+        emailVerified: args.profile.emailVerified === true,
+        existingUserId: args.existingUserId ? String(args.existingUserId) : null,
+      });
+    },
+    async redirect({ redirectTo }) {
+      const normalized = redirectTo.trim();
+      if (normalized.startsWith("/")) {
+        return normalized;
+      }
+
+      const allowedOrigins = (process?.env?.AUTH_REDIRECT_ALLOWLIST ?? "")
+        .split(",")
+        .map((value) => value.trim())
+        .filter((value) => value.length > 0);
+
+      const matchesAllowedOrigin = allowedOrigins.some((origin) => normalized.startsWith(origin));
+      if (matchesAllowedOrigin) {
+        return normalized;
+      }
+
+      return "/dashboard";
+    },
+  },
 });

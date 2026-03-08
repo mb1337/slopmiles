@@ -12,6 +12,7 @@ import {
   regenerateFeedbackForExecution,
   unlinkExecution,
 } from "./workoutExecutionHelpers";
+import { addDays, type DateKey } from "../packages/domain/src/calendar";
 
 const effortModifierValidator = v.union(...effortModifiers.map((modifier) => v.literal(modifier)));
 
@@ -272,6 +273,75 @@ export const rescheduleWorkout = mutation({
       workoutId: workout._id,
       status: "modified" as const,
       scheduledDateKey: normalizedDateKey,
+    };
+  },
+});
+
+export const bumpWorkout = mutation({
+  args: {
+    workoutId: v.id("workouts"),
+  },
+  handler: async (ctx, args) => {
+    const userId = await requireAuthenticatedUserId(ctx);
+    const workout = await ctx.db.get(args.workoutId);
+    if (!workout) {
+      throw new Error("Workout not found.");
+    }
+
+    const week = await ctx.db.get(workout.weekId);
+    if (!week) {
+      throw new Error("Training week not found for workout.");
+    }
+
+    const plan = await ctx.db.get(week.planId);
+    if (!plan || plan.userId !== userId || plan.status !== "active") {
+      throw new Error("Workout not found on the active plan.");
+    }
+
+    const weekWorkouts = await ctx.db
+      .query("workouts")
+      .withIndex("by_week_id_scheduled_date_key", (queryBuilder) => queryBuilder.eq("weekId", week._id))
+      .collect();
+
+    const targetWorkouts = [...weekWorkouts]
+      .filter((entry) => entry.scheduledDateKey >= workout.scheduledDateKey)
+      .sort((left, right) => {
+        if (left.scheduledDateKey !== right.scheduledDateKey) {
+          return left.scheduledDateKey.localeCompare(right.scheduledDateKey);
+        }
+        return left.createdAt - right.createdAt;
+      });
+
+    let finalDate = workout.scheduledDateKey as DateKey;
+    for (let index = 0; index < targetWorkouts.length; index += 1) {
+      finalDate = addDays(workout.scheduledDateKey as DateKey, index + 1);
+    }
+
+    if (finalDate > (week.weekEndDateKey as DateKey)) {
+      throw new Error("Workout cannot be bumped because there is no room left in the week.");
+    }
+
+    for (let index = targetWorkouts.length - 1; index >= 0; index -= 1) {
+      const entry = targetWorkouts[index]!;
+      await ctx.db.patch(entry._id, {
+        scheduledDateKey: addDays(entry.scheduledDateKey as DateKey, 1),
+        status: "modified",
+        updatedAt: Date.now(),
+      });
+    }
+
+    await ctx.db.insert("coachMessages", {
+      userId,
+      author: "coach",
+      kind: "event",
+      body: `Bumped ${workout.type} forward within week ${week.weekNumber}.`,
+      planId: plan._id,
+      createdAt: Date.now(),
+    });
+
+    return {
+      workoutId: workout._id,
+      status: "modified" as const,
     };
   },
 });

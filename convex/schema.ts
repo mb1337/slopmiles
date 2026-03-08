@@ -11,9 +11,14 @@ import {
   onboardingSteps,
   planStatuses,
   personalityPresets,
+  strengthEquipmentOptions,
   unitPreferences,
   volumeModes,
   weekdays,
+  distanceUnits,
+  planInterruptionTypes,
+  strengthWorkoutStatuses,
+  surfaceTypes,
   workoutOrigins,
   workoutMatchMethods,
   workoutMatchStatuses,
@@ -29,6 +34,7 @@ const weekdayValidator = v.union(...weekdays.map((day) => v.literal(day)));
 const onboardingStepValidator = v.union(...onboardingSteps.map((step) => v.literal(step)));
 const unitPreferenceValidator = v.union(...unitPreferences.map((unit) => v.literal(unit)));
 const volumeModeValidator = v.union(...volumeModes.map((mode) => v.literal(mode)));
+const strengthEquipmentValidator = v.union(...strengthEquipmentOptions.map((item) => v.literal(item)));
 const competitivenessValidator = v.union(...competitivenessLevels.map((level) => v.literal(level)));
 const personalityPresetValidator = v.union(...personalityPresets.map((preset) => v.literal(preset)));
 const goalTypeValidator = v.union(...goalTypes.map((goalType) => v.literal(goalType)));
@@ -47,6 +53,10 @@ const workoutMatchStatusValidator = v.union(...workoutMatchStatuses.map((status)
 const workoutMatchMethodValidator = v.union(...workoutMatchMethods.map((method) => v.literal(method)));
 const workoutCheckInStatusValidator = v.union(...workoutCheckInStatuses.map((status) => v.literal(status)));
 const workoutFeedbackStatusValidator = v.union(...workoutFeedbackStatuses.map((status) => v.literal(status)));
+const surfaceTypeValidator = v.union(...surfaceTypes.map((surface) => v.literal(surface)));
+const distanceUnitValidator = v.union(...distanceUnits.map((unit) => v.literal(unit)));
+const strengthWorkoutStatusValidator = v.union(...strengthWorkoutStatuses.map((status) => v.literal(status)));
+const planInterruptionTypeValidator = v.union(...planInterruptionTypes.map((type) => v.literal(type)));
 const effortModifierValidator = v.union(...effortModifiers.map((modifier) => v.literal(modifier)));
 const workoutSegmentValidator = v.object({
   order: v.number(),
@@ -98,6 +108,8 @@ export default defineSchema({
     volumePreference: volumeModeValidator,
     trackAccess: v.boolean(),
     healthKitAuthorized: v.boolean(),
+    strengthTrainingEnabled: v.optional(v.boolean()),
+    strengthEquipment: v.optional(v.array(strengthEquipmentValidator)),
     currentVDOT: v.optional(v.number()),
     maxHeartRate: v.optional(v.number()),
     restingHeartRate: v.optional(v.number()),
@@ -174,6 +186,9 @@ export default defineSchema({
       ),
     ),
     generationRationale: v.optional(v.string()),
+    includeStrength: v.optional(v.boolean()),
+    strengthEquipment: v.optional(v.array(strengthEquipmentValidator)),
+    strengthApproach: v.optional(v.string()),
     generatedByAiRequestId: v.optional(v.id("aiRequests")),
     status: planStatusValidator,
     createdAt: v.number(),
@@ -191,6 +206,9 @@ export default defineSchema({
     targetVolumeAbsolute: v.number(),
     emphasis: v.string(),
     coachNotes: v.optional(v.string()),
+    availabilityOverride: v.optional(v.any()),
+    interruptionType: v.optional(planInterruptionTypeValidator),
+    interruptionNote: v.optional(v.string()),
     generated: v.boolean(),
     generatedByAiRequestId: v.optional(v.id("aiRequests")),
     createdAt: v.number(),
@@ -259,6 +277,12 @@ export default defineSchema({
     author: coachMessageAuthorValidator,
     kind: coachMessageKindValidator,
     body: v.string(),
+    cta: v.optional(
+      v.object({
+        label: v.string(),
+        tab: v.union(v.literal("plan"), v.literal("history"), v.literal("settings"), v.literal("coach")),
+      }),
+    ),
     planId: v.optional(v.id("trainingPlans")),
     relatedRequestId: v.optional(v.id("aiRequests")),
     createdAt: v.number(),
@@ -315,4 +339,88 @@ export default defineSchema({
     .index("by_healthkit_workout_id", ["healthKitWorkoutId"])
     .index("by_planned_workout_id", ["plannedWorkoutId"])
     .index("by_week_id", ["weekId"]),
+
+  strengthWorkouts: defineTable({
+    userId: v.id("users"),
+    planId: v.id("trainingPlans"),
+    weekId: v.id("trainingWeeks"),
+    title: v.string(),
+    plannedMinutes: v.number(),
+    notes: v.optional(v.string()),
+    exercises: v.array(
+      v.object({
+        name: v.string(),
+        sets: v.number(),
+        reps: v.optional(v.number()),
+        holdSeconds: v.optional(v.number()),
+        restSeconds: v.optional(v.number()),
+        equipment: v.optional(strengthEquipmentValidator),
+        cues: v.optional(v.string()),
+      }),
+    ),
+    status: strengthWorkoutStatusValidator,
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_plan_id", ["planId"])
+    .index("by_week_id", ["weekId"])
+    .index("by_user_id", ["userId"]),
+
+  courses: defineTable({
+    userId: v.id("users"),
+    name: v.string(),
+    distanceMeters: v.number(),
+    distanceUnit: distanceUnitValidator,
+    surface: surfaceTypeValidator,
+    notes: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_user_id", ["userId"]),
+
+  races: defineTable({
+    userId: v.id("users"),
+    label: v.string(),
+    plannedDate: v.number(),
+    distanceMeters: v.number(),
+    goalTimeSeconds: v.optional(v.number()),
+    actualTimeSeconds: v.optional(v.number()),
+    isPrimaryGoal: v.boolean(),
+    planId: v.optional(v.id("trainingPlans")),
+    workoutId: v.optional(v.id("workouts")),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_user_id", ["userId"])
+    .index("by_plan_id", ["planId"]),
+
+  peakVolumeChanges: defineTable({
+    userId: v.id("users"),
+    planId: v.id("trainingPlans"),
+    previousPeakWeekVolume: v.number(),
+    newPeakWeekVolume: v.number(),
+    reason: v.string(),
+    createdAt: v.number(),
+  })
+    .index("by_plan_id", ["planId"])
+    .index("by_user_id", ["userId"]),
+
+  goalChanges: defineTable({
+    userId: v.id("users"),
+    planId: v.id("trainingPlans"),
+    previousGoalId: v.id("goals"),
+    newGoalId: v.id("goals"),
+    reason: v.optional(v.string()),
+    createdAt: v.number(),
+  })
+    .index("by_plan_id", ["planId"])
+    .index("by_user_id", ["userId"]),
+
+  planAssessments: defineTable({
+    userId: v.id("users"),
+    planId: v.id("trainingPlans"),
+    body: v.string(),
+    createdAt: v.number(),
+  })
+    .index("by_plan_id", ["planId"])
+    .index("by_user_id", ["userId"]),
 });

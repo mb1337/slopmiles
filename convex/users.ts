@@ -6,14 +6,17 @@ import { internalMutation, mutation, type MutationCtx } from "./_generated/serve
 import {
   competitivenessLevels,
   personalityPresets,
+  strengthEquipmentOptions,
   unitPreferences,
   volumeModes,
   weekdays,
+  type StrengthEquipment,
   type Weekday,
 } from "./constants";
 
 const unitPreferenceValidator = v.union(...unitPreferences.map((unit) => v.literal(unit)));
 const volumeModeValidator = v.union(...volumeModes.map((mode) => v.literal(mode)));
+const strengthEquipmentValidator = v.union(...strengthEquipmentOptions.map((item) => v.literal(item)));
 const weekdayValidator = v.union(...weekdays.map((day) => v.literal(day)));
 const competitivenessValidator = v.union(...competitivenessLevels.map((level) => v.literal(level)));
 const personalityPresetValidator = v.union(...personalityPresets.map((preset) => v.literal(preset)));
@@ -350,6 +353,16 @@ export const resetAppData = mutation({
       await ctx.db.delete(coachMessage._id);
     }
 
+    for (const table of ["strengthWorkouts", "courses", "races", "peakVolumeChanges", "goalChanges", "planAssessments"] as const) {
+      const rows = await ctx.db
+        .query(table)
+        .withIndex("by_user_id", (query) => query.eq("userId", userId))
+        .collect();
+      for (const row of rows) {
+        await ctx.db.delete(row._id);
+      }
+    }
+
     const now = Date.now();
     await ctx.db.patch(userId, {
       name: resetName,
@@ -358,6 +371,8 @@ export const resetAppData = mutation({
       volumePreference: "time",
       trackAccess: false,
       healthKitAuthorized: false,
+      strengthTrainingEnabled: false,
+      strengthEquipment: [],
       currentVDOT: undefined,
       maxHeartRate: undefined,
       restingHeartRate: undefined,
@@ -420,6 +435,47 @@ export const updateTrackAccess = mutation({
       args.trackAccess
         ? "Track access is enabled. Faster sessions can use track-native distances."
         : "Track access is disabled. Faster sessions should bias toward time-based equivalents.",
+    );
+  },
+});
+
+function sanitizeStrengthEquipment(equipment: StrengthEquipment[]): StrengthEquipment[] {
+  const seen = new Set<StrengthEquipment>();
+  const ordered: StrengthEquipment[] = [];
+
+  for (const item of equipment) {
+    if (seen.has(item)) {
+      continue;
+    }
+    seen.add(item);
+    ordered.push(item);
+  }
+
+  return ordered;
+}
+
+export const updateStrengthPreferences = mutation({
+  args: {
+    enabled: v.boolean(),
+    equipment: v.array(strengthEquipmentValidator),
+  },
+  handler: async (ctx, args) => {
+    const userId = await requireAuthenticatedUserId(ctx);
+    const equipment = sanitizeStrengthEquipment(args.equipment);
+
+    await ctx.db.patch(userId, {
+      strengthTrainingEnabled: args.enabled,
+      strengthEquipment: equipment,
+      updatedAt: Date.now(),
+    });
+
+    await insertCoachEvent(
+      ctx,
+      userId,
+      args.enabled
+        ? `Strength training enabled with ${equipment.length > 0 ? equipment.join(", ") : "bodyweight-only"} equipment.`
+        : "Strength training disabled for future planning.",
+      undefined,
     );
   },
 });

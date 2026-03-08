@@ -16,6 +16,8 @@ export type PlanGenerationPromptInput = {
   volumeMode: VolumeMode;
   authoritativeNumberOfWeeks?: number;
   requestedNumberOfWeeks?: number;
+  includeStrength: boolean;
+  strengthEquipment: string[];
   competitiveness: string;
   personalityDescription: string;
   unitPreference: string;
@@ -84,6 +86,8 @@ export function buildPlanGenerationMessages(input: PlanGenerationPromptInput) {
       volumeMode: input.volumeMode,
       authoritativeNumberOfWeeks: input.authoritativeNumberOfWeeks,
       requestedNumberOfWeeks: input.requestedNumberOfWeeks,
+      includeStrength: input.includeStrength,
+      strengthEquipment: input.strengthEquipment,
       unitPreference: input.unitPreference,
       competitiveness: input.competitiveness,
       scheduleConstraints: input.scheduleConstraints,

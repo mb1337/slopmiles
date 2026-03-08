@@ -8,7 +8,15 @@ import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { validatePlanGenerationResponse, type PlanGenerationProposal } from "./coachContracts";
 import { buildPlanGenerationMessages, buildWeekDetailGenerationMessages } from "./coachPrompts";
 import { validateWeekDetailResponse } from "./weekDetailContracts";
-import { aiCallTypes, aiRequestPriorities, aiRequestStatuses, goalTypes, volumeModes } from "./constants";
+import {
+  aiCallTypes,
+  aiRequestPriorities,
+  aiRequestStatuses,
+  goalTypes,
+  strengthEquipmentOptions,
+  type StrengthEquipment,
+  volumeModes,
+} from "./constants";
 import { isWeekGeneratable, resolveAbsoluteWeekVolume } from "./planWeeks";
 
 declare const process:
@@ -19,6 +27,7 @@ declare const process:
 
 const goalTypeValidator = v.union(...goalTypes.map((goalType) => v.literal(goalType)));
 const volumeModeValidator = v.union(...volumeModes.map((mode) => v.literal(mode)));
+const strengthEquipmentValidator = v.union(...strengthEquipmentOptions.map((item) => v.literal(item)));
 
 const MS_PER_WEEK = 7 * 24 * 60 * 60 * 1000;
 const PLAN_GENERATION_PROMPT_REVISION = "plan-generation-v1";
@@ -171,6 +180,8 @@ function createDedupeKey(input: {
   volumeMode: (typeof volumeModes)[number];
   requestedNumberOfWeeks?: number;
   authoritativeNumberOfWeeks?: number;
+  includeStrength?: boolean;
+  strengthEquipment?: StrengthEquipment[];
 }): string {
   return [
     "planGeneration",
@@ -181,6 +192,8 @@ function createDedupeKey(input: {
     input.volumeMode,
     input.requestedNumberOfWeeks ?? "none",
     input.authoritativeNumberOfWeeks ?? "none",
+    input.includeStrength ? "strength" : "no-strength",
+    input.strengthEquipment?.join(",") ?? "none",
     PLAN_GENERATION_PROMPT_REVISION,
     PLAN_GENERATION_SCHEMA_REVISION,
   ].join("|");
@@ -209,6 +222,8 @@ function asPlanGenerationInput(
   volumeMode: (typeof volumeModes)[number];
   requestedNumberOfWeeks?: number;
   authoritativeNumberOfWeeks?: number;
+  includeStrength?: boolean;
+  strengthEquipment?: StrengthEquipment[];
 } {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new Error("Invalid AI request input payload.");
@@ -234,6 +249,13 @@ function asPlanGenerationInput(
     typeof candidate.requestedNumberOfWeeks === "number" ? candidate.requestedNumberOfWeeks : undefined;
   const authoritativeNumberOfWeeks =
     typeof candidate.authoritativeNumberOfWeeks === "number" ? candidate.authoritativeNumberOfWeeks : undefined;
+  const includeStrength = candidate.includeStrength === true;
+  const strengthEquipment = Array.isArray(candidate.strengthEquipment)
+    ? candidate.strengthEquipment.filter(
+        (entry): entry is StrengthEquipment =>
+          typeof entry === "string" && strengthEquipmentOptions.includes(entry as StrengthEquipment),
+      )
+    : undefined;
 
   return {
     goalType,
@@ -243,6 +265,8 @@ function asPlanGenerationInput(
     volumeMode,
     requestedNumberOfWeeks,
     authoritativeNumberOfWeeks,
+    includeStrength,
+    strengthEquipment,
   };
 }
 
@@ -343,6 +367,9 @@ async function materializeDraftPlanFromValidatedProposal(
     weeklyVolumeProfile: proposal.weeklyVolumeProfile,
     weeklyEmphasis: proposal.weeklyEmphasis,
     generationRationale: proposal.rationale,
+    includeStrength: input.includeStrength ?? false,
+    strengthEquipment: input.strengthEquipment ?? [],
+    strengthApproach: proposal.strengthApproach,
     generatedByAiRequestId: request._id,
     status: "draft",
     createdAt: now,
@@ -453,6 +480,8 @@ export const requestPlanGeneration = mutation({
     goalTimeSeconds: v.optional(v.number()),
     volumeMode: volumeModeValidator,
     requestedNumberOfWeeks: v.optional(v.number()),
+    includeStrength: v.optional(v.boolean()),
+    strengthEquipment: v.optional(v.array(strengthEquipmentValidator)),
   },
   handler: async (ctx, args) => {
     const userId = await requireAuthenticatedMutationUserId(ctx);
@@ -476,6 +505,8 @@ export const requestPlanGeneration = mutation({
       requestedNumberOfWeeks:
         typeof args.requestedNumberOfWeeks === "number" ? Math.round(args.requestedNumberOfWeeks) : undefined,
       authoritativeNumberOfWeeks,
+      includeStrength: args.includeStrength === true,
+      strengthEquipment: args.strengthEquipment ?? [],
     };
 
     const dedupeKey = createDedupeKey(input);
@@ -516,7 +547,7 @@ export const requestPlanGeneration = mutation({
       userId,
       `Generating a ${input.goalLabel} plan with ${input.volumeMode}-based volume and ${
         input.authoritativeNumberOfWeeks ?? input.requestedNumberOfWeeks ?? "coach-selected"
-      } weeks of structure.`,
+      } weeks of structure${input.includeStrength ? ", including strength work." : "."}`,
       undefined,
       requestId,
     );
@@ -1047,6 +1078,8 @@ export const getPlanGenerationContext = internalQuery({
         volumeMode: input.volumeMode,
         authoritativeNumberOfWeeks: input.authoritativeNumberOfWeeks,
         requestedNumberOfWeeks: input.requestedNumberOfWeeks,
+        includeStrength: input.includeStrength ?? false,
+        strengthEquipment: input.strengthEquipment ?? [],
         competitiveness: competitiveness?.level ?? "balanced",
         personalityDescription: personality?.description ?? "Direct and concise coaching.",
         unitPreference: user.unitPreference,
