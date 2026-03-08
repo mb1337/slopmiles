@@ -1,7 +1,13 @@
 import { useState } from "react";
 import { ScrollView, Text, View } from "react-native";
 import { useQuery } from "convex/react";
-import type { UnitPreference } from "@slopmiles/domain";
+import {
+  formatDistanceForDisplay,
+  formatDurationClock,
+  formatElevationForDisplay,
+  formatPaceSecondsPerMeterForDisplay,
+  type UnitPreference,
+} from "@slopmiles/domain";
 
 import { api, type Id } from "../../convex";
 import {
@@ -17,18 +23,6 @@ import {
 import { WorkoutExecutionDetail } from "../../components/workoutExecution";
 import { styles } from "../../styles";
 import type { HistoryRoute } from "../../types";
-import {
-  formatDistanceForDisplay,
-  formatElevationForDisplay,
-  formatPaceSecondsPerMeterForDisplay,
-} from "../../units";
-
-function formatDuration(seconds: number): string {
-  const rounded = Math.max(0, Math.round(seconds));
-  const minutes = Math.floor(rounded / 60);
-  const remainingSeconds = rounded % 60;
-  return `${minutes}:${String(remainingSeconds).padStart(2, "0")}`;
-}
 
 function formatWorkoutDate(timestamp: number): string {
   return new Date(timestamp).toLocaleDateString(undefined, {
@@ -104,7 +98,7 @@ export function HistoryScreen({
             <SectionCard title="Run summary" description={formatMatchStatus(normalizeMatchStatus(selectedWorkout.execution?.matchStatus))}>
               <MetricGrid>
                 <MetricStat label="Distance" value={formatDistanceForDisplay(selectedWorkout.distanceMeters, unitPreference)} />
-                <MetricStat label="Duration" value={formatDuration(selectedWorkout.durationSeconds)} />
+                <MetricStat label="Duration" value={formatDurationClock(selectedWorkout.durationSeconds)} />
                 <MetricStat
                   label="Pace"
                   value={formatPaceSecondsPerMeterForDisplay(selectedWorkout.rawPaceSecondsPerMeter ?? undefined, unitPreference)}
@@ -142,7 +136,7 @@ export function HistoryScreen({
                   <View key={`${String(selectedWorkout._id)}-${chain.chainIndex}`} style={styles.historyChainBlock}>
                     <Text style={styles.historyChainTitle}>Chain {chain.chainIndex}</Text>
                     <Text style={styles.helperText}>
-                      {chain.intervalCount} intervals · {formatDuration(chain.durationSeconds)} ·{" "}
+                      {chain.intervalCount} intervals · {formatDurationClock(chain.durationSeconds)} ·{" "}
                       {formatDistanceForDisplay(chain.distanceMeters, unitPreference)}
                     </Text>
                     {chain.intervals.map((interval, index) => (
@@ -153,7 +147,8 @@ export function HistoryScreen({
                         <Text style={styles.historyIntervalLabel}>{interval.type === "lap" ? "Lap" : "Segment"} {index + 1}</Text>
                         <View style={{ flex: 1 }}>
                           <Text style={styles.historyIntervalValue}>
-                            {formatDistanceForDisplay(interval.distanceMeters, unitPreference)} · {formatDuration(interval.durationSeconds)}
+                            {formatDistanceForDisplay(interval.distanceMeters, unitPreference)} ·{" "}
+                            {formatDurationClock(interval.durationSeconds)}
                           </Text>
                           <Text style={styles.helperText}>
                             Pace {formatPaceSecondsPerMeterForDisplay(interval.rawPaceSecondsPerMeter ?? undefined, unitPreference)}
@@ -214,7 +209,8 @@ export function HistoryScreen({
                 </Text>
               </View>
               <Text style={styles.helperText}>
-                {formatDistanceForDisplay(workout.distanceMeters, unitPreference)} · {formatDuration(workout.durationSeconds)} · Pace{" "}
+                {formatDistanceForDisplay(workout.distanceMeters, unitPreference)} ·{" "}
+                {formatDurationClock(workout.durationSeconds)} · Pace{" "}
                 {formatPaceSecondsPerMeterForDisplay(workout.rawPaceSecondsPerMeter ?? undefined, unitPreference)}
               </Text>
               <PrimaryButton

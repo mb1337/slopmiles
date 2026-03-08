@@ -1,6 +1,12 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
 import {
+  formatDateKeyForDisplay as formatDateKey,
+  formatDateTimeForDisplay as formatDateTime,
+  formatDistanceForDisplay as formatDistance,
+  formatDurationClock as formatDuration,
+  formatPaceSecondsPerMeterForDisplay as formatPace,
+  formatVolumeForDisplay as formatVolume,
   projectedRaceTime,
   type CompetitivenessLevel,
   type PersonalityPreset,
@@ -11,15 +17,6 @@ import {
 import { Link, useNavigate, useParams } from "react-router-dom";
 
 import { api, type Id } from "../convex";
-import {
-  formatDateKey,
-  formatDateTime,
-  formatDistance,
-  formatDuration,
-  formatPace,
-  formatRaceTime,
-  formatVolume,
-} from "../format";
 import { type SessionData } from "./session";
 import {
   ActionLink,
@@ -54,6 +51,10 @@ import {
   type SurfaceOption,
   weekdayOptions,
 } from "./shared";
+
+function formatRaceTime(seconds: number | null | undefined) {
+  return typeof seconds === "number" ? formatDuration(seconds) : "-";
+}
 
 export function OnboardingPage({
   session,

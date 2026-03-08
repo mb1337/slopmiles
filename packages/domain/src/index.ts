@@ -58,11 +58,20 @@ export const STRENGTH_EQUIPMENT_OPTIONS = [
 ] as const;
 export type StrengthEquipment = (typeof STRENGTH_EQUIPMENT_OPTIONS)[number];
 
+export const DISTANCE_UNITS = ["meters", "kilometers", "miles"] as const;
+export type DistanceUnit = (typeof DISTANCE_UNITS)[number];
+
+export const SURFACE_TYPES = ["road", "track", "trail", "treadmill", "mixed"] as const;
+export type SurfaceType = (typeof SURFACE_TYPES)[number];
+
 export const GOAL_TYPES = ["race", "nonRace", "custom"] as const;
 export type GoalType = (typeof GOAL_TYPES)[number];
 
 export const PLAN_STATUSES = ["draft", "active", "completed", "abandoned"] as const;
 export type PlanStatus = (typeof PLAN_STATUSES)[number];
+
+export const PLAN_INTERRUPTION_TYPES = ["injury", "illness", "life", "travel"] as const;
+export type PlanInterruptionType = (typeof PLAN_INTERRUPTION_TYPES)[number];
 
 export const WORKOUT_TYPES = ["easyRun", "longRun", "tempo", "intervals", "recovery"] as const;
 export type WorkoutType = (typeof WORKOUT_TYPES)[number];
@@ -87,6 +96,9 @@ export type WorkoutCheckInStatus = (typeof WORKOUT_CHECKIN_STATUSES)[number];
 
 export const WORKOUT_FEEDBACK_STATUSES = ["pending", "ready"] as const;
 export type WorkoutFeedbackStatus = (typeof WORKOUT_FEEDBACK_STATUSES)[number];
+
+export const STRENGTH_WORKOUT_STATUSES = ["planned", "completed"] as const;
+export type StrengthWorkoutStatus = (typeof STRENGTH_WORKOUT_STATUSES)[number];
 
 export const EFFORT_MODIFIERS = [
   "pushedStroller",
@@ -223,8 +235,8 @@ export type Course = {
   id: string;
   name: string;
   distanceMeters: number;
-  distanceUnit: "meters" | "kilometers" | "miles";
-  surface: "road" | "track" | "trail" | "treadmill" | "mixed";
+  distanceUnit: DistanceUnit;
+  surface: SurfaceType;
   notes?: string;
 };
 
@@ -278,7 +290,7 @@ export type StrengthWorkoutSummary = {
     equipment?: StrengthEquipment | null;
     cues?: string;
   }>;
-  status: "planned" | "completed";
+  status: StrengthWorkoutStatus;
 };
 
 export type ExportPackage = {
@@ -343,5 +355,6 @@ export function nextOnboardingStep(step: OnboardingStep): OnboardingStep {
 }
 
 export * from "./calendar";
+export * from "./display";
 export * from "./gap";
 export * from "./vdot";

@@ -7,6 +7,9 @@ import {
   VOLUME_MODES,
   WEEKDAYS,
   calculateVdotFromRaceTime,
+  defaultDistanceInputUnit,
+  formatDistanceForDisplay,
+  formatDurationClock,
   type CompetitivenessLevel,
   type PersonalityPreset,
   type UnitPreference,
@@ -16,7 +19,6 @@ import {
 
 import { styles } from "../styles";
 import type { Id } from "../convex";
-import { defaultDistanceInputUnit, formatDistanceForDisplay } from "../units";
 import { ChoiceRow, Counter, FieldGroup, Panel, PrimaryButton, SecondaryButton, TagGrid } from "./common";
 
 type ImportedWorkoutSummary = {
@@ -50,19 +52,6 @@ function parseNonNegativeInteger(raw: string): number | null {
   }
 
   return value;
-}
-
-function formatDuration(totalSeconds: number): string {
-  const seconds = Math.max(0, Math.round(totalSeconds));
-  const hours = Math.floor(seconds / 3600);
-  const minutes = Math.floor((seconds % 3600) / 60);
-  const remainder = seconds % 60;
-
-  if (hours > 0) {
-    return `${hours}:${String(minutes).padStart(2, "0")}:${String(remainder).padStart(2, "0")}`;
-  }
-
-  return `${minutes}:${String(remainder).padStart(2, "0")}`;
 }
 
 function toMeters(distance: number, unit: "km" | "mi" | "m"): number {
@@ -248,7 +237,8 @@ export function EstablishVdotStep({
               >
                 <Text style={styles.historyWorkoutTitle}>{new Date(workout.startedAt).toLocaleDateString()}</Text>
                 <Text style={styles.helperText}>
-                  {formatDistanceForDisplay(workout.distanceMeters, unitPreference)} · {formatDuration(workout.durationSeconds)} · VDOT{" "}
+                  {formatDistanceForDisplay(workout.distanceMeters, unitPreference)} ·{" "}
+                  {formatDurationClock(workout.durationSeconds)} · VDOT{" "}
                   {workout.calculatedVdot.toFixed(1)}
                 </Text>
               </Pressable>

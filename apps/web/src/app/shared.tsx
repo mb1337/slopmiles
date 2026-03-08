@@ -1,38 +1,26 @@
 import type { ReactNode } from "react";
-import { type Weekday } from "@slopmiles/domain";
+import {
+  DISTANCE_UNITS,
+  EFFORT_MODIFIERS,
+  PLAN_INTERRUPTION_TYPES,
+  STRENGTH_EQUIPMENT_OPTIONS,
+  SURFACE_TYPES,
+  WEEKDAYS,
+  formatFriendlyLabel as domainFormatFriendlyLabel,
+  formatWorkoutTypeLabel,
+  type Weekday,
+} from "@slopmiles/domain";
 import { Link } from "react-router-dom";
 
-export const weekdayOptions: Weekday[] = [
-  "monday",
-  "tuesday",
-  "wednesday",
-  "thursday",
-  "friday",
-  "saturday",
-  "sunday",
-];
+export const weekdayOptions: Weekday[] = [...WEEKDAYS];
 
 export const raceGoalPresets = ["5K", "10K", "Half Marathon", "Marathon"] as const;
 export const nonRaceGoalPresets = ["Base Building", "Recovery"] as const;
-export const strengthEquipmentOptions = [
-  "bodyweight",
-  "dumbbells",
-  "kettlebells",
-  "bands",
-  "fullGym",
-] as const;
-export const distanceUnitOptions = ["meters", "kilometers", "miles"] as const;
-export const surfaceOptions = ["road", "track", "trail", "treadmill", "mixed"] as const;
-export const interruptionOptions = ["injury", "illness", "life", "travel"] as const;
-export const effortModifierOptions = [
-  "pushedStroller",
-  "ranWithDog",
-  "trailOffRoad",
-  "treadmill",
-  "highAltitude",
-  "poorSleep",
-  "feelingUnwell",
-] as const;
+export const strengthEquipmentOptions = STRENGTH_EQUIPMENT_OPTIONS;
+export const distanceUnitOptions = DISTANCE_UNITS;
+export const surfaceOptions = SURFACE_TYPES;
+export const interruptionOptions = PLAN_INTERRUPTION_TYPES;
+export const effortModifierOptions = EFFORT_MODIFIERS;
 export const coachPromptPresets = [
   "What should I focus on this week?",
   "I need help adjusting a workout.",
@@ -51,27 +39,11 @@ export function cx(...values: Array<string | false | null | undefined>) {
 }
 
 export function formatWorkoutType(type: string) {
-  switch (type) {
-    case "easyRun":
-      return "Easy Run";
-    case "longRun":
-      return "Long Run";
-    case "tempo":
-      return "Tempo";
-    case "intervals":
-      return "Intervals";
-    case "recovery":
-      return "Recovery";
-    default:
-      return type;
-  }
+  return formatWorkoutTypeLabel(type);
 }
 
 export function formatFriendlyLabel(value: string) {
-  return value
-    .replace(/([A-Z])/g, " $1")
-    .replace(/^./, (char) => char.toUpperCase())
-    .trim();
+  return domainFormatFriendlyLabel(value);
 }
 
 export function formatWeekdayLabel(day: Weekday) {

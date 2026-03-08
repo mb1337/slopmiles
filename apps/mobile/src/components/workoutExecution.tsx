@@ -3,6 +3,13 @@ import { Text, TextInput, View } from "react-native";
 import { useMutation, useQuery } from "convex/react";
 import {
   EFFORT_MODIFIERS,
+  formatDateKeyForDisplay,
+  formatDistanceForDisplay,
+  formatDurationClock,
+  formatElevationForDisplay,
+  formatEffortModifierLabel,
+  formatPaceSecondsPerMeterForDisplay,
+  formatWorkoutTypeLabel,
   type EffortModifier,
   type UnitPreference,
 } from "@slopmiles/domain";
@@ -10,20 +17,8 @@ import {
 import { api, type Id } from "../convex";
 import { ChoiceRow, PrimaryButton, SecondaryButton, TagGrid } from "./common";
 import { styles } from "../styles";
-import {
-  formatDistanceForDisplay,
-  formatElevationForDisplay,
-  formatPaceSecondsPerMeterForDisplay,
-} from "../units";
 
 const RPE_OPTIONS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10"] as const;
-
-function formatDuration(seconds: number): string {
-  const rounded = Math.max(0, Math.round(seconds));
-  const minutes = Math.floor(rounded / 60);
-  const remainingSeconds = rounded % 60;
-  return `${minutes}:${String(remainingSeconds).padStart(2, "0")}`;
-}
 
 function formatHeartRate(heartRate?: number): string {
   return typeof heartRate === "number" ? `${Math.round(heartRate)} bpm` : "-";
@@ -40,53 +35,6 @@ function formatMatchStatus(status: "matched" | "unmatched" | "needsReview"): str
     default:
       return status;
   }
-}
-
-function formatWorkoutType(type: string): string {
-  switch (type) {
-    case "easyRun":
-      return "Easy Run";
-    case "longRun":
-      return "Long Run";
-    case "tempo":
-      return "Tempo";
-    case "intervals":
-      return "Intervals";
-    case "recovery":
-      return "Recovery";
-    default:
-      return type;
-  }
-}
-
-function formatModifierLabel(modifier: EffortModifier): string {
-  switch (modifier) {
-    case "pushedStroller":
-      return "Pushed Stroller";
-    case "ranWithDog":
-      return "Ran with Dog";
-    case "trailOffRoad":
-      return "Trail / Off-Road";
-    case "treadmill":
-      return "Treadmill";
-    case "highAltitude":
-      return "High Altitude";
-    case "poorSleep":
-      return "Poor Sleep";
-    case "feelingUnwell":
-      return "Feeling Unwell";
-    default:
-      return modifier;
-  }
-}
-
-function formatDateKey(dateKey: string): string {
-  return new Intl.DateTimeFormat(undefined, {
-    weekday: "short",
-    month: "short",
-    day: "numeric",
-    timeZone: "UTC",
-  }).format(new Date(`${dateKey}T00:00:00Z`));
 }
 
 function matchBadgeStyle(status: "matched" | "unmatched" | "needsReview") {
@@ -116,7 +64,7 @@ function formatPlannedTarget(
 
   const volume =
     typeof segment.plannedSeconds === "number"
-      ? formatDuration(segment.plannedSeconds)
+      ? formatDurationClock(segment.plannedSeconds)
       : formatDistanceForDisplay(segment.plannedMeters ?? undefined, unitPreference);
   const pace = formatPaceSecondsPerMeterForDisplay(segment.plannedPaceSecondsPerMeter ?? undefined, unitPreference);
   return `${volume} @ ${pace}`;
@@ -132,7 +80,7 @@ function formatActualRep(
   unitPreference: UnitPreference,
 ): string {
   const volume = [
-    typeof rep.actualSeconds === "number" ? formatDuration(rep.actualSeconds) : null,
+    typeof rep.actualSeconds === "number" ? formatDurationClock(rep.actualSeconds) : null,
     typeof rep.actualMeters === "number" ? formatDistanceForDisplay(rep.actualMeters, unitPreference) : null,
   ]
     .filter(Boolean)
@@ -199,7 +147,7 @@ export function WorkoutExecutionDetail({
       return null;
     }
 
-    return `${formatDateKey(detail.plannedWorkout.scheduledDateKey)} · ${formatWorkoutType(detail.plannedWorkout.type)}`;
+    return `${formatDateKeyForDisplay(detail.plannedWorkout.scheduledDateKey)} · ${formatWorkoutTypeLabel(detail.plannedWorkout.type)}`;
   }, [detail?.plannedWorkout]);
 
   const toggleModifier = (modifier: string) => {
@@ -302,7 +250,7 @@ export function WorkoutExecutionDetail({
         </View>
         <View style={styles.metricCard}>
           <Text style={styles.metricLabel}>Duration</Text>
-          <Text style={styles.metricValue}>{formatDuration(importedWorkout.durationSeconds)}</Text>
+          <Text style={styles.metricValue}>{formatDurationClock(importedWorkout.durationSeconds)}</Text>
         </View>
         <View style={styles.metricCard}>
           <Text style={styles.metricLabel}>Pace</Text>
@@ -374,10 +322,10 @@ export function WorkoutExecutionDetail({
 
         <Text style={styles.label}>Effort modifiers</Text>
         <TagGrid
-          options={EFFORT_MODIFIERS.map((modifier) => formatModifierLabel(modifier))}
-          selected={modifiers.map((modifier) => formatModifierLabel(modifier))}
+          options={EFFORT_MODIFIERS.map((modifier) => formatEffortModifierLabel(modifier))}
+          selected={modifiers.map((modifier) => formatEffortModifierLabel(modifier))}
           onToggle={(label) => {
-            const modifier = EFFORT_MODIFIERS.find((entry) => formatModifierLabel(entry) === label);
+            const modifier = EFFORT_MODIFIERS.find((entry) => formatEffortModifierLabel(entry) === label);
             if (modifier) {
               toggleModifier(modifier);
             }
@@ -449,7 +397,7 @@ export function WorkoutExecutionDetail({
               {candidates.map((candidate) => (
                 <View key={String(candidate.plannedWorkoutId)} style={styles.candidateCard}>
                   <Text style={styles.candidateTitle}>
-                    {formatDateKey(candidate.scheduledDateKey)} · {formatWorkoutType(candidate.type)}
+                    {formatDateKeyForDisplay(candidate.scheduledDateKey)} · {formatWorkoutTypeLabel(candidate.type)}
                   </Text>
                   <Text style={styles.helperText}>
                     Confidence {Math.round(candidate.confidence * 100)}% · Week {candidate.weekNumber}

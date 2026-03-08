@@ -1,7 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
 import { Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import { useMutation, useQuery } from "convex/react";
-import { VOLUME_MODES, type UnitPreference, type VolumeMode } from "@slopmiles/domain";
+import {
+  VOLUME_MODES,
+  formatDateKeyForDisplay,
+  formatDistanceForDisplay,
+  formatWorkoutTypeLabel,
+  type UnitPreference,
+  type VolumeMode,
+} from "@slopmiles/domain";
 
 import { api, type Id } from "../../convex";
 import {
@@ -22,7 +29,6 @@ import {
 import { WorkoutExecutionDetail } from "../../components/workoutExecution";
 import { styles } from "../../styles";
 import type { PlanRoute } from "../../types";
-import { formatDistanceForDisplay } from "../../units";
 
 const RACE_GOALS = ["5K", "10K", "Half Marathon", "Marathon", "Custom"] as const;
 const NON_RACE_GOALS = ["Base Building", "Recovery", "Custom"] as const;
@@ -43,15 +49,6 @@ function formatGoalTime(seconds: number): string {
   return `${minutes}:${String(remainder).padStart(2, "0")}`;
 }
 
-function formatDateKey(dateKey: string): string {
-  return new Intl.DateTimeFormat(undefined, {
-    weekday: "short",
-    month: "short",
-    day: "numeric",
-    timeZone: "UTC",
-  }).format(new Date(`${dateKey}T00:00:00Z`));
-}
-
 function formatDurationSeconds(seconds: number): string {
   const rounded = Math.max(0, Math.round(seconds));
   const minutes = Math.floor(rounded / 60);
@@ -63,23 +60,6 @@ function formatDurationSeconds(seconds: number): string {
     return `${minutes} min`;
   }
   return `${minutes}:${String(remainder).padStart(2, "0")}`;
-}
-
-function formatWorkoutType(type: string): string {
-  switch (type) {
-    case "easyRun":
-      return "Easy Run";
-    case "longRun":
-      return "Long Run";
-    case "tempo":
-      return "Tempo";
-    case "intervals":
-      return "Intervals";
-    case "recovery":
-      return "Recovery";
-    default:
-      return type;
-  }
 }
 
 function formatSegment(segment: {
@@ -630,7 +610,8 @@ export function PlanScreen({
                   {Math.round(week.targetVolumePercent * 100)}% of peak · {week.emphasis || "No emphasis"}
                 </Text>
                 <Text style={styles.helperText}>
-                  {formatDateKey(week.weekStartDateKey)} - {formatDateKey(week.weekEndDateKey)} · {week.generated ? "Generated" : "Outline only"}
+                  {formatDateKeyForDisplay(week.weekStartDateKey)} - {formatDateKeyForDisplay(week.weekEndDateKey)} ·{" "}
+                  {week.generated ? "Generated" : "Outline only"}
                 </Text>
               </Pressable>
             ))}
@@ -739,7 +720,11 @@ export function PlanScreen({
       <ScreenHeader
         eyebrow="Plan"
         title={weekAgenda ? `Week ${weekAgenda.week.weekNumber}` : "Week agenda"}
-        subtitle={weekAgenda ? `${formatDateKey(weekAgenda.week.weekStartDateKey)} - ${formatDateKey(weekAgenda.week.weekEndDateKey)}` : "Loading week..."}
+        subtitle={
+          weekAgenda
+            ? `${formatDateKeyForDisplay(weekAgenda.week.weekStartDateKey)} - ${formatDateKeyForDisplay(weekAgenda.week.weekEndDateKey)}`
+            : "Loading week..."
+        }
         actionLabel="Overview"
         onAction={() => onRouteChange({ screen: "overview" })}
       />
@@ -793,11 +778,15 @@ export function PlanScreen({
           </SectionCard>
 
           {weekAgenda.days.map((day) => (
-            <SectionCard key={day.dateKey} title={formatDateKey(day.dateKey)} description={`${day.workouts.length} workout${day.workouts.length === 1 ? "" : "s"}`}>
+            <SectionCard
+              key={day.dateKey}
+              title={formatDateKeyForDisplay(day.dateKey)}
+              description={`${day.workouts.length} workout${day.workouts.length === 1 ? "" : "s"}`}
+            >
               {day.workouts.map((workout) => (
                 <View key={String(workout._id)} style={styles.subtleBlock}>
                   <View style={styles.statusRow}>
-                    <Text style={styles.sectionCardTitle}>{formatWorkoutType(workout.type)}</Text>
+                    <Text style={styles.sectionCardTitle}>{formatWorkoutTypeLabel(workout.type)}</Text>
                     <Text style={[styles.statusBadge, workout.status === "completed" ? styles.statusBadgeMatched : workout.status === "modified" ? styles.statusBadgeNeedsReview : styles.statusBadgeUnmatched]}>
                       {workout.status}
                     </Text>
@@ -822,8 +811,12 @@ export function PlanScreen({
     <ScrollView contentContainerStyle={styles.container}>
       <ScreenHeader
         eyebrow="Plan"
-        title={workoutDetail ? `${formatWorkoutType(workoutDetail.workout.type)}` : "Workout detail"}
-        subtitle={workoutDetail ? `${formatDateKey(workoutDetail.workout.scheduledDateKey)} · Week ${workoutDetail.week.weekNumber}` : "Loading workout..."}
+        title={workoutDetail ? `${formatWorkoutTypeLabel(workoutDetail.workout.type)}` : "Workout detail"}
+        subtitle={
+          workoutDetail
+            ? `${formatDateKeyForDisplay(workoutDetail.workout.scheduledDateKey)} · Week ${workoutDetail.week.weekNumber}`
+            : "Loading workout..."
+        }
         actionLabel={route.screen === "workout" ? `Week ${route.weekNumber}` : "Back"}
         onAction={() => onRouteChange({ screen: "week", weekNumber: route.screen === "workout" ? route.weekNumber : 1 })}
       />

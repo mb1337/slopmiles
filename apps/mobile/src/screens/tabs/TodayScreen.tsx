@@ -1,6 +1,14 @@
 import { ScrollView, Text, View } from "react-native";
 import { useQuery } from "convex/react";
-import { projectedRaceTime, type UnitPreference, type VolumeMode } from "@slopmiles/domain";
+import {
+  formatDateKeyForDisplay,
+  formatDistanceForDisplay,
+  formatDurationClock,
+  formatWorkoutTypeLabel,
+  projectedRaceTime,
+  type UnitPreference,
+  type VolumeMode,
+} from "@slopmiles/domain";
 
 import { api, type Id } from "../../convex";
 import {
@@ -14,46 +22,6 @@ import {
   StatusBanner,
 } from "../../components/common";
 import { styles } from "../../styles";
-import { formatDistanceForDisplay } from "../../units";
-
-function formatRaceTime(seconds: number): string {
-  const rounded = Math.max(0, Math.round(seconds));
-  const hours = Math.floor(rounded / 3600);
-  const minutes = Math.floor((rounded % 3600) / 60);
-  const remainder = rounded % 60;
-
-  if (hours > 0) {
-    return `${hours}:${String(minutes).padStart(2, "0")}:${String(remainder).padStart(2, "0")}`;
-  }
-
-  return `${minutes}:${String(remainder).padStart(2, "0")}`;
-}
-
-function formatDateKey(dateKey: string): string {
-  return new Intl.DateTimeFormat(undefined, {
-    weekday: "short",
-    month: "short",
-    day: "numeric",
-    timeZone: "UTC",
-  }).format(new Date(`${dateKey}T00:00:00Z`));
-}
-
-function formatWorkoutType(type: string): string {
-  switch (type) {
-    case "easyRun":
-      return "Easy Run";
-    case "longRun":
-      return "Long Run";
-    case "tempo":
-      return "Tempo";
-    case "intervals":
-      return "Intervals";
-    case "recovery":
-      return "Recovery";
-    default:
-      return type;
-  }
-}
 
 function formatAbsoluteVolume(volumeMode: VolumeMode, absoluteVolume: number, unitPreference: UnitPreference) {
   if (volumeMode === "time") {
@@ -110,7 +78,8 @@ export function TodayScreen({
             {summary.nextWorkout ? (
               <>
                 <Text style={styles.workoutTitle}>
-                  {formatDateKey(summary.nextWorkout.scheduledDateKey)} · {formatWorkoutType(summary.nextWorkout.type)}
+                  {formatDateKeyForDisplay(summary.nextWorkout.scheduledDateKey)} ·{" "}
+                  {formatWorkoutTypeLabel(summary.nextWorkout.type)}
                 </Text>
                 <Text style={styles.bodyText}>
                   {formatAbsoluteVolume(summary.activePlan.volumeMode, summary.nextWorkout.absoluteVolume, unitPreference)} ·{" "}
@@ -190,9 +159,9 @@ export function TodayScreen({
         {typeof summary?.currentVDOT === "number" ? (
           <MetricGrid>
             <MetricStat label="VDOT" value={summary.currentVDOT.toFixed(1)} />
-            <MetricStat label="5K" value={formatRaceTime(projectedRaceTime(summary.currentVDOT, 5000))} />
-            <MetricStat label="10K" value={formatRaceTime(projectedRaceTime(summary.currentVDOT, 10000))} />
-            <MetricStat label="Half" value={formatRaceTime(projectedRaceTime(summary.currentVDOT, 21097.5))} />
+            <MetricStat label="5K" value={formatDurationClock(projectedRaceTime(summary.currentVDOT, 5000))} />
+            <MetricStat label="10K" value={formatDurationClock(projectedRaceTime(summary.currentVDOT, 10000))} />
+            <MetricStat label="Half" value={formatDurationClock(projectedRaceTime(summary.currentVDOT, 21097.5))} />
           </MetricGrid>
         ) : (
           <Text style={styles.bodyText}>No VDOT is established yet. Complete onboarding or import enough history to set paces.</Text>
