@@ -132,19 +132,66 @@ function MissingConfigScreen() {
 
 function SignInScreen() {
   const { signIn } = useAuthActions();
-  const [busy, setBusy] = useState(false);
+  const [appleBusy, setAppleBusy] = useState(false);
+  const [otpBusy, setOtpBusy] = useState(false);
+  const [email, setEmail] = useState("");
+  const [code, setCode] = useState("");
+  const [otpStep, setOtpStep] = useState<"request" | "verify">("request");
   const [error, setError] = useState<string | null>(null);
+  const [info, setInfo] = useState<string | null>(null);
+  const emailRedirectTo = `${window.location.origin}/dashboard`;
 
   const handleSignIn = async () => {
-    setBusy(true);
+    setAppleBusy(true);
     setError(null);
+    setInfo(null);
     try {
       await signIn("apple", {
         redirectTo: `${window.location.pathname}${window.location.search}${window.location.hash}`,
       });
     } catch (signInError) {
       setError(String(signInError));
-      setBusy(false);
+      setAppleBusy(false);
+      return;
+    } finally {
+      setAppleBusy(false);
+    }
+  };
+
+  const handleSendCode = async () => {
+    const normalizedEmail = email.trim().toLowerCase();
+    setOtpBusy(true);
+    setError(null);
+    setInfo(null);
+    try {
+      await signIn("email", {
+        email: normalizedEmail,
+        redirectTo: emailRedirectTo,
+      });
+      setOtpStep("verify");
+      setInfo(`Sent a code to ${normalizedEmail}.`);
+    } catch (sendError) {
+      setError(String(sendError));
+    } finally {
+      setOtpBusy(false);
+    }
+  };
+
+  const handleVerifyCode = async () => {
+    const normalizedEmail = email.trim().toLowerCase();
+    setOtpBusy(true);
+    setError(null);
+    setInfo(null);
+    try {
+      await signIn("email", {
+        email: normalizedEmail,
+        code: code.trim(),
+        redirectTo: emailRedirectTo,
+      });
+    } catch (verifyError) {
+      setError(String(verifyError));
+    } finally {
+      setOtpBusy(false);
     }
   };
 
@@ -158,10 +205,62 @@ function SignInScreen() {
             Sign in with Apple to open the same SlopMiles account you use on iPhone. Workout import stays managed on
             iPhone; everything synced to Convex is available here.
           </p>
+          <div className="button-row">
+            <Button onClick={() => void handleSignIn()} disabled={appleBusy || otpBusy}>
+              {appleBusy ? "Redirecting…" : "Sign in with Apple"}
+            </Button>
+          </div>
+          <div className="auth-divider">
+            <span>or use an email code</span>
+          </div>
+          <Field label="Email">
+            <input
+              type="email"
+              autoComplete="email"
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+              placeholder="you@example.com"
+            />
+          </Field>
+          {otpStep === "verify" ? (
+            <Field label="Verification code">
+              <input
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                value={code}
+                onChange={(event) => setCode(event.target.value)}
+                placeholder="123456"
+              />
+            </Field>
+          ) : null}
+          {info ? <StatusMessage message={info} tone="success" /> : null}
           {error ? <StatusMessage message={error} tone="error" /> : null}
-          <Button onClick={() => void handleSignIn()} disabled={busy}>
-            {busy ? "Redirecting…" : "Sign in with Apple"}
-          </Button>
+          {otpStep === "request" ? (
+            <Button onClick={() => void handleSendCode()} disabled={otpBusy || appleBusy || email.trim().length === 0}>
+              {otpBusy ? "Sending…" : "Send code"}
+            </Button>
+          ) : (
+            <div className="button-row">
+              <Button
+                onClick={() => void handleVerifyCode()}
+                disabled={otpBusy || appleBusy || email.trim().length === 0 || code.trim().length === 0}
+              >
+                {otpBusy ? "Verifying…" : "Verify code"}
+              </Button>
+              <Button
+                kind="secondary"
+                onClick={() => {
+                  setOtpStep("request");
+                  setCode("");
+                  setInfo(null);
+                  setError(null);
+                }}
+                disabled={otpBusy || appleBusy}
+              >
+                Back
+              </Button>
+            </div>
+          )}
         </div>
       </div>
     </main>

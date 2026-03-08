@@ -1,10 +1,10 @@
 import { useEffect, useState } from "react";
-import { ActivityIndicator, Platform, Text, View } from "react-native";
+import { ActivityIndicator, Platform, Text, TextInput, View } from "react-native";
 import * as AppleAuthentication from "expo-apple-authentication";
 import { useAuthActions } from "@convex-dev/auth/react";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-import { Panel } from "../components/common";
+import { Panel, PrimaryButton, SecondaryButton } from "../components/common";
 import { styles } from "../styles";
 
 function wasAppleSignInCancelled(error: unknown): boolean {
@@ -54,8 +54,14 @@ function firstNameFromCredential(credential: AppleAuthentication.AppleAuthentica
 export function SignInScreen() {
   const { signIn } = useAuthActions();
   const [appleAvailable, setAppleAvailable] = useState<boolean | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [appleBusy, setAppleBusy] = useState(false);
+  const [otpBusy, setOtpBusy] = useState(false);
+  const [otpStep, setOtpStep] = useState<"request" | "verify">("request");
+  const [email, setEmail] = useState("");
+  const [code, setCode] = useState("");
+  const [info, setInfo] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const emailRedirectTo = "slopmiles://auth";
 
   useEffect(() => {
     let mounted = true;
@@ -88,8 +94,9 @@ export function SignInScreen() {
   }, []);
 
   const handleAppleSignIn = async () => {
-    setBusy(true);
+    setAppleBusy(true);
     setError(null);
+    setInfo(null);
 
     try {
       const credential = await AppleAuthentication.signInAsync({
@@ -124,7 +131,44 @@ export function SignInScreen() {
         setError(formatAppleSignInError(signInError));
       }
     } finally {
-      setBusy(false);
+      setAppleBusy(false);
+    }
+  };
+
+  const handleRequestCode = async () => {
+    const normalizedEmail = email.trim().toLowerCase();
+    setOtpBusy(true);
+    setError(null);
+    setInfo(null);
+    try {
+      await signIn("email", {
+        email: normalizedEmail,
+        redirectTo: emailRedirectTo,
+      });
+      setOtpStep("verify");
+      setInfo(`Sent a code to ${normalizedEmail}.`);
+    } catch (requestError) {
+      setError(String(requestError));
+    } finally {
+      setOtpBusy(false);
+    }
+  };
+
+  const handleVerifyCode = async () => {
+    const normalizedEmail = email.trim().toLowerCase();
+    setOtpBusy(true);
+    setError(null);
+    setInfo(null);
+    try {
+      await signIn("email", {
+        email: normalizedEmail,
+        code: code.trim(),
+        redirectTo: emailRedirectTo,
+      });
+    } catch (verifyError) {
+      setError(String(verifyError));
+    } finally {
+      setOtpBusy(false);
     }
   };
 
@@ -146,9 +190,9 @@ export function SignInScreen() {
               buttonType={AppleAuthentication.AppleAuthenticationButtonType.SIGN_IN}
               buttonStyle={AppleAuthentication.AppleAuthenticationButtonStyle.BLACK}
               cornerRadius={10}
-              style={{ width: "100%", height: 46, opacity: busy ? 0.6 : 1 }}
+              style={{ width: "100%", height: 46, opacity: appleBusy || otpBusy ? 0.6 : 1 }}
               onPress={() => {
-                if (!busy) {
+                if (!appleBusy && !otpBusy) {
                   void handleAppleSignIn();
                 }
               }}
@@ -159,6 +203,75 @@ export function SignInScreen() {
               Sign in with Apple is unavailable on this device. SlopMiles mobile auth currently supports iOS only.
             </Text>
           ) : null}
+        </Panel>
+
+        <View style={{ height: 12 }} />
+
+        <Panel title="Email code">
+          <Text style={styles.bodyText}>
+            Use a one-time code as a simpler dev-friendly sign-in path on both mobile and web.
+          </Text>
+          <TextInput
+            autoCapitalize="none"
+            autoCorrect={false}
+            keyboardType="email-address"
+            placeholder="you@example.com"
+            placeholderTextColor="#7a848c"
+            style={styles.input}
+            value={email}
+            onChangeText={setEmail}
+            editable={!appleBusy && !otpBusy}
+          />
+          {otpStep === "verify" ? (
+            <TextInput
+              autoCapitalize="none"
+              autoCorrect={false}
+              keyboardType="number-pad"
+              placeholder="123456"
+              placeholderTextColor="#7a848c"
+              style={styles.input}
+              value={code}
+              onChangeText={setCode}
+              editable={!appleBusy && !otpBusy}
+            />
+          ) : null}
+          {info ? <Text style={styles.helperText}>{info}</Text> : null}
+          {error ? <Text style={styles.errorText}>{error}</Text> : null}
+          {otpStep === "request" ? (
+            <PrimaryButton
+              label={otpBusy ? "Sending code..." : "Send code"}
+              onPress={() => {
+                if (!appleBusy && !otpBusy && email.trim().length > 0) {
+                  void handleRequestCode();
+                }
+              }}
+              disabled={appleBusy || otpBusy || email.trim().length === 0}
+            />
+          ) : (
+            <>
+              <PrimaryButton
+                label={otpBusy ? "Verifying..." : "Verify code"}
+                onPress={() => {
+                  if (!appleBusy && !otpBusy && email.trim().length > 0 && code.trim().length > 0) {
+                    void handleVerifyCode();
+                  }
+                }}
+                disabled={appleBusy || otpBusy || email.trim().length === 0 || code.trim().length === 0}
+              />
+              <SecondaryButton
+                label="Back"
+                onPress={() => {
+                  if (!appleBusy && !otpBusy) {
+                    setOtpStep("request");
+                    setCode("");
+                    setInfo(null);
+                    setError(null);
+                  }
+                }}
+                disabled={appleBusy || otpBusy}
+              />
+            </>
+          )}
         </Panel>
       </View>
     </SafeAreaView>

@@ -1,6 +1,7 @@
 import { createRemoteJWKSet, jwtVerify, type JWTPayload } from "jose";
 import { convexAuth, createAccount, retrieveAccount } from "@convex-dev/auth/server";
 import { ConvexCredentials } from "@convex-dev/auth/providers/ConvexCredentials";
+import { Email } from "@convex-dev/auth/providers/Email";
 import Apple from "@auth/core/providers/apple";
 import { internal } from "./_generated/api";
 
@@ -40,6 +41,26 @@ function preferredAppleName(profile: Record<string, unknown>): string | undefine
     stringOrUndefined(profile.firstName) ??
     stringOrUndefined(profile.name)
   );
+}
+
+function resolveAuthBaseUrl(): string | null {
+  const candidate =
+    process?.env?.SITE_URL?.trim() ||
+    process?.env?.CUSTOM_AUTH_SITE_URL?.trim() ||
+    process?.env?.CONVEX_SITE_URL?.trim() ||
+    null;
+
+  return candidate ? candidate.replace(/\/$/, "") : null;
+}
+
+function fallbackNameFromEmail(email: string): string {
+  const [localPart] = email.trim().toLowerCase().split("@");
+  if (!localPart) {
+    return "Runner";
+  }
+
+  const normalized = localPart.replace(/[._-]+/g, " ").trim();
+  return normalized.length > 0 ? firstToken(normalized) : "Runner";
 }
 
 async function upsertAppleUser(ctx: any, args: {
@@ -95,6 +116,49 @@ async function upsertAppleUser(ctx: any, args: {
   });
 }
 
+async function upsertEmailUser(ctx: any, args: {
+  email: string;
+  existingUserId?: string | null;
+}) {
+  const now = Date.now();
+  const normalizedEmail = args.email.trim().toLowerCase();
+  const existingByEmail = await ctx.db
+    .query("users")
+    .withIndex("email", (queryBuilder: any) => queryBuilder.eq("email", normalizedEmail))
+    .unique();
+
+  const targetUserId = args.existingUserId ?? existingByEmail?._id ?? null;
+  if (targetUserId) {
+    const user = await ctx.db.get(targetUserId);
+    if (!user) {
+      throw new Error("Linked email user no longer exists.");
+    }
+
+    await ctx.db.patch(targetUserId, {
+      email: normalizedEmail,
+      ...(user.emailVerificationTime ? {} : { emailVerificationTime: now }),
+      updatedAt: now,
+    });
+    return targetUserId;
+  }
+
+  const name = fallbackNameFromEmail(normalizedEmail);
+  return await ctx.db.insert("users", {
+    name,
+    appleDefaultName: name,
+    email: normalizedEmail,
+    emailVerificationTime: now,
+    unitPreference: "system",
+    volumePreference: "time",
+    trackAccess: false,
+    healthKitAuthorized: false,
+    strengthTrainingEnabled: false,
+    strengthEquipment: [],
+    createdAt: now,
+    updatedAt: now,
+  });
+}
+
 function resolveAppleAudience(): string[] {
   const raw = process?.env?.AUTH_APPLE_NATIVE_AUDIENCE;
   if (!raw) {
@@ -123,6 +187,35 @@ async function verifyAppleIdentityToken(identityToken: string): Promise<AppleIde
 
 export const { auth, signIn, signOut, store, isAuthenticated } = convexAuth({
   providers: [
+    Email({
+      async sendVerificationRequest({ identifier, token }) {
+        const apiKey = process?.env?.AUTH_RESEND_KEY?.trim();
+        const from = process?.env?.AUTH_EMAIL_FROM?.trim() || "SlopMiles <onboarding@resend.dev>";
+
+        if (!apiKey) {
+          console.log(`[auth] OTP for ${identifier}: ${token}`);
+          return;
+        }
+
+        const response = await fetch("https://api.resend.com/emails", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            from,
+            to: [identifier],
+            subject: "Your SlopMiles sign-in code",
+            text: `Your SlopMiles sign-in code is ${token}.`,
+          }),
+        });
+
+        if (!response.ok) {
+          throw new Error(`Resend OTP delivery failed with ${response.status}.`);
+        }
+      },
+    }),
     Apple({
       clientId: process?.env?.AUTH_APPLE_ID ?? "",
       clientSecret: process?.env?.AUTH_APPLE_SECRET ?? "",
@@ -210,6 +303,18 @@ export const { auth, signIn, signOut, store, isAuthenticated } = convexAuth({
   ],
   callbacks: {
     async createOrUpdateUser(ctx, args) {
+      if (args.provider.id === "email") {
+        const email = stringOrUndefined(args.profile.email);
+        if (!email) {
+          throw new Error("Email OTP sign-in is missing an email address.");
+        }
+
+        return await upsertEmailUser(ctx, {
+          email,
+          existingUserId: args.existingUserId ? String(args.existingUserId) : null,
+        });
+      }
+
       if (args.provider.id !== "apple") {
         if (args.existingUserId) {
           return args.existingUserId;
@@ -231,9 +336,24 @@ export const { auth, signIn, signOut, store, isAuthenticated } = convexAuth({
       });
     },
     async redirect({ redirectTo }) {
+      if (!redirectTo) {
+        const baseUrl = resolveAuthBaseUrl();
+        return baseUrl ? `${baseUrl}/dashboard` : "/dashboard";
+      }
+
       const normalized = redirectTo.trim();
-      if (normalized.startsWith("/")) {
+      if (normalized.length === 0) {
+        const baseUrl = resolveAuthBaseUrl();
+        return baseUrl ? `${baseUrl}/dashboard` : "/dashboard";
+      }
+
+      if (normalized.startsWith("slopmiles://")) {
         return normalized;
+      }
+
+      if (normalized.startsWith("/")) {
+        const baseUrl = resolveAuthBaseUrl();
+        return baseUrl ? `${baseUrl}${normalized}` : normalized;
       }
 
       const allowedOrigins = (process?.env?.AUTH_REDIRECT_ALLOWLIST ?? "")
@@ -246,7 +366,8 @@ export const { auth, signIn, signOut, store, isAuthenticated } = convexAuth({
         return normalized;
       }
 
-      return "/dashboard";
+      const baseUrl = resolveAuthBaseUrl();
+      return baseUrl ? `${baseUrl}/dashboard` : "/dashboard";
     },
   },
 });

@@ -219,6 +219,22 @@ code {
   color: var(--muted);
 }
 
+.auth-divider {
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+  color: var(--muted);
+  margin: 0.6rem 0;
+}
+
+.auth-divider::before,
+.auth-divider::after {
+  content: "";
+  height: 1px;
+  flex: 1;
+  background: var(--line);
+}
+
 .panel-actions,
 .button-row,
 .pill-row,
