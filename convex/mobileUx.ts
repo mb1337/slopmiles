@@ -232,6 +232,40 @@ function buildCoachPrompts(args: {
   return prompts;
 }
 
+function normalizeAvailabilityOverride(
+  value: unknown,
+):
+  | {
+      preferredRunningDays?: string[];
+      availabilityWindows?: Record<string, Array<{ start: string; end: string }>>;
+      note?: string;
+    }
+  | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+
+  const candidate = value as {
+    preferredRunningDays?: unknown;
+    availabilityWindows?: unknown;
+    note?: unknown;
+  };
+
+  return {
+    ...(Array.isArray(candidate.preferredRunningDays)
+      ? {
+          preferredRunningDays: candidate.preferredRunningDays.filter(
+            (entry): entry is string => typeof entry === "string",
+          ),
+        }
+      : {}),
+    ...(candidate.availabilityWindows && typeof candidate.availabilityWindows === "object" && !Array.isArray(candidate.availabilityWindows)
+      ? { availabilityWindows: candidate.availabilityWindows as Record<string, Array<{ start: string; end: string }>> }
+      : {}),
+    ...(typeof candidate.note === "string" && candidate.note.trim().length > 0 ? { note: candidate.note.trim() } : {}),
+  };
+}
+
 async function listHistoryFeed(
   ctx: QueryCtx,
   userId: Id<"users">,
@@ -611,10 +645,18 @@ export const getWeekAgenda = query({
       throw new Error("Training week not found.");
     }
 
-    const [workouts, executionSummaryByPlannedWorkoutId, requests] = await Promise.all([
+    const [workouts, strengthWorkouts, races, executionSummaryByPlannedWorkoutId, requests] = await Promise.all([
       ctx.db
         .query("workouts")
         .withIndex("by_week_id_scheduled_date_key", (queryBuilder) => queryBuilder.eq("weekId", week._id))
+        .collect(),
+      ctx.db
+        .query("strengthWorkouts")
+        .withIndex("by_week_id", (queryBuilder) => queryBuilder.eq("weekId", week._id))
+        .collect(),
+      ctx.db
+        .query("races")
+        .withIndex("by_plan_id", (queryBuilder) => queryBuilder.eq("planId", plan._id))
         .collect(),
       listExecutionSummariesByPlannedWorkoutId(ctx, userId),
       ctx.db
@@ -660,6 +702,9 @@ export const getWeekAgenda = query({
         emphasis: week.emphasis,
         coachNotes: week.coachNotes,
         generated: week.generated,
+        interruptionType: week.interruptionType ?? null,
+        interruptionNote: week.interruptionNote ?? null,
+        availabilityOverride: normalizeAvailabilityOverride(week.availabilityOverride),
       },
       canGenerate: isWeekGeneratable(plan, week.weekNumber, Date.now()),
       latestRequest: latestRequest
@@ -687,6 +732,29 @@ export const getWeekAgenda = query({
           };
         }),
       })),
+      strengthWorkouts: strengthWorkouts.map((workout) => ({
+        _id: workout._id,
+        title: workout.title,
+        plannedMinutes: workout.plannedMinutes,
+        notes: workout.notes,
+        exercises: workout.exercises,
+        status: workout.status,
+      })),
+      races: races
+        .filter((race) => {
+          const raceDateKey = dateKeyFromEpochMs(race.plannedDate, plan.canonicalTimeZoneId ?? "UTC");
+          return raceDateKey >= week.weekStartDateKey && raceDateKey <= week.weekEndDateKey;
+        })
+        .sort((left, right) => left.plannedDate - right.plannedDate)
+        .map((race) => ({
+          _id: race._id,
+          label: race.label,
+          plannedDate: race.plannedDate,
+          distanceMeters: race.distanceMeters,
+          goalTimeSeconds: race.goalTimeSeconds,
+          actualTimeSeconds: race.actualTimeSeconds,
+          isPrimaryGoal: race.isPrimaryGoal,
+        })),
     };
   },
 });

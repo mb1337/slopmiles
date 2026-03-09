@@ -47,6 +47,33 @@ export type WeekDetailGenerationPromptInput = {
   targetVolumeAbsolute: number;
   emphasis: string;
   recentWorkouts: TrainingHistoryWorkoutSummary[];
+  availabilityOverride?: {
+    preferredRunningDays?: string[];
+    availabilityWindows?: Record<string, Array<{ start: string; end: string }>>;
+    note?: string;
+  };
+  interruption?: {
+    type: string;
+    note?: string;
+  };
+  races: Array<{
+    label: string;
+    plannedDate: number;
+    distanceMeters: number;
+    goalTimeSeconds?: number;
+    isPrimaryGoal: boolean;
+  }>;
+  includeStrength: boolean;
+  strengthEquipment: string[];
+  strengthApproach?: string;
+  lockedRunningWorkouts: Array<{
+    type: string;
+    volumePercent: number;
+    scheduledDate: DateKey;
+    venue: string;
+    notes?: string;
+  }>;
+  volumeTargetMode: "exact" | "upToTarget";
 };
 
 const BASE_SYSTEM_PROMPT = [
@@ -136,7 +163,9 @@ const WEEK_DETAIL_SYSTEM_PROMPT = [
   "You are SlopMiles, an expert running coach.",
   "This call is for one training week only.",
   "Respect available running days as hard constraints.",
-  "Generate running workouts only. Do not include strength work, races, weather, or schedule overrides.",
+  "Locked running workouts are already completed or fixed and must remain unchanged.",
+  "Use races, interruptions, and schedule overrides to adapt the remaining week.",
+  "If strength is enabled, return optional strength workouts for the week.",
   "Use at most two workouts on one day.",
   "Use venue=track only when track access is true.",
   "Return strictly valid JSON. Do not include markdown, prose outside JSON, or comments.",
@@ -174,6 +203,17 @@ export function buildWeekDetailGenerationMessages(input: WeekDetailGenerationPro
       preferredRunningDays: input.preferredRunningDays,
       preferredLongRunDay: input.preferredLongRunDay,
       preferredQualityDays: input.preferredQualityDays,
+      availabilityOverride: input.availabilityOverride,
+    },
+    constraints: {
+      interruption: input.interruption,
+      races: input.races,
+      lockedRunningWorkouts: input.lockedRunningWorkouts,
+    },
+    strength: {
+      includeStrength: input.includeStrength,
+      equipment: input.strengthEquipment,
+      approach: input.strengthApproach,
     },
     recentTrainingSummary: {
       workoutCount: input.recentWorkouts.length,
@@ -186,9 +226,17 @@ export function buildWeekDetailGenerationMessages(input: WeekDetailGenerationPro
       paceZoneRule: 'Use "E", "M", "T", "I", "R", or a race pace label ending with "pace".',
       dateRule: "scheduledDate must be a YYYY-MM-DD date inside the target week.",
       volumeRule:
-        "volumePercent values should sum to the targetVolumePercent for the week. Return decimals in [0,1].",
+        input.volumeTargetMode === "exact"
+          ? "Generated running workout volumePercent values should fill the remaining weekly target after locked workouts. Return decimals in [0,1]."
+          : "Generated running workout volumePercent values should stay at or below the remaining weekly target after locked workouts. Return decimals in [0,1].",
       segmentRule:
         "Use segments with targetUnit of seconds or meters. Optional repetitions, restValue, and restUnit are allowed.",
+      raceRule:
+        "Races stay separate from workouts. Use them to replace a hard effort or reduce surrounding load, but do not return races as running workouts.",
+      coachNotesRule:
+        "coachNotes should explain any deviation caused by overrides, interruptions, races, or locked workouts.",
+      strengthRule:
+        "If strength.includeStrength is true, you may return strengthWorkouts as a separate array of sessions for the week.",
       requiredKeys: ["workouts", "coachNotes"],
     },
     expectedShape: {
@@ -208,6 +256,24 @@ export function buildWeekDetailGenerationMessages(input: WeekDetailGenerationPro
               repetitions: "number (optional)",
               restValue: "number (optional)",
               restUnit: "seconds | meters (optional)",
+            },
+          ],
+        },
+      ],
+      strengthWorkouts: [
+        {
+          title: "string",
+          plannedMinutes: "number",
+          notes: "string (optional)",
+          exercises: [
+            {
+              name: "string",
+              sets: "number",
+              reps: "number (optional)",
+              holdSeconds: "number (optional)",
+              restSeconds: "number (optional)",
+              equipment: "bodyweight | dumbbells | kettlebells | bands | fullGym (optional)",
+              cues: "string (optional)",
             },
           ],
         },

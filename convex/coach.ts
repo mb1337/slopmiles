@@ -7,7 +7,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { validatePlanGenerationResponse, type PlanGenerationProposal } from "./coachContracts";
 import { buildPlanGenerationMessages, buildWeekDetailGenerationMessages } from "./coachPrompts";
-import { validateWeekDetailResponse } from "./weekDetailContracts";
+import { validateWeekDetailResponse, type WeekDetailWorkoutProposal } from "./weekDetailContracts";
 import {
   aiCallTypes,
   aiRequestPriorities,
@@ -18,6 +18,8 @@ import {
   volumeModes,
 } from "./constants";
 import { isWeekGeneratable, resolveAbsoluteWeekVolume } from "./planWeeks";
+import { listExecutionSummariesByPlannedWorkoutId } from "./workoutExecutionHelpers";
+import { dateKeyFromEpochMs } from "../packages/domain/src/calendar";
 
 declare const process:
   | {
@@ -32,8 +34,8 @@ const strengthEquipmentValidator = v.union(...strengthEquipmentOptions.map((item
 const MS_PER_WEEK = 7 * 24 * 60 * 60 * 1000;
 const PLAN_GENERATION_PROMPT_REVISION = "plan-generation-v1";
 const PLAN_GENERATION_SCHEMA_REVISION = "plan-generation-v1";
-const WEEK_DETAIL_PROMPT_REVISION = "week-detail-v1";
-const WEEK_DETAIL_SCHEMA_REVISION = "week-detail-v1";
+const WEEK_DETAIL_PROMPT_REVISION = "week-detail-v2";
+const WEEK_DETAIL_SCHEMA_REVISION = "week-detail-v2";
 const DEFAULT_OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
 const DEFAULT_OPENROUTER_MODEL = "openai/gpt-5-mini";
 
@@ -298,6 +300,85 @@ function asMetadata(value: unknown): Record<string, unknown> | undefined {
     return undefined;
   }
   return value as Record<string, unknown>;
+}
+
+function normalizeAvailabilityOverride(
+  value: unknown,
+):
+  | {
+      preferredRunningDays?: string[];
+      availabilityWindows?: Record<string, Array<{ start: string; end: string }>>;
+      note?: string;
+    }
+  | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+
+  const candidate = value as {
+    preferredRunningDays?: unknown;
+    availabilityWindows?: unknown;
+    note?: unknown;
+  };
+
+  return {
+    ...(Array.isArray(candidate.preferredRunningDays)
+      ? {
+          preferredRunningDays: candidate.preferredRunningDays.filter(
+            (entry): entry is string => typeof entry === "string",
+          ),
+        }
+      : {}),
+    ...(candidate.availabilityWindows && typeof candidate.availabilityWindows === "object" && !Array.isArray(candidate.availabilityWindows)
+      ? { availabilityWindows: candidate.availabilityWindows as Record<string, Array<{ start: string; end: string }>> }
+      : {}),
+    ...(typeof candidate.note === "string" && candidate.note.trim().length > 0 ? { note: candidate.note.trim() } : {}),
+  };
+}
+
+function effectivePreferredRunningDays(
+  runningSchedule:
+    | {
+        preferredRunningDays: string[];
+      }
+    | null,
+  availabilityOverride:
+    | {
+        preferredRunningDays?: string[];
+      }
+    | null,
+): string[] {
+  const overrideDays = availabilityOverride?.preferredRunningDays?.filter((entry) => typeof entry === "string") ?? [];
+  if (overrideDays.length > 0) {
+    return overrideDays;
+  }
+
+  const scheduleDays = runningSchedule?.preferredRunningDays ?? [];
+  if (scheduleDays.length > 0) {
+    return scheduleDays;
+  }
+
+  return [
+    "monday",
+    "tuesday",
+    "wednesday",
+    "thursday",
+    "friday",
+    "saturday",
+    "sunday",
+  ];
+}
+
+function resolveWeekVolumeTargetMode(args: {
+  availabilityOverride: ReturnType<typeof normalizeAvailabilityOverride>;
+  interruptionType?: string;
+  racesInWeekCount: number;
+}): "exact" | "upToTarget" {
+  if (args.racesInWeekCount > 0 || args.interruptionType || args.availabilityOverride) {
+    return "upToTarget";
+  }
+
+  return "exact";
 }
 
 function extractStoredPlanProposal(value: unknown): PlanGenerationProposal | null {
@@ -1140,10 +1221,22 @@ export const getWeekDetailGenerationContext = internalQuery({
       return null;
     }
 
-    const healthKitWorkouts = await ctx.db
-      .query("healthKitWorkouts")
-      .withIndex("by_user_id", (queryBuilder) => queryBuilder.eq("userId", request.userId))
-      .collect();
+    const availabilityOverride = normalizeAvailabilityOverride(week.availabilityOverride);
+    const [healthKitWorkouts, weekWorkouts, executionSummaryByPlannedWorkoutId, races] = await Promise.all([
+      ctx.db
+        .query("healthKitWorkouts")
+        .withIndex("by_user_id", (queryBuilder) => queryBuilder.eq("userId", request.userId))
+        .collect(),
+      ctx.db
+        .query("workouts")
+        .withIndex("by_week_id", (queryBuilder) => queryBuilder.eq("weekId", week._id))
+        .collect(),
+      listExecutionSummariesByPlannedWorkoutId(ctx, request.userId),
+      ctx.db
+        .query("races")
+        .withIndex("by_plan_id", (queryBuilder) => queryBuilder.eq("planId", plan._id))
+        .collect(),
+    ]);
 
     const recentWorkouts = healthKitWorkouts
       .sort((left, right) => right.startedAt - left.startedAt)
@@ -1154,6 +1247,48 @@ export const getWeekDetailGenerationContext = internalQuery({
         distanceMeters: workout.distanceMeters,
         averageHeartRate: workout.averageHeartRate,
       }));
+
+    const racesInWeek = races
+      .filter((race) => {
+        const raceDateKey = dateKeyFromEpochMs(race.plannedDate, plan.canonicalTimeZoneId ?? "UTC");
+        return raceDateKey >= week.weekStartDateKey && raceDateKey <= week.weekEndDateKey;
+      })
+      .sort((left, right) => left.plannedDate - right.plannedDate)
+      .map((race) => ({
+        label: race.label,
+        plannedDate: race.plannedDate,
+        distanceMeters: race.distanceMeters,
+        goalTimeSeconds: race.goalTimeSeconds,
+        isPrimaryGoal: race.isPrimaryGoal,
+      }));
+
+    const lockedRunningWorkouts: WeekDetailWorkoutProposal[] = weekWorkouts
+      .filter((workout) => executionSummaryByPlannedWorkoutId.get(String(workout._id))?.matchStatus === "matched")
+      .sort((left, right) => left.scheduledDateKey.localeCompare(right.scheduledDateKey))
+      .map((workout) => ({
+        type: workout.type,
+        volumePercent: workout.volumePercent,
+        scheduledDate: workout.scheduledDateKey as `${number}-${string}-${string}`,
+        venue: workout.venue,
+        ...(workout.notes ? { notes: workout.notes } : {}),
+        segments: workout.segments.map((segment) => ({
+          label: segment.label,
+          paceZone: segment.paceZone,
+          targetValue: segment.targetValue,
+          targetUnit: segment.targetUnit,
+          ...(segment.repetitions ? { repetitions: segment.repetitions } : {}),
+          ...(typeof segment.restValue === "number" && segment.restUnit
+            ? { restValue: segment.restValue, restUnit: segment.restUnit }
+            : {}),
+        })),
+      }));
+
+    const preferredRunningDays = effectivePreferredRunningDays(runningSchedule, availabilityOverride);
+    const volumeTargetMode = resolveWeekVolumeTargetMode({
+      availabilityOverride,
+      interruptionType: week.interruptionType,
+      racesInWeekCount: racesInWeek.length,
+    });
 
     return {
       request,
@@ -1167,15 +1302,7 @@ export const getWeekDetailGenerationContext = internalQuery({
         currentVDOT: user.currentVDOT,
         competitiveness: competitiveness?.level ?? "balanced",
         personalityDescription: personality?.description ?? "Direct and concise coaching.",
-        preferredRunningDays: runningSchedule?.preferredRunningDays ?? [
-          "monday",
-          "tuesday",
-          "wednesday",
-          "thursday",
-          "friday",
-          "saturday",
-          "sunday",
-        ],
+        preferredRunningDays,
         preferredLongRunDay: runningSchedule?.preferredLongRunDay ?? undefined,
         preferredQualityDays: runningSchedule?.preferredQualityDays ?? [],
         trackAccess: user.trackAccess,
@@ -1186,6 +1313,21 @@ export const getWeekDetailGenerationContext = internalQuery({
         targetVolumeAbsolute: week.targetVolumeAbsolute,
         emphasis: week.emphasis,
         recentWorkouts,
+        ...(availabilityOverride ? { availabilityOverride } : {}),
+        ...(week.interruptionType
+          ? {
+              interruption: {
+                type: week.interruptionType,
+                ...(week.interruptionNote ? { note: week.interruptionNote } : {}),
+              },
+            }
+          : {}),
+        races: racesInWeek,
+        includeStrength: plan.includeStrength ?? false,
+        strengthEquipment: plan.strengthEquipment ?? [],
+        strengthApproach: plan.strengthApproach,
+        lockedRunningWorkouts,
+        volumeTargetMode,
       },
     };
   },
@@ -1309,26 +1451,65 @@ export const finalizeWeekDetailGenerationSuccess = internalMutation({
       throw new Error("Target training week could not be loaded.");
     }
 
-    const runningSchedule = await ctx.db
-      .query("runningSchedules")
-      .withIndex("by_user_id", (queryBuilder) => queryBuilder.eq("userId", request.userId))
-      .unique();
+    const [runningSchedule, existingWorkouts, executionSummaryByPlannedWorkoutId, racesInPlan, existingStrengthWorkouts, user] =
+      await Promise.all([
+        ctx.db
+          .query("runningSchedules")
+          .withIndex("by_user_id", (queryBuilder) => queryBuilder.eq("userId", request.userId))
+          .unique(),
+        ctx.db
+          .query("workouts")
+          .withIndex("by_week_id", (queryBuilder) => queryBuilder.eq("weekId", week._id))
+          .collect(),
+        listExecutionSummariesByPlannedWorkoutId(ctx, request.userId),
+        ctx.db
+          .query("races")
+          .withIndex("by_plan_id", (queryBuilder) => queryBuilder.eq("planId", plan._id))
+          .collect(),
+        ctx.db
+          .query("strengthWorkouts")
+          .withIndex("by_week_id", (queryBuilder) => queryBuilder.eq("weekId", week._id))
+          .collect(),
+        ctx.db.get(request.userId),
+      ]);
+
+    const availabilityOverride = normalizeAvailabilityOverride(week.availabilityOverride);
+    const lockedWorkouts: WeekDetailWorkoutProposal[] = existingWorkouts
+      .filter((workout) => executionSummaryByPlannedWorkoutId.get(String(workout._id))?.matchStatus === "matched")
+      .map((workout) => ({
+        type: workout.type,
+        volumePercent: workout.volumePercent,
+        scheduledDate: workout.scheduledDateKey as `${number}-${string}-${string}`,
+        venue: workout.venue,
+        ...(workout.notes ? { notes: workout.notes } : {}),
+        segments: workout.segments.map((segment) => ({
+          label: segment.label,
+          paceZone: segment.paceZone,
+          targetValue: segment.targetValue,
+          targetUnit: segment.targetUnit,
+          ...(segment.repetitions ? { repetitions: segment.repetitions } : {}),
+          ...(typeof segment.restValue === "number" && segment.restUnit
+            ? { restValue: segment.restValue, restUnit: segment.restUnit }
+            : {}),
+        })),
+      }));
+    const racesInWeek = racesInPlan.filter((race) => {
+      const raceDateKey = dateKeyFromEpochMs(race.plannedDate, plan.canonicalTimeZoneId ?? "UTC");
+      return raceDateKey >= week.weekStartDateKey && raceDateKey <= week.weekEndDateKey;
+    });
 
     const validated = validateWeekDetailResponse(args.proposal, {
       weekStartDateKey: week.weekStartDateKey as `${number}-${string}-${string}`,
       weekEndDateKey: week.weekEndDateKey as `${number}-${string}-${string}`,
       targetVolumePercent: week.targetVolumePercent,
-      preferredRunningDays:
-        runningSchedule?.preferredRunningDays ?? [
-          "monday",
-          "tuesday",
-          "wednesday",
-          "thursday",
-          "friday",
-          "saturday",
-          "sunday",
-        ],
-      trackAccess: Boolean((await ctx.db.get(request.userId))?.trackAccess),
+      preferredRunningDays: effectivePreferredRunningDays(runningSchedule, availabilityOverride),
+      trackAccess: Boolean(user?.trackAccess),
+      lockedWorkouts,
+      volumeTargetMode: resolveWeekVolumeTargetMode({
+        availabilityOverride,
+        interruptionType: week.interruptionType,
+        racesInWeekCount: racesInWeek.length,
+      }),
     });
 
     const metadata = asMetadata(args.metadata);
@@ -1338,11 +1519,10 @@ export const finalizeWeekDetailGenerationSuccess = internalMutation({
       corrections: validated.corrections,
     };
 
-    const existingWorkouts = await ctx.db
-      .query("workouts")
-      .withIndex("by_week_id", (queryBuilder) => queryBuilder.eq("weekId", week._id))
-      .collect();
     for (const workout of existingWorkouts) {
+      if (executionSummaryByPlannedWorkoutId.get(String(workout._id))?.matchStatus === "matched") {
+        continue;
+      }
       await ctx.db.delete(workout._id);
     }
 
@@ -1362,6 +1542,28 @@ export const finalizeWeekDetailGenerationSuccess = internalMutation({
           ...segment,
           order: index + 1,
         })),
+        createdAt: now,
+        updatedAt: now,
+      });
+    }
+
+    const preservedStrengthStatusByTitle = new Map(
+      existingStrengthWorkouts.map((workout) => [workout.title, workout.status] as const),
+    );
+    for (const workout of existingStrengthWorkouts) {
+      await ctx.db.delete(workout._id);
+    }
+
+    for (const workout of validated.proposal.strengthWorkouts ?? []) {
+      await ctx.db.insert("strengthWorkouts", {
+        userId: request.userId,
+        planId: plan._id,
+        weekId: week._id,
+        title: workout.title,
+        plannedMinutes: workout.plannedMinutes,
+        notes: workout.notes,
+        exercises: workout.exercises,
+        status: preservedStrengthStatusByTitle.get(workout.title) ?? "planned",
         createdAt: now,
         updatedAt: now,
       });

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import { useMutation, useQuery } from "convex/react";
 import {
+  WEEKDAYS,
   VOLUME_MODES,
   formatDateKeyForDisplay,
   formatDistanceForDisplay,
@@ -25,6 +26,7 @@ import {
   SecondaryButton,
   StatusBanner,
   StickyActionBar,
+  TagGrid,
 } from "../../components/common";
 import { WorkoutExecutionDetail } from "../../components/workoutExecution";
 import { styles } from "../../styles";
@@ -33,6 +35,15 @@ import type { PlanRoute } from "../../types";
 const RACE_GOALS = ["5K", "10K", "Half Marathon", "Marathon", "Custom"] as const;
 const NON_RACE_GOALS = ["Base Building", "Recovery", "Custom"] as const;
 const PLAN_GOAL_TYPES = ["race", "nonRace"] as const;
+const WEEKDAY_LABELS: Record<(typeof WEEKDAYS)[number], string> = {
+  monday: "Mon",
+  tuesday: "Tue",
+  wednesday: "Wed",
+  thursday: "Thu",
+  friday: "Fri",
+  saturday: "Sat",
+  sunday: "Sun",
+};
 
 type PlanGoalType = (typeof PLAN_GOAL_TYPES)[number];
 
@@ -112,6 +123,14 @@ function dateFromWeeksAhead(weeks: number) {
   date.setDate(date.getDate() + weeks * 7);
   date.setHours(0, 0, 0, 0);
   return date;
+}
+
+function formatWeekdayLabel(day: (typeof WEEKDAYS)[number]) {
+  return WEEKDAY_LABELS[day];
+}
+
+function formatInterruptionLabel(value: string): string {
+  return value.charAt(0).toUpperCase() + value.slice(1);
 }
 
 function parseGoalTimeText(hoursText: string, minutesText: string, secondsText: string): number | null {
@@ -203,6 +222,9 @@ export function PlanScreen({
   const retryWeekDetailGeneration = useMutation(api.coach.retryWeekDetailGeneration);
   const skipWorkout = useMutation(api.workouts.skipWorkout);
   const rescheduleWorkout = useMutation(api.workouts.rescheduleWorkout);
+  const saveWeekAvailabilityOverride = useMutation(api.companion.saveWeekAvailabilityOverride);
+  const clearWeekAvailabilityOverride = useMutation(api.companion.clearWeekAvailabilityOverride);
+  const toggleStrengthWorkout = useMutation(api.companion.toggleStrengthWorkout);
 
   const [createStep, setCreateStep] = useState(0);
   const [goalType, setGoalType] = useState<PlanGoalType>("race");
@@ -218,6 +240,8 @@ export function PlanScreen({
   const [proposalPeakOverride, setProposalPeakOverride] = useState("");
   const [draftPeakInputs, setDraftPeakInputs] = useState<Record<string, string>>({});
   const [selectedRescheduleDate, setSelectedRescheduleDate] = useState<string>("");
+  const [overrideDays, setOverrideDays] = useState<Array<(typeof WEEKDAYS)[number]>>([]);
+  const [overrideNote, setOverrideNote] = useState("");
   const [busyLabel, setBusyLabel] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -248,6 +272,17 @@ export function PlanScreen({
       setSelectedRescheduleDate(workoutDetail.rescheduleOptions[0]);
     }
   }, [route.screen, selectedRescheduleDate, workoutDetail?.rescheduleOptions]);
+
+  useEffect(() => {
+    if (route.screen !== "week") {
+      return;
+    }
+
+    setOverrideDays(
+      (weekAgenda?.week.availabilityOverride?.preferredRunningDays ?? []) as Array<(typeof WEEKDAYS)[number]>,
+    );
+    setOverrideNote(weekAgenda?.week.availabilityOverride?.note ?? "");
+  }, [route.screen, weekAgenda?.week._id, weekAgenda?.week.availabilityOverride]);
 
   const currentGoalOptions = useMemo(
     () => (goalType === "race" ? [...RACE_GOALS] : [...NON_RACE_GOALS]),
@@ -745,6 +780,12 @@ export function PlanScreen({
               <MetricStat label="Status" value={weekAgenda.week.generated ? "Generated" : "Outline only"} />
             </MetricGrid>
             {weekAgenda.week.coachNotes ? <Text style={styles.bodyText}>{weekAgenda.week.coachNotes}</Text> : null}
+            {weekAgenda.week.interruptionType ? (
+              <Text style={styles.helperText}>
+                Current interruption: {formatInterruptionLabel(weekAgenda.week.interruptionType)}
+                {weekAgenda.week.interruptionNote ? ` - ${weekAgenda.week.interruptionNote}` : ""}
+              </Text>
+            ) : null}
             {!weekAgenda.week.generated ? (
               <PrimaryButton
                 label={
@@ -777,6 +818,66 @@ export function PlanScreen({
             ) : null}
           </SectionCard>
 
+          <SectionCard title="Week adjustments" description="Override available days or add a note for this week only.">
+            {weekAgenda.week.availabilityOverride?.availabilityWindows ? (
+              <Text style={styles.helperText}>Existing override time windows are preserved when you save from mobile.</Text>
+            ) : null}
+            <FieldGroup label="Available days">
+              <TagGrid
+                options={WEEKDAYS}
+                selected={overrideDays}
+                onToggle={(value) => {
+                  const day = value as (typeof WEEKDAYS)[number];
+                  setOverrideDays((current) =>
+                    current.includes(day) ? current.filter((entry) => entry !== day) : [...current, day],
+                  );
+                }}
+              />
+            </FieldGroup>
+            <Text style={styles.helperText}>
+              Selected: {overrideDays.length ? overrideDays.map(formatWeekdayLabel).join(", ") : "No day override"}
+            </Text>
+            <FieldGroup label="Week note">
+              <TextInput
+                style={[styles.input, styles.textArea]}
+                value={overrideNote}
+                onChangeText={setOverrideNote}
+                placeholder="Travel, work trip, family schedule..."
+                placeholderTextColor="#7a848c"
+                multiline
+              />
+            </FieldGroup>
+            <PrimaryButton
+              label={busyLabel === "save-override" ? "Saving..." : "Save override"}
+              disabled={busyLabel !== null}
+              onPress={() =>
+                void runWithStatus("save-override", async () => {
+                  await saveWeekAvailabilityOverride({
+                    weekId: weekAgenda.week._id,
+                    preferredRunningDays: overrideDays.length ? overrideDays : undefined,
+                    availabilityWindows: weekAgenda.week.availabilityOverride?.availabilityWindows ?? undefined,
+                    note: overrideNote.trim() || undefined,
+                  });
+                  setMessage(`Week ${weekAgenda.week.weekNumber} override saved.`);
+                })
+              }
+            />
+            <SecondaryButton
+              label={busyLabel === "clear-override" ? "Clearing..." : "Clear override"}
+              disabled={busyLabel !== null}
+              onPress={() =>
+                void runWithStatus("clear-override", async () => {
+                  await clearWeekAvailabilityOverride({
+                    weekId: weekAgenda.week._id,
+                  });
+                  setOverrideDays([]);
+                  setOverrideNote("");
+                  setMessage(`Week ${weekAgenda.week.weekNumber} override cleared.`);
+                })
+              }
+            />
+          </SectionCard>
+
           {weekAgenda.days.map((day) => (
             <SectionCard
               key={day.dateKey}
@@ -802,6 +903,77 @@ export function PlanScreen({
               ))}
             </SectionCard>
           ))}
+
+          <SectionCard title="Strength and races" description="Separate from running workouts, but still part of this week's context.">
+            {weekAgenda.strengthWorkouts.length ? (
+              weekAgenda.strengthWorkouts.map((workout) => (
+                <View key={String(workout._id)} style={styles.subtleBlock}>
+                  <View style={styles.statusRow}>
+                    <Text style={styles.sectionCardTitle}>{workout.title}</Text>
+                    <Text
+                      style={[
+                        styles.statusBadge,
+                        workout.status === "completed" ? styles.statusBadgeMatched : styles.statusBadgeUnmatched,
+                      ]}
+                    >
+                      {workout.status}
+                    </Text>
+                  </View>
+                  <Text style={styles.helperText}>{workout.plannedMinutes} min</Text>
+                  {workout.notes ? <Text style={styles.bodyText}>{workout.notes}</Text> : null}
+                  {workout.exercises.map((exercise, index) => (
+                    <Text key={`${String(workout._id)}-${index}`} style={styles.helperText}>
+                      {exercise.name} · {exercise.sets} sets
+                      {typeof exercise.reps === "number" ? ` · ${exercise.reps} reps` : ""}
+                      {typeof exercise.holdSeconds === "number" ? ` · ${exercise.holdSeconds}s hold` : ""}
+                    </Text>
+                  ))}
+                  <SecondaryButton
+                    label={
+                      busyLabel === `strength-${String(workout._id)}`
+                        ? "Saving..."
+                        : workout.status === "completed"
+                          ? "Mark planned"
+                          : "Mark done"
+                    }
+                    disabled={busyLabel !== null}
+                    onPress={() =>
+                      void runWithStatus(`strength-${String(workout._id)}`, async () => {
+                        await toggleStrengthWorkout({
+                          strengthWorkoutId: workout._id,
+                          completed: workout.status !== "completed",
+                        });
+                        setMessage(`Updated ${workout.title}.`);
+                      })
+                    }
+                  />
+                </View>
+              ))
+            ) : (
+              <Text style={styles.bodyText}>No strength sessions are attached to this week.</Text>
+            )}
+
+            {weekAgenda.races.length ? (
+              weekAgenda.races.map((race) => (
+                <View key={String(race._id)} style={styles.subtleBlock}>
+                  <View style={styles.statusRow}>
+                    <Text style={styles.sectionCardTitle}>{race.label}</Text>
+                    <Text style={[styles.statusBadge, styles.statusBadgeNeedsReview]}>
+                      {race.isPrimaryGoal ? "Primary goal" : race.actualTimeSeconds ? "Completed" : "Tune-up race"}
+                    </Text>
+                  </View>
+                  <Text style={styles.helperText}>
+                    {new Date(race.plannedDate).toLocaleDateString()} · {formatDistanceForDisplay(race.distanceMeters, unitPreference)}
+                  </Text>
+                  {typeof race.goalTimeSeconds === "number" ? (
+                    <Text style={styles.helperText}>Goal time: {formatGoalTime(race.goalTimeSeconds)}</Text>
+                  ) : null}
+                </View>
+              ))
+            ) : (
+              <Text style={styles.bodyText}>No races fall inside this week.</Text>
+            )}
+          </SectionCard>
         </>
       ) : null}
     </ScrollView>

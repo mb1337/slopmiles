@@ -1,6 +1,6 @@
 import { addDays, parseDateKey, weekdayNameFromDateKey, type DateKey } from "../packages/domain/src/calendar";
 import { normalizeWorkoutPercents } from "../packages/domain/src/index";
-import { weekdays, workoutTypes, workoutVenues } from "./constants";
+import { strengthEquipmentOptions, weekdays, workoutTypes, workoutVenues } from "./constants";
 
 export type WeekDetailWorkoutProposal = {
   type: (typeof workoutTypes)[number];
@@ -21,6 +21,20 @@ export type WeekDetailWorkoutProposal = {
 
 export type WeekDetailProposal = {
   workouts: WeekDetailWorkoutProposal[];
+  strengthWorkouts?: Array<{
+    title: string;
+    plannedMinutes: number;
+    notes?: string;
+    exercises: Array<{
+      name: string;
+      sets: number;
+      reps?: number;
+      holdSeconds?: number;
+      restSeconds?: number;
+      equipment?: (typeof strengthEquipmentOptions)[number];
+      cues?: string;
+    }>;
+  }>;
   coachNotes: string;
 };
 
@@ -55,6 +69,10 @@ function asOptionalPositiveInteger(value: unknown): number | undefined {
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
+}
+
+function roundToThousandth(value: number): number {
+  return Math.round(value * 1000) / 1000;
 }
 
 function isRecognizedPaceZone(value: string): boolean {
@@ -121,6 +139,74 @@ function normalizeSegments(value: unknown): WeekDetailWorkoutProposal["segments"
   });
 }
 
+function normalizeStrengthWorkouts(
+  value: unknown,
+): NonNullable<WeekDetailProposal["strengthWorkouts"]> {
+  if (value === undefined) {
+    return [];
+  }
+
+  if (!Array.isArray(value)) {
+    throw new Error("strengthWorkouts must be an array when provided.");
+  }
+
+  return value.map((entry, index) => {
+    const candidate = asObject(entry, `strengthWorkout ${index + 1}`);
+    const title = asString(candidate.title);
+    const plannedMinutes = asFiniteNumber(candidate.plannedMinutes);
+    const notes = asString(candidate.notes);
+    const exercisesRaw = candidate.exercises;
+
+    if (!title || plannedMinutes === undefined || plannedMinutes <= 0) {
+      throw new Error("Every strength workout requires title and positive plannedMinutes.");
+    }
+
+    if (!Array.isArray(exercisesRaw) || exercisesRaw.length === 0) {
+      throw new Error("Every strength workout requires at least one exercise.");
+    }
+
+    const exercises = exercisesRaw.map((exercise, exerciseIndex) => {
+      const parsed = asObject(exercise, `strengthWorkout ${index + 1} exercise ${exerciseIndex + 1}`);
+      const name = asString(parsed.name);
+      const sets = asOptionalPositiveInteger(parsed.sets);
+      const reps = asOptionalPositiveInteger(parsed.reps);
+      const holdSeconds = asOptionalPositiveInteger(parsed.holdSeconds);
+      const restSeconds = asOptionalPositiveInteger(parsed.restSeconds);
+      const equipment = asString(parsed.equipment);
+      const cues = asString(parsed.cues);
+
+      if (!name || !sets) {
+        throw new Error("Every strength exercise requires name and positive sets.");
+      }
+
+      if (!reps && !holdSeconds) {
+        throw new Error("Every strength exercise requires reps or holdSeconds.");
+      }
+
+      if (equipment && !strengthEquipmentOptions.includes(equipment as (typeof strengthEquipmentOptions)[number])) {
+        throw new Error(`Unsupported strength equipment "${equipment}".`);
+      }
+
+      return {
+        name,
+        sets,
+        ...(reps ? { reps } : {}),
+        ...(holdSeconds ? { holdSeconds } : {}),
+        ...(restSeconds ? { restSeconds } : {}),
+        ...(equipment ? { equipment: equipment as (typeof strengthEquipmentOptions)[number] } : {}),
+        ...(cues ? { cues } : {}),
+      };
+    });
+
+    return {
+      title,
+      plannedMinutes: Math.round(plannedMinutes),
+      ...(notes ? { notes } : {}),
+      exercises,
+    };
+  });
+}
+
 export function validateWeekDetailResponse(
   payload: unknown,
   options: {
@@ -129,11 +215,14 @@ export function validateWeekDetailResponse(
     targetVolumePercent: number;
     preferredRunningDays: string[];
     trackAccess: boolean;
+    lockedWorkouts?: WeekDetailWorkoutProposal[];
+    volumeTargetMode?: "exact" | "upToTarget";
   },
 ): WeekDetailValidationResult {
   const candidate = asObject(payload, "week-detail payload");
   const workoutsRaw = candidate.workouts;
   const coachNotes = asString(candidate.coachNotes);
+  const strengthWorkouts = normalizeStrengthWorkouts(candidate.strengthWorkouts);
   if (!Array.isArray(workoutsRaw)) {
     throw new Error("workouts must be an array.");
   }
@@ -192,7 +281,11 @@ export function validateWeekDetailResponse(
     return left.scheduledDate.localeCompare(right.scheduledDate);
   });
 
+  const lockedWorkouts = options.lockedWorkouts ?? [];
   const countsByDate = new Map<string, number>();
+  for (const workout of lockedWorkouts) {
+    countsByDate.set(workout.scheduledDate, (countsByDate.get(workout.scheduledDate) ?? 0) + 1);
+  }
   for (const workout of workouts) {
     countsByDate.set(workout.scheduledDate, (countsByDate.get(workout.scheduledDate) ?? 0) + 1);
     if ((countsByDate.get(workout.scheduledDate) ?? 0) > 2) {
@@ -200,13 +293,28 @@ export function validateWeekDetailResponse(
     }
   }
 
-  const normalizedPercents = normalizeWorkoutPercents(
-    workouts.map((workout) => clamp(workout.volumePercent, 0, 1)),
-    clamp(options.targetVolumePercent, 0, 1),
+  const normalizedVolumeTarget = clamp(options.targetVolumePercent, 0, 1);
+  const lockedVolumePercent = lockedWorkouts.reduce(
+    (sum, workout) => sum + clamp(workout.volumePercent, 0, 1),
+    0,
   );
+  const remainingTarget = clamp(normalizedVolumeTarget - lockedVolumePercent, 0, 1);
+  const clampedPercents = workouts.map((workout) => clamp(workout.volumePercent, 0, 1));
+
+  let normalizedPercents = clampedPercents;
+  if (options.volumeTargetMode === "upToTarget") {
+    const proposedTotal = clampedPercents.reduce((sum, value) => sum + value, 0);
+    if (proposedTotal > remainingTarget && proposedTotal > 0) {
+      const scale = remainingTarget / proposedTotal;
+      normalizedPercents = clampedPercents.map((value) => value * scale);
+      corrections.push("Reduced generated workout volume percentages to stay within the remaining week target.");
+    }
+  } else {
+    normalizedPercents = normalizeWorkoutPercents(clampedPercents, remainingTarget);
+  }
 
   const normalizedWorkouts = workouts.map((workout, index) => {
-    const normalizedPercent = Math.round(normalizedPercents[index]! * 1000) / 1000;
+    const normalizedPercent = roundToThousandth(normalizedPercents[index] ?? 0);
     if (Math.abs(normalizedPercent - workout.volumePercent) > 0.001) {
       corrections.push(`Normalized workout volume percentages to match week target for ${workout.scheduledDate}.`);
     }
@@ -219,6 +327,7 @@ export function validateWeekDetailResponse(
   return {
     proposal: {
       workouts: normalizedWorkouts,
+      ...(strengthWorkouts.length > 0 ? { strengthWorkouts } : {}),
       coachNotes,
     },
     corrections,
