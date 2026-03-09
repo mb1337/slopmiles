@@ -255,7 +255,7 @@ export function SettingsScreen({
   onSyncHealthKit: () => Promise<HealthKitSyncResult>;
 }) {
   const { signOut } = useAuthActions();
-  const healthKitImportSummary = useQuery(api.healthkit.getImportSummary, {});
+  const healthKitImportSummary = useQuery(api.healthkit.getSyncSummary, {});
   const [name, setName] = useState(userName);
   const [selectedUnitPreference, setSelectedUnitPreference] = useState<UnitPreference>(unitPreference);
   const [selectedVolumePreference, setSelectedVolumePreference] = useState<VolumeMode>(volumePreference);

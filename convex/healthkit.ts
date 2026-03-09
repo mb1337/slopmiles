@@ -7,7 +7,7 @@ import type { Id } from "./_generated/dataModel";
 import { healthKitSyncSources } from "./constants";
 import { normalizeImportedWorkoutIntervals } from "./healthkitIntervals";
 import { buildHealthKitImportUserPatch, buildHealthKitSyncStatusPatch } from "./healthkitSyncState";
-import { listExecutionSummariesByHealthKitWorkoutId, reconcileImportedWorkoutExecution } from "./workoutExecutionHelpers";
+import { historyWorkoutStatusFromExecution, reconcileImportedWorkoutExecution } from "./workoutExecutionHelpers";
 
 const importedWorkoutIntervalValidator = v.object({
   startedAt: v.number(),
@@ -120,6 +120,7 @@ export const seedImportWorkouts = mutation({
         intervals: normalizeImportedWorkoutIntervals(workout),
         sourceName: workout.sourceName,
         sourceBundleIdentifier: workout.sourceBundleIdentifier,
+        historyStatus: existing?.historyStatus ?? "unplanned",
         importedAt: now,
         updatedAt: now,
       };
@@ -229,6 +230,31 @@ export const setSyncStatus = mutation({
   },
 });
 
+export const backfillHistoryStatuses = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const workouts = await ctx.db.query("healthKitWorkouts").collect();
+
+    for (const workout of workouts) {
+      const execution = await ctx.db
+        .query("workoutExecutions")
+        .withIndex("by_healthkit_workout_id", (queryBuilder) =>
+          queryBuilder.eq("healthKitWorkoutId", workout._id),
+        )
+        .unique();
+
+      const historyStatus = historyWorkoutStatusFromExecution(execution);
+      if (workout.historyStatus !== historyStatus) {
+        await ctx.db.patch(workout._id, { historyStatus });
+      }
+    }
+
+    return {
+      workoutCount: workouts.length,
+    };
+  },
+});
+
 export const getImportSummary = query({
   args: {},
   handler: async (ctx) => {
@@ -257,6 +283,51 @@ export const getImportSummary = query({
   },
 });
 
+export const getSyncSummary = query({
+  args: {},
+  handler: async (ctx) => {
+    const userId = await requireAuthenticatedQueryUserId(ctx);
+    const user = await ctx.db.get(userId);
+
+    return {
+      lastSyncAt: user?.healthKitLastSyncAt ?? null,
+      lastSyncSource: user?.healthKitLastSyncSource ?? null,
+      lastSyncError: user?.healthKitLastSyncError ?? null,
+    };
+  },
+});
+
+export const getImportedWorkoutDetail = query({
+  args: {
+    healthKitWorkoutId: v.id("healthKitWorkouts"),
+  },
+  handler: async (ctx, args) => {
+    const userId = await requireAuthenticatedQueryUserId(ctx);
+    const workout = await ctx.db.get(args.healthKitWorkoutId);
+    if (!workout || workout.userId !== userId) {
+      throw new Error("Imported workout not found.");
+    }
+
+    const execution = await ctx.db
+      .query("workoutExecutions")
+      .withIndex("by_healthkit_workout_id", (queryBuilder) =>
+        queryBuilder.eq("healthKitWorkoutId", workout._id),
+      )
+      .unique();
+
+    return {
+      ...workout,
+      intervals: normalizeImportedWorkoutIntervals(workout),
+      execution: execution
+        ? {
+            _id: execution._id,
+            matchStatus: execution.matchStatus,
+          }
+        : null,
+    };
+  },
+});
+
 export const listImportedWorkouts = query({
   args: {
     limit: v.optional(v.number()),
@@ -265,21 +336,10 @@ export const listImportedWorkouts = query({
     const userId = await requireAuthenticatedQueryUserId(ctx);
     const limit = typeof args.limit === "number" ? Math.max(1, Math.min(200, Math.floor(args.limit))) : 50;
 
-    const [workouts, executionSummaryByHealthKitWorkoutId] = await Promise.all([
-      ctx.db
+    return await ctx.db
       .query("healthKitWorkouts")
-      .withIndex("by_user_id", (q) => q.eq("userId", userId))
-      .collect(),
-      listExecutionSummariesByHealthKitWorkoutId(ctx, userId),
-    ]);
-
-    return workouts
-      .sort((left, right) => right.startedAt - left.startedAt)
-      .slice(0, limit)
-      .map((workout) => ({
-        ...workout,
-        intervals: normalizeImportedWorkoutIntervals(workout),
-        execution: executionSummaryByHealthKitWorkoutId.get(String(workout._id)) ?? null,
-      }));
+      .withIndex("by_user_id_started_at", (q) => q.eq("userId", userId))
+      .order("desc")
+      .take(limit);
   },
 });

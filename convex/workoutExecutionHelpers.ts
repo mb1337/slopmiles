@@ -16,6 +16,8 @@ type WriterCtx = {
   db: DatabaseWriter;
 };
 
+export type HistoryWorkoutStatus = "matched" | "needsReview" | "unplanned";
+
 type PlannedWorkoutCandidate = {
   workout: Doc<"workouts">;
   week: Doc<"trainingWeeks">;
@@ -219,6 +221,34 @@ function resolveDateScore(dateDelta: number): number {
   }
 
   return 0.62;
+}
+
+export function historyWorkoutStatusFromExecution(
+  execution: Pick<Doc<"workoutExecutions">, "matchStatus"> | null,
+): HistoryWorkoutStatus {
+  if (!execution) {
+    return "unplanned";
+  }
+
+  if (execution.matchStatus === "matched") {
+    return "matched";
+  }
+
+  if (execution.matchStatus === "needsReview") {
+    return "needsReview";
+  }
+
+  return "unplanned";
+}
+
+async function syncImportedWorkoutHistoryStatus(
+  ctx: WriterCtx,
+  healthKitWorkoutId: Id<"healthKitWorkouts">,
+  execution: Pick<Doc<"workoutExecutions">, "matchStatus"> | null,
+): Promise<void> {
+  await ctx.db.patch(healthKitWorkoutId, {
+    historyStatus: historyWorkoutStatusFromExecution(execution),
+  });
 }
 
 async function getExecutionByHealthKitWorkoutId(
@@ -450,17 +480,28 @@ function buildExecutionSummary(
   };
 }
 
-export async function listExecutionSummariesByHealthKitWorkoutId(
+export type ExecutionSummary = ReturnType<typeof buildExecutionSummary>;
+
+export type PlannedWorkoutExecutionStatus = Pick<
+  Doc<"workoutExecutions">,
+  "matchStatus" | "checkInStatus"
+>;
+
+async function loadExecutionSummaryData(
   ctx: ReaderCtx,
   userId: Id<"users">,
-): Promise<Map<string, ReturnType<typeof buildExecutionSummary>>> {
+): Promise<{
+  summaryByHealthKitWorkoutId: Map<string, ExecutionSummary>;
+  summaryByPlannedWorkoutId: Map<string, ExecutionSummary>;
+}> {
   const executions = await ctx.db
     .query("workoutExecutions")
     .withIndex("by_user_id", (queryBuilder) => queryBuilder.eq("userId", userId))
     .collect();
 
   const importedWorkouts = await Promise.all(executions.map((execution) => ctx.db.get(execution.healthKitWorkoutId)));
-  const summaryByHealthKitWorkoutId = new Map<string, ReturnType<typeof buildExecutionSummary>>();
+  const summaryByHealthKitWorkoutId = new Map<string, ExecutionSummary>();
+  const summaryByPlannedWorkoutId = new Map<string, ExecutionSummary>();
 
   executions.forEach((execution, index) => {
     const importedWorkout = importedWorkouts[index];
@@ -468,43 +509,58 @@ export async function listExecutionSummariesByHealthKitWorkoutId(
       return;
     }
 
-    summaryByHealthKitWorkoutId.set(
-      String(importedWorkout._id),
-      buildExecutionSummary(execution, importedWorkout),
-    );
+    const summary = buildExecutionSummary(execution, importedWorkout);
+    summaryByHealthKitWorkoutId.set(String(importedWorkout._id), summary);
+
+    if (execution.plannedWorkoutId && execution.matchStatus === "matched") {
+      summaryByPlannedWorkoutId.set(String(execution.plannedWorkoutId), summary);
+    }
   });
 
-  return summaryByHealthKitWorkoutId;
+  return {
+    summaryByHealthKitWorkoutId,
+    summaryByPlannedWorkoutId,
+  };
+}
+
+export async function listExecutionSummariesByHealthKitWorkoutId(
+  ctx: ReaderCtx,
+  userId: Id<"users">,
+): Promise<Map<string, ExecutionSummary>> {
+  return (await loadExecutionSummaryData(ctx, userId)).summaryByHealthKitWorkoutId;
 }
 
 export async function listExecutionSummariesByPlannedWorkoutId(
   ctx: ReaderCtx,
   userId: Id<"users">,
-): Promise<Map<string, ReturnType<typeof buildExecutionSummary>>> {
+): Promise<Map<string, ExecutionSummary>> {
+  return (await loadExecutionSummaryData(ctx, userId)).summaryByPlannedWorkoutId;
+}
+
+export async function listPlannedWorkoutExecutionStatusesByPlanId(
+  ctx: ReaderCtx,
+  planId: Id<"trainingPlans">,
+): Promise<{
+  byPlannedWorkoutId: Map<string, PlannedWorkoutExecutionStatus>;
+}> {
   const executions = await ctx.db
     .query("workoutExecutions")
-    .withIndex("by_user_id", (queryBuilder) => queryBuilder.eq("userId", userId))
+    .withIndex("by_plan_id", (queryBuilder) => queryBuilder.eq("planId", planId))
     .collect();
 
-  const matchedExecutions = executions.filter((execution) => execution.plannedWorkoutId && execution.matchStatus === "matched");
-  const importedWorkouts = await Promise.all(
-    matchedExecutions.map((execution) => ctx.db.get(execution.healthKitWorkoutId)),
-  );
-  const summaryByPlannedWorkoutId = new Map<string, ReturnType<typeof buildExecutionSummary>>();
-
-  matchedExecutions.forEach((execution, index) => {
-    const importedWorkout = importedWorkouts[index];
-    if (!importedWorkout || !execution.plannedWorkoutId) {
-      return;
+  const byPlannedWorkoutId = new Map<string, PlannedWorkoutExecutionStatus>();
+  for (const execution of executions) {
+    if (!execution.plannedWorkoutId) {
+      continue;
     }
 
-    summaryByPlannedWorkoutId.set(
-      String(execution.plannedWorkoutId),
-      buildExecutionSummary(execution, importedWorkout),
-    );
-  });
+    byPlannedWorkoutId.set(String(execution.plannedWorkoutId), {
+      matchStatus: execution.matchStatus,
+      checkInStatus: execution.checkInStatus,
+    });
+  }
 
-  return summaryByPlannedWorkoutId;
+  return { byPlannedWorkoutId };
 }
 
 async function buildUpcomingWorkoutContext(
@@ -822,6 +878,7 @@ export async function reconcileImportedWorkoutExecution(
         feedbackStatus: "pending",
         updatedAt: now,
       });
+      await syncImportedWorkoutHistoryStatus(ctx, importedWorkout._id, existingExecution);
       await regenerateFeedbackForExecution(ctx, existingExecution._id);
       return existingExecution._id;
     }
@@ -879,6 +936,7 @@ export async function reconcileImportedWorkoutExecution(
     await ctx.db.patch(existingExecution._id, payload);
   }
 
+  await syncImportedWorkoutHistoryStatus(ctx, importedWorkout._id, { matchStatus: payload.matchStatus });
   await regenerateFeedbackForExecution(ctx, executionId);
   return executionId;
 }
@@ -1063,6 +1121,7 @@ export async function linkExecutionToPlannedWorkout(
     await ctx.db.patch(currentExecution._id, payload);
   }
 
+  await syncImportedWorkoutHistoryStatus(ctx, importedWorkout._id, { matchStatus: payload.matchStatus });
   await regenerateFeedbackForExecution(ctx, executionId);
   return executionId;
 }
@@ -1091,5 +1150,6 @@ export async function unlinkExecution(
     updatedAt: Date.now(),
   });
 
+  await syncImportedWorkoutHistoryStatus(ctx, execution.healthKitWorkoutId, { matchStatus: "unmatched" });
   await regenerateFeedbackForExecution(ctx, execution._id);
 }

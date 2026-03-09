@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { ScrollView, Text, View } from "react-native";
 import { useQuery } from "convex/react";
 import {
@@ -22,6 +23,12 @@ import {
   StatusBanner,
 } from "../../components/common";
 import { styles } from "../../styles";
+
+const HOME_SUMMARY_TIME_BUCKET_MS = 15 * 60 * 1000;
+
+function getHomeSummaryTimeBucketMs() {
+  return Math.floor(Date.now() / HOME_SUMMARY_TIME_BUCKET_MS) * HOME_SUMMARY_TIME_BUCKET_MS;
+}
 
 function formatAbsoluteVolume(volumeMode: VolumeMode, absoluteVolume: number, unitPreference: UnitPreference) {
   if (volumeMode === "time") {
@@ -51,7 +58,19 @@ export function TodayScreen({
   onOpenHistoryDetail: (healthKitWorkoutId: Id<"healthKitWorkouts">) => void;
   onOpenCoach: () => void;
 }) {
-  const summary = useQuery(api.mobileUx.getHomeSummary, {});
+  const [nowBucketMs, setNowBucketMs] = useState(getHomeSummaryTimeBucketMs);
+
+  useEffect(() => {
+    const intervalId = setInterval(() => {
+      setNowBucketMs(getHomeSummaryTimeBucketMs());
+    }, 60 * 1000);
+
+    return () => {
+      clearInterval(intervalId);
+    };
+  }, []);
+
+  const summary = useQuery(api.mobileUx.getHomeSummary, { nowBucketMs });
 
   return (
     <ScrollView contentContainerStyle={styles.container}>

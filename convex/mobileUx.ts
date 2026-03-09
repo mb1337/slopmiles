@@ -1,16 +1,16 @@
 import { v } from "convex/values";
+import { paginationOptsValidator } from "convex/server";
 import { getAuthUserId } from "@convex-dev/auth/server";
 
 import { query } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
-import { hasImportedWorkoutIntervals } from "./healthkitIntervals";
 import { deriveCurrentWeekNumber, isWeekGeneratable } from "./planWeeks";
 import {
   getActivePlan,
   getExecutionDetailRecord,
-  listExecutionSummariesByHealthKitWorkoutId,
-  listExecutionSummariesByPlannedWorkoutId,
+  historyWorkoutStatusFromExecution,
+  listPlannedWorkoutExecutionStatusesByPlanId,
   listPlanWorkoutsWithWeeks,
 } from "./workoutExecutionHelpers";
 import { addDays, dateKeyFromEpochMs, type DateKey } from "../packages/domain/src/calendar";
@@ -167,14 +167,105 @@ async function getLatestPlanGenerationRequest(
 ) {
   const requests = await ctx.db
     .query("aiRequests")
-    .withIndex("by_user_id", (queryBuilder) => queryBuilder.eq("userId", userId))
-    .collect();
+    .withIndex("by_user_id_call_type_created_at", (queryBuilder) =>
+      queryBuilder.eq("userId", userId).eq("callType", "planGeneration"),
+    )
+    .order("desc")
+    .take(1);
+
+  return requests[0] ?? null;
+}
+
+async function getLatestCoachMessage(ctx: QueryCtx, userId: Id<"users">) {
+  const messages = await ctx.db
+    .query("coachMessages")
+    .withIndex("by_user_id_author_created_at", (queryBuilder) =>
+      queryBuilder.eq("userId", userId).eq("author", "coach"),
+    )
+    .order("desc")
+    .take(1);
+
+  return messages[0] ?? null;
+}
+
+async function getLatestWorkoutByHistoryStatus(args: {
+  ctx: QueryCtx;
+  userId: Id<"users">;
+  historyStatus: "needsReview" | "unplanned";
+}) {
+  const workouts = await args.ctx.db
+    .query("healthKitWorkouts")
+    .withIndex("by_user_id_history_status_started_at", (queryBuilder) =>
+      queryBuilder.eq("userId", args.userId).eq("historyStatus", args.historyStatus),
+    )
+    .order("desc")
+    .take(1);
+
+  return workouts[0] ?? null;
+}
+
+async function getLatestReviewWorkout(args: {
+  ctx: QueryCtx;
+  userId: Id<"users">;
+}) {
+  const [needsReviewWorkout, unplannedWorkout] = await Promise.all([
+    getLatestWorkoutByHistoryStatus({ ...args, historyStatus: "needsReview" }),
+    getLatestWorkoutByHistoryStatus({ ...args, historyStatus: "unplanned" }),
+  ]);
+
+  const workout =
+    !needsReviewWorkout ? unplannedWorkout
+    : !unplannedWorkout ? needsReviewWorkout
+    : needsReviewWorkout.startedAt >= unplannedWorkout.startedAt ? needsReviewWorkout : unplannedWorkout;
+
+  if (!workout) {
+    return null;
+  }
+
+  const execution = await args.ctx.db
+    .query("workoutExecutions")
+    .withIndex("by_healthkit_workout_id", (queryBuilder) =>
+      queryBuilder.eq("healthKitWorkoutId", workout._id),
+    )
+    .unique();
+
+  return {
+    workout,
+    execution,
+  };
+}
+
+async function getLatestWeekDetailGenerationRequest(args: {
+  ctx: QueryCtx;
+  userId: Id<"users">;
+  planId: Id<"trainingPlans">;
+  weekNumber: number;
+}) {
+  const requests = await args.ctx.db
+    .query("aiRequests")
+    .withIndex("by_user_id_call_type_created_at", (queryBuilder) =>
+      queryBuilder.eq("userId", args.userId).eq("callType", "weekDetailGeneration"),
+    )
+    .order("desc")
+    .take(50);
 
   return (
-    requests
-      .filter((request) => request.callType === "planGeneration")
-      .sort((left, right) => right.createdAt - left.createdAt)[0] ?? null
+    requests.find((request) => {
+      const input = request.input as { planId?: Id<"trainingPlans">; weekNumber?: number } | undefined;
+      return input?.planId === args.planId && input?.weekNumber === args.weekNumber;
+    }) ?? null
   );
+}
+
+async function hasDraftPlan(ctx: QueryCtx, userId: Id<"users">) {
+  const drafts = await ctx.db
+    .query("trainingPlans")
+    .withIndex("by_user_id_status", (queryBuilder) =>
+      queryBuilder.eq("userId", userId).eq("status", "draft"),
+    )
+    .take(1);
+
+  return drafts.length > 0;
 }
 
 function resolveHistoryStatus(
@@ -266,89 +357,42 @@ function normalizeAvailabilityOverride(
   };
 }
 
-async function listHistoryFeed(
-  ctx: QueryCtx,
-  userId: Id<"users">,
-) {
-  const executionSummaryByHealthKitWorkoutId = await listExecutionSummariesByHealthKitWorkoutId(ctx, userId);
-  const workouts = await ctx.db
-    .query("healthKitWorkouts")
-    .withIndex("by_user_id", (queryBuilder) => queryBuilder.eq("userId", userId))
-    .collect();
-
-  const items = workouts
-    .sort((left, right) => right.startedAt - left.startedAt)
-    .map((workout) => {
-      const execution = executionSummaryByHealthKitWorkoutId.get(String(workout._id)) ?? null;
-      const status = resolveHistoryStatus(execution);
-      return {
-        _id: workout._id,
-        startedAt: workout.startedAt,
-        distanceMeters: workout.distanceMeters,
-        durationSeconds: workout.durationSeconds,
-        rawPaceSecondsPerMeter: workout.rawPaceSecondsPerMeter,
-        gradeAdjustedPaceSecondsPerMeter: workout.gradeAdjustedPaceSecondsPerMeter,
-        averageHeartRate: workout.averageHeartRate,
-        elevationAscentMeters: workout.elevationAscentMeters,
-        elevationDescentMeters: workout.elevationDescentMeters,
-        status,
-        execution,
-        hasIntervals: hasImportedWorkoutIntervals(workout),
-      };
-    });
-
-  const counts = items.reduce(
-    (totals, entry) => {
-      totals[entry.status] += 1;
-      return totals;
-    },
-    {
-      matched: 0,
-      needsReview: 0,
-      unplanned: 0,
-    },
-  );
-
-  return {
-    counts,
-    items,
-  };
-}
-
 export const getHomeSummary = query({
-  args: {},
-  handler: async (ctx) => {
+  args: {
+    nowBucketMs: v.number(),
+  },
+  handler: async (ctx, args) => {
     const userId = await requireAuthenticatedUserId(ctx);
-    const [user, planSummaries, messages, executionSummaryByHealthKitWorkoutId] = await Promise.all([
+    const [user, planSummaries, latestCoachMessage, reviewWorkout] = await Promise.all([
       ctx.db.get(userId),
       listPlanSummaries(ctx, userId),
-      ctx.db
-        .query("coachMessages")
-        .withIndex("by_user_id", (queryBuilder) => queryBuilder.eq("userId", userId))
-        .collect(),
-      listExecutionSummariesByHealthKitWorkoutId(ctx, userId),
+      getLatestCoachMessage(ctx, userId),
+      getLatestReviewWorkout({
+        ctx,
+        userId,
+      }),
     ]);
 
     const sortedPlans = [...planSummaries].sort((left, right) => right.createdAt - left.createdAt);
-    const activePlanSummary = sortedPlans.find((plan) => plan.status === "active") ?? null;
-    const draftPlans = sortedPlans.filter((plan) => plan.status === "draft");
-    const pastPlans = sortedPlans.filter((plan) => plan.status === "completed" || plan.status === "abandoned");
-    const latestCoachMessage =
-      [...messages].sort((left, right) => right.createdAt - left.createdAt).find((message) => message.author === "coach") ?? null;
+    let activePlanSummary: (typeof sortedPlans)[number] | null = null;
+    const draftPlans: typeof sortedPlans = [];
+    const pastPlans: typeof sortedPlans = [];
 
-    const importedWorkouts = await ctx.db
-      .query("healthKitWorkouts")
-      .withIndex("by_user_id", (queryBuilder) => queryBuilder.eq("userId", userId))
-      .collect();
+    for (const plan of sortedPlans) {
+      if (!activePlanSummary && plan.status === "active") {
+        activePlanSummary = plan;
+        continue;
+      }
 
-    const reviewWorkout = importedWorkouts
-      .sort((left, right) => right.startedAt - left.startedAt)
-      .map((workout) => ({
-        workout,
-        execution: executionSummaryByHealthKitWorkoutId.get(String(workout._id)) ?? null,
-      }))
-      .find((entry) => resolveHistoryStatus(entry.execution) !== "matched");
+      if (plan.status === "draft") {
+        draftPlans.push(plan);
+        continue;
+      }
 
+      if (plan.status === "completed" || plan.status === "abandoned") {
+        pastPlans.push(plan);
+      }
+    }
     if (!activePlanSummary) {
       return {
         currentVDOT: user?.currentVDOT ?? null,
@@ -406,16 +450,17 @@ export const getHomeSummary = query({
       throw new Error("Active plan could not be loaded.");
     }
 
-    const [trainingWeeks, planEntries, executionSummaryByPlannedWorkoutId] = await Promise.all([
+    const [trainingWeeks, planEntries, executionStatusResult] = await Promise.all([
       ctx.db
         .query("trainingWeeks")
         .withIndex("by_plan_id", (queryBuilder) => queryBuilder.eq("planId", activePlan._id))
         .collect(),
       listPlanWorkoutsWithWeeks(ctx, activePlan._id),
-      listExecutionSummariesByPlannedWorkoutId(ctx, userId),
+      listPlannedWorkoutExecutionStatusesByPlanId(ctx, activePlan._id),
     ]);
+    const executionStatusByPlannedWorkoutId = executionStatusResult.byPlannedWorkoutId;
 
-    const currentWeekNumber = deriveCurrentWeekNumber(activePlan, Date.now());
+    const currentWeekNumber = deriveCurrentWeekNumber(activePlan, args.nowBucketMs);
     const currentWeek =
       typeof currentWeekNumber === "number"
         ? trainingWeeks.find((week) => week.weekNumber === currentWeekNumber) ?? null
@@ -423,15 +468,15 @@ export const getHomeSummary = query({
 
     const todayDateKey =
       activePlan.canonicalTimeZoneId
-        ? dateKeyFromEpochMs(Date.now(), activePlan.canonicalTimeZoneId)
+        ? dateKeyFromEpochMs(args.nowBucketMs, activePlan.canonicalTimeZoneId)
         : null;
 
     const upcomingWorkouts = planEntries
       .map((entry) => ({
         workout: entry.workout,
-        execution: executionSummaryByPlannedWorkoutId.get(String(entry.workout._id)) ?? null,
+        executionStatus: executionStatusByPlannedWorkoutId.get(String(entry.workout._id)) ?? null,
       }))
-      .filter((entry) => entry.workout.status !== "skipped" && entry.execution?.matchStatus !== "matched")
+      .filter((entry) => entry.workout.status !== "skipped" && entry.executionStatus?.matchStatus !== "matched")
       .sort((left, right) => left.workout.scheduledDateKey.localeCompare(right.workout.scheduledDateKey));
 
     const nextWorkout =
@@ -444,11 +489,11 @@ export const getHomeSummary = query({
         ? planEntries.filter((entry) => entry.week._id === currentWeek._id)
         : [];
     const currentWeekCompletedCount = currentWeekEntries.filter(
-      (entry) => executionSummaryByPlannedWorkoutId.get(String(entry.workout._id))?.matchStatus === "matched",
+      (entry) => executionStatusByPlannedWorkoutId.get(String(entry.workout._id))?.matchStatus === "matched",
     ).length;
 
     const pendingActions = [];
-    if (currentWeek && !currentWeek.generated && isWeekGeneratable(activePlan, currentWeek.weekNumber, Date.now())) {
+    if (currentWeek && !currentWeek.generated && isWeekGeneratable(activePlan, currentWeek.weekNumber, args.nowBucketMs)) {
       pendingActions.push({
         kind: "generateWeek" as const,
         label: `Generate week ${currentWeek.weekNumber}`,
@@ -459,8 +504,8 @@ export const getHomeSummary = query({
 
     if (currentWeek?.generated) {
       const workoutNeedingCheckIn = currentWeekEntries.find((entry) => {
-        const execution = executionSummaryByPlannedWorkoutId.get(String(entry.workout._id));
-        return execution?.matchStatus === "matched" && execution.checkInStatus !== "submitted";
+        const executionStatus = executionStatusByPlannedWorkoutId.get(String(entry.workout._id));
+        return executionStatus?.matchStatus === "matched" && executionStatus.checkInStatus !== "submitted";
       });
 
       if (workoutNeedingCheckIn) {
@@ -529,7 +574,6 @@ export const getHomeSummary = query({
             volumePercent: nextWorkout.workout.volumePercent,
             venue: nextWorkout.workout.venue,
             status: nextWorkout.workout.status,
-            execution: nextWorkout.execution,
           }
         : null,
       weekProgress: currentWeek
@@ -556,8 +600,10 @@ export const getHomeSummary = query({
 });
 
 export const getPlanOverview = query({
-  args: {},
-  handler: async (ctx) => {
+  args: {
+    nowBucketMs: v.number(),
+  },
+  handler: async (ctx, args) => {
     const userId = await requireAuthenticatedUserId(ctx);
     const [planSummaries, latestRequest] = await Promise.all([
       listPlanSummaries(ctx, userId),
@@ -582,7 +628,7 @@ export const getPlanOverview = query({
         .withIndex("by_plan_id", (queryBuilder) => queryBuilder.eq("planId", activePlanSummary._id))
         .collect();
 
-      const currentWeekNumber = deriveCurrentWeekNumber(activePlanDoc, Date.now());
+      const currentWeekNumber = deriveCurrentWeekNumber(activePlanDoc, args.nowBucketMs);
       activePlan = {
         ...activePlanSummary,
         currentWeekNumber,
@@ -627,6 +673,7 @@ export const getWeekAgenda = query({
   args: {
     planId: v.id("trainingPlans"),
     weekNumber: v.number(),
+    nowBucketMs: v.number(),
   },
   handler: async (ctx, args) => {
     const userId = await requireAuthenticatedUserId(ctx);
@@ -645,7 +692,7 @@ export const getWeekAgenda = query({
       throw new Error("Training week not found.");
     }
 
-    const [workouts, strengthWorkouts, races, executionSummaryByPlannedWorkoutId, requests] = await Promise.all([
+    const [workouts, strengthWorkouts, races, executionStatusResult, latestRequest] = await Promise.all([
       ctx.db
         .query("workouts")
         .withIndex("by_week_id_scheduled_date_key", (queryBuilder) => queryBuilder.eq("weekId", week._id))
@@ -658,24 +705,15 @@ export const getWeekAgenda = query({
         .query("races")
         .withIndex("by_plan_id", (queryBuilder) => queryBuilder.eq("planId", plan._id))
         .collect(),
-      listExecutionSummariesByPlannedWorkoutId(ctx, userId),
-      ctx.db
-        .query("aiRequests")
-        .withIndex("by_user_id", (queryBuilder) => queryBuilder.eq("userId", userId))
-        .collect(),
+      listPlannedWorkoutExecutionStatusesByPlanId(ctx, plan._id),
+      getLatestWeekDetailGenerationRequest({
+        ctx,
+        userId,
+        planId: plan._id,
+        weekNumber: week.weekNumber,
+      }),
     ]);
-
-    const latestRequest =
-      requests
-        .filter((request) => {
-          if (request.callType !== "weekDetailGeneration") {
-            return false;
-          }
-
-          const input = request.input as { planId?: Id<"trainingPlans">; weekNumber?: number } | undefined;
-          return input?.planId === plan._id && input?.weekNumber === week.weekNumber;
-        })
-        .sort((left, right) => right.createdAt - left.createdAt)[0] ?? null;
+    const executionStatusByPlannedWorkoutId = executionStatusResult.byPlannedWorkoutId;
 
     const days = new Map<string, Array<(typeof workouts)[number]>>();
     for (const workout of workouts.sort((left, right) => left.scheduledDateKey.localeCompare(right.scheduledDateKey))) {
@@ -690,7 +728,7 @@ export const getWeekAgenda = query({
         numberOfWeeks: plan.numberOfWeeks,
         volumeMode: plan.volumeMode,
         peakWeekVolume: plan.peakWeekVolume,
-        currentWeekNumber: deriveCurrentWeekNumber(plan, Date.now()),
+        currentWeekNumber: deriveCurrentWeekNumber(plan, args.nowBucketMs),
       },
       week: {
         _id: week._id,
@@ -706,7 +744,7 @@ export const getWeekAgenda = query({
         interruptionNote: week.interruptionNote ?? null,
         availabilityOverride: normalizeAvailabilityOverride(week.availabilityOverride),
       },
-      canGenerate: isWeekGeneratable(plan, week.weekNumber, Date.now()),
+      canGenerate: isWeekGeneratable(plan, week.weekNumber, args.nowBucketMs),
       latestRequest: latestRequest
         ? {
             _id: latestRequest._id,
@@ -717,7 +755,7 @@ export const getWeekAgenda = query({
       days: [...days.entries()].map(([dateKey, dayWorkouts]) => ({
         dateKey,
         workouts: dayWorkouts.map((workout) => {
-          const execution = executionSummaryByPlannedWorkoutId.get(String(workout._id)) ?? null;
+          const execution = executionStatusByPlannedWorkoutId.get(String(workout._id)) ?? null;
           return {
             _id: workout._id,
             type: workout.type,
@@ -839,31 +877,81 @@ export const getWorkoutDetailView = query({
   },
 });
 
-export const getHistoryFeed = query({
+export const getHistoryFeedCounts = query({
+  args: {
+  },
+  handler: async (ctx) => {
+    const userId = await requireAuthenticatedUserId(ctx);
+    const [matched, needsReview, unplanned] = await Promise.all([
+      ctx.db
+        .query("healthKitWorkouts")
+        .withIndex("by_user_id_history_status_started_at", (queryBuilder) =>
+          queryBuilder.eq("userId", userId).eq("historyStatus", "matched"),
+        )
+        .collect(),
+      ctx.db
+        .query("healthKitWorkouts")
+        .withIndex("by_user_id_history_status_started_at", (queryBuilder) =>
+          queryBuilder.eq("userId", userId).eq("historyStatus", "needsReview"),
+        )
+        .collect(),
+      ctx.db
+        .query("healthKitWorkouts")
+        .withIndex("by_user_id_history_status_started_at", (queryBuilder) =>
+          queryBuilder.eq("userId", userId).eq("historyStatus", "unplanned"),
+        )
+        .collect(),
+    ]);
+
+    return {
+      matched: matched.length,
+      needsReview: needsReview.length,
+      unplanned: unplanned.length,
+    };
+  },
+});
+
+export const listHistoryFeedPage = query({
   args: {
     filter: v.optional(v.union(v.literal("all"), v.literal("matched"), v.literal("needsReview"), v.literal("unplanned"))),
-    limit: v.optional(v.number()),
+    paginationOpts: paginationOptsValidator,
   },
   handler: async (ctx, args) => {
     const userId = await requireAuthenticatedUserId(ctx);
-    const limit = typeof args.limit === "number" ? Math.max(1, Math.min(100, Math.round(args.limit))) : 50;
-    const mapped = await listHistoryFeed(ctx, userId);
-
     const filter = args.filter ?? "all";
+    const baseQuery =
+      filter === "all"
+        ? ctx.db
+            .query("healthKitWorkouts")
+            .withIndex("by_user_id_started_at", (queryBuilder) => queryBuilder.eq("userId", userId))
+        : ctx.db
+            .query("healthKitWorkouts")
+            .withIndex("by_user_id_history_status_started_at", (queryBuilder) =>
+              queryBuilder.eq("userId", userId).eq("historyStatus", filter),
+            );
+    const page = await baseQuery.order("desc").paginate(args.paginationOpts);
+
     return {
-      counts: mapped.counts,
-      items: mapped.items
-        .filter((entry) => filter === "all" || entry.status === filter)
-        .slice(0, limit),
+      ...page,
+      page: page.page.map((workout) => ({
+        _id: workout._id,
+        startedAt: workout.startedAt,
+        distanceMeters: workout.distanceMeters,
+        durationSeconds: workout.durationSeconds,
+        rawPaceSecondsPerMeter: workout.rawPaceSecondsPerMeter,
+        status: workout.historyStatus ?? historyWorkoutStatusFromExecution(null),
+      })),
     };
   },
 });
 
 export const getCoachInboxSummary = query({
-  args: {},
-  handler: async (ctx) => {
+  args: {
+    nowBucketMs: v.number(),
+  },
+  handler: async (ctx, args) => {
     const userId = await requireAuthenticatedUserId(ctx);
-    const [user, runningSchedule, competitiveness, personality, messages, activePlan, historyFeed, planSummaries] = await Promise.all([
+    const [user, runningSchedule, competitiveness, personality, messages, activePlan, reviewWorkout, draftPlanExists] = await Promise.all([
       ctx.db.get(userId),
       ctx.db
         .query("runningSchedules")
@@ -879,16 +967,17 @@ export const getCoachInboxSummary = query({
         .unique(),
       ctx.db
         .query("coachMessages")
-        .withIndex("by_user_id", (queryBuilder) => queryBuilder.eq("userId", userId))
-        .collect(),
+        .withIndex("by_user_id_created_at", (queryBuilder) => queryBuilder.eq("userId", userId))
+        .order("desc")
+        .take(40),
       getActivePlan(ctx, userId),
-      listHistoryFeed(ctx, userId),
-      listPlanSummaries(ctx, userId),
+      getLatestReviewWorkout({ ctx, userId }),
+      hasDraftPlan(ctx, userId),
     ]);
 
     const activePlanGoal = activePlan ? await ctx.db.get(activePlan.goalId) : null;
-    const currentWeekNumber = activePlan ? deriveCurrentWeekNumber(activePlan, Date.now()) : null;
-    const hasDraftPlan = planSummaries.some((plan) => plan.status === "draft");
+    const currentWeekNumber = activePlan ? deriveCurrentWeekNumber(activePlan, args.nowBucketMs) : null;
+    const hasUnmatchedRun = reviewWorkout !== null;
 
     return {
       currentVDOT: user?.currentVDOT ?? null,
@@ -916,13 +1005,12 @@ export const getCoachInboxSummary = query({
         : null,
       suggestedPrompts: buildCoachPrompts({
         hasActivePlan: Boolean(activePlan),
-        hasDraftPlan,
+        hasDraftPlan: draftPlanExists,
         hasCurrentWeek: typeof currentWeekNumber === "number",
-        hasUnmatchedRun: historyFeed.counts.needsReview > 0 || historyFeed.counts.unplanned > 0,
+        hasUnmatchedRun,
       }),
       messages: [...messages]
-        .sort((left, right) => left.createdAt - right.createdAt)
-        .slice(-40)
+        .reverse()
         .map((message) => ({
           _id: String(message._id),
           author: message.author,
@@ -935,7 +1023,7 @@ export const getCoachInboxSummary = query({
                   label: "Open plan",
                   tab: "plan" as const,
                 }
-              : historyFeed.counts.needsReview > 0 || historyFeed.counts.unplanned > 0
+              : hasUnmatchedRun
                 ? {
                     label: "Review history",
                     tab: "history" as const,

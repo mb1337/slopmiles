@@ -35,6 +35,7 @@ import type { PlanRoute } from "../../types";
 const RACE_GOALS = ["5K", "10K", "Half Marathon", "Marathon", "Custom"] as const;
 const NON_RACE_GOALS = ["Base Building", "Recovery", "Custom"] as const;
 const PLAN_GOAL_TYPES = ["race", "nonRace"] as const;
+const PLAN_TIME_BUCKET_MS = 15 * 60 * 1000;
 const WEEKDAY_LABELS: Record<(typeof WEEKDAYS)[number], string> = {
   monday: "Mon",
   tuesday: "Tue",
@@ -46,6 +47,10 @@ const WEEKDAY_LABELS: Record<(typeof WEEKDAYS)[number], string> = {
 };
 
 type PlanGoalType = (typeof PLAN_GOAL_TYPES)[number];
+
+function getPlanTimeBucketMs() {
+  return Math.floor(Date.now() / PLAN_TIME_BUCKET_MS) * PLAN_TIME_BUCKET_MS;
+}
 
 function formatGoalTime(seconds: number): string {
   const rounded = Math.max(0, Math.round(seconds));
@@ -193,13 +198,15 @@ export function PlanScreen({
   route: PlanRoute;
   onRouteChange: (route: PlanRoute) => void;
 }) {
-  const planOverview = useQuery(api.mobileUx.getPlanOverview, {});
+  const [nowBucketMs, setNowBucketMs] = useState(getPlanTimeBucketMs);
+  const planOverview = useQuery(api.mobileUx.getPlanOverview, { nowBucketMs });
   const weekAgenda = useQuery(
     api.mobileUx.getWeekAgenda,
     planOverview?.activePlan && route.screen === "week"
       ? {
           planId: planOverview.activePlan._id,
           weekNumber: route.weekNumber,
+          nowBucketMs,
         }
       : "skip",
   );
@@ -245,6 +252,16 @@ export function PlanScreen({
   const [busyLabel, setBusyLabel] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    const intervalId = setInterval(() => {
+      setNowBucketMs(getPlanTimeBucketMs());
+    }, 60 * 1000);
+
+    return () => {
+      clearInterval(intervalId);
+    };
+  }, []);
 
   const activePlan = planOverview?.activePlan ?? null;
   const proposal = planOverview?.proposal?.result ?? null;

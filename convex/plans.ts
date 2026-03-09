@@ -17,35 +17,6 @@ const planStatusValidator = v.union(...planStatuses.map((status) => v.literal(st
 const WEEK_DETAIL_PROMPT_REVISION = "week-detail-v1";
 const WEEK_DETAIL_SCHEMA_REVISION = "week-detail-v1";
 
-type PlanSummary = {
-  _id: Id<"trainingPlans">;
-  status: (typeof planStatuses)[number];
-  startDateKey?: string;
-  canonicalTimeZoneId?: string;
-  activatedAt?: number;
-  numberOfWeeks: number;
-  volumeMode: (typeof volumeModes)[number];
-  peakWeekVolume: number;
-  generationRationale?: string;
-  generatedByAiRequestId?: Id<"aiRequests">;
-  weeklyVolumeProfile?: Array<{
-    weekNumber: number;
-    percentOfPeak: number;
-  }>;
-  weeklyEmphasis?: Array<{
-    weekNumber: number;
-    emphasis: string;
-  }>;
-  createdAt: number;
-  goal: {
-    _id: Id<"goals">;
-    type: (typeof goalTypes)[number];
-    label: string;
-    targetDate?: number;
-    goalTimeSeconds?: number;
-  };
-};
-
 async function requireAuthenticatedQueryUserId(ctx: QueryCtx): Promise<Id<"users">> {
   const userId = await getAuthUserId(ctx);
   if (!userId) {
@@ -84,47 +55,6 @@ function weekPercentMap(plan: Pick<Doc<"trainingPlans">, "weeklyVolumeProfile">)
 
 function weekEmphasisMap(plan: Pick<Doc<"trainingPlans">, "weeklyEmphasis">): Map<number, string> {
   return new Map((plan.weeklyEmphasis ?? []).map((entry) => [entry.weekNumber, entry.emphasis]));
-}
-
-async function listPlanSummaries(ctx: QueryCtx, userId: Id<"users">): Promise<PlanSummary[]> {
-  const plans = await ctx.db
-    .query("trainingPlans")
-    .withIndex("by_user_id", (queryBuilder) => queryBuilder.eq("userId", userId))
-    .collect();
-
-  const summaries: PlanSummary[] = [];
-
-  for (const plan of plans) {
-    const goal = await ctx.db.get(plan.goalId);
-    if (!goal) {
-      continue;
-    }
-
-    summaries.push({
-      _id: plan._id,
-      status: plan.status,
-      startDateKey: plan.startDateKey,
-      canonicalTimeZoneId: plan.canonicalTimeZoneId,
-      activatedAt: plan.activatedAt,
-      numberOfWeeks: plan.numberOfWeeks,
-      volumeMode: plan.volumeMode,
-      peakWeekVolume: plan.peakWeekVolume,
-      generationRationale: plan.generationRationale,
-      generatedByAiRequestId: plan.generatedByAiRequestId,
-      weeklyVolumeProfile: plan.weeklyVolumeProfile,
-      weeklyEmphasis: plan.weeklyEmphasis,
-      createdAt: plan.createdAt,
-      goal: {
-        _id: goal._id,
-        type: goal.type,
-        label: goal.label,
-        targetDate: goal.targetDate,
-        goalTimeSeconds: goal.goalTimeSeconds,
-      },
-    });
-  }
-
-  return summaries;
 }
 
 async function seedTrainingWeeks(ctx: MutationCtx, plan: Doc<"trainingPlans">): Promise<void> {
@@ -222,71 +152,6 @@ async function enqueueWeekDetailGeneration(
 
   return requestId;
 }
-
-export const getPlanState = query({
-  args: {},
-  handler: async (ctx) => {
-    const userId = await requireAuthenticatedQueryUserId(ctx);
-    const planSummaries = await listPlanSummaries(ctx, userId);
-    const sorted = [...planSummaries].sort((a, b) => b.createdAt - a.createdAt);
-
-    const activePlan = sorted.find((plan) => plan.status === "active") ?? null;
-    const draftPlans = sorted.filter((plan) => plan.status === "draft");
-    const pastPlans = sorted.filter((plan) => plan.status === "completed" || plan.status === "abandoned");
-
-    if (!activePlan) {
-      return {
-        activePlan: null,
-        draftPlans,
-        pastPlans,
-      };
-    }
-
-    const activePlanDoc = await ctx.db.get(activePlan._id);
-    if (!activePlanDoc) {
-      return {
-        activePlan: null,
-        draftPlans,
-        pastPlans,
-      };
-    }
-
-    const trainingWeeks = await ctx.db
-      .query("trainingWeeks")
-      .withIndex("by_plan_id", (queryBuilder) => queryBuilder.eq("planId", activePlan._id))
-      .collect();
-    const currentWeekNumber = deriveCurrentWeekNumber(activePlanDoc, Date.now());
-    const nextWeekNumber =
-      currentWeekNumber && currentWeekNumber < activePlan.numberOfWeeks ? currentWeekNumber + 1 : null;
-
-    return {
-      activePlan: {
-        ...activePlan,
-        startDateKey: activePlanDoc.startDateKey,
-        canonicalTimeZoneId: activePlanDoc.canonicalTimeZoneId,
-        activatedAt: activePlanDoc.activatedAt,
-        currentWeekNumber,
-        nextWeekNumber,
-        trainingWeeks: trainingWeeks
-          .sort((left, right) => left.weekNumber - right.weekNumber)
-          .map((week) => ({
-            _id: week._id,
-            weekNumber: week.weekNumber,
-            weekStartDateKey: week.weekStartDateKey,
-            weekEndDateKey: week.weekEndDateKey,
-            targetVolumePercent: week.targetVolumePercent,
-            targetVolumeAbsolute: week.targetVolumeAbsolute,
-            emphasis: week.emphasis,
-            coachNotes: week.coachNotes,
-            generated: week.generated,
-            generatedByAiRequestId: week.generatedByAiRequestId,
-          })),
-      },
-      draftPlans,
-      pastPlans,
-    };
-  },
-});
 
 export const getWeekDetail = query({
   args: {

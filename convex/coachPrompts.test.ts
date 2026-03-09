@@ -49,6 +49,7 @@ describe("coach prompts", () => {
       weekEndDateKey: "2026-03-15",
       targetVolumePercent: 0.82,
       targetVolumeAbsolute: 26568,
+      emphasis: "Threshold focus with weekend race sharpening.",
       recentWorkouts: [],
       availabilityOverride: {
         preferredRunningDays: ["tuesday", "friday", "sunday"],

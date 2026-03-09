@@ -12,6 +12,12 @@ import {
 } from "../../components/common";
 import { styles } from "../../styles";
 
+const COACH_TIME_BUCKET_MS = 15 * 60 * 1000;
+
+function getCoachTimeBucketMs() {
+  return Math.floor(Date.now() / COACH_TIME_BUCKET_MS) * COACH_TIME_BUCKET_MS;
+}
+
 function formatMessageTime(timestamp: number): string {
   return new Date(timestamp).toLocaleString(undefined, {
     month: "short",
@@ -28,11 +34,22 @@ export function CoachScreen({
   onOpenPlan: () => void;
   onOpenHistory: () => void;
 }) {
-  const inbox = useQuery(api.mobileUx.getCoachInboxSummary, {});
+  const [nowBucketMs, setNowBucketMs] = useState(getCoachTimeBucketMs);
+  const inbox = useQuery(api.mobileUx.getCoachInboxSummary, { nowBucketMs });
   const sendCoachMessage = useMutation(api.coach.sendCoachMessage);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const intervalId = setInterval(() => {
+      setNowBucketMs(getCoachTimeBucketMs());
+    }, 60 * 1000);
+
+    return () => {
+      clearInterval(intervalId);
+    };
+  }, []);
 
   useEffect(() => {
     setError(null);

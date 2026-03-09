@@ -59,6 +59,11 @@ const strengthWorkoutStatusValidator = v.union(...strengthWorkoutStatuses.map((s
 const planInterruptionTypeValidator = v.union(...planInterruptionTypes.map((type) => v.literal(type)));
 const effortModifierValidator = v.union(...effortModifiers.map((modifier) => v.literal(modifier)));
 const healthKitSyncSourceValidator = v.union(...healthKitSyncSources.map((source) => v.literal(source)));
+const historyWorkoutStatusValidator = v.union(
+  v.literal("matched"),
+  v.literal("needsReview"),
+  v.literal("unplanned"),
+);
 const workoutSegmentValidator = v.object({
   order: v.number(),
   label: v.string(),
@@ -251,6 +256,7 @@ export default defineSchema({
   })
     .index("by_user_id", ["userId"])
     .index("by_user_id_status", ["userId", "status"])
+    .index("by_user_id_call_type_created_at", ["userId", "callType", "createdAt"])
     .index("by_status_next_retry_at", ["status", "nextRetryAt"])
     .index("by_user_id_call_type_dedupe_key", ["userId", "callType", "dedupeKey"]),
 
@@ -282,7 +288,8 @@ export default defineSchema({
     createdAt: v.number(),
   })
     .index("by_user_id", ["userId"])
-    .index("by_user_id_created_at", ["userId", "createdAt"]),
+    .index("by_user_id_created_at", ["userId", "createdAt"])
+    .index("by_user_id_author_created_at", ["userId", "author", "createdAt"]),
 
   healthKitWorkouts: defineTable({
     userId: v.id("users"),
@@ -301,11 +308,14 @@ export default defineSchema({
     intervals: v.optional(v.array(healthKitIntervalValidator)),
     sourceName: v.optional(v.string()),
     sourceBundleIdentifier: v.optional(v.string()),
+    historyStatus: v.optional(historyWorkoutStatusValidator),
     importedAt: v.number(),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
     .index("by_user_id", ["userId"])
+    .index("by_user_id_started_at", ["userId", "startedAt"])
+    .index("by_user_id_history_status_started_at", ["userId", "historyStatus", "startedAt"])
     .index("by_user_id_external_workout_id", ["userId", "externalWorkoutId"]),
 
   workoutExecutions: defineTable({
@@ -330,6 +340,7 @@ export default defineSchema({
     updatedAt: v.number(),
   })
     .index("by_user_id", ["userId"])
+    .index("by_plan_id", ["planId"])
     .index("by_healthkit_workout_id", ["healthKitWorkoutId"])
     .index("by_planned_workout_id", ["plannedWorkoutId"])
     .index("by_week_id", ["weekId"]),

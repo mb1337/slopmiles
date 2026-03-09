@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { ScrollView, Text, View } from "react-native";
-import { useQuery } from "convex/react";
+import { usePaginatedQuery, useQuery } from "convex/react";
 import {
   formatDistanceForDisplay,
   formatDurationClock,
@@ -66,19 +66,42 @@ export function HistoryScreen({
   route: HistoryRoute;
   onRouteChange: (route: HistoryRoute) => void;
 }) {
+  const HISTORY_PAGE_SIZE = 10;
   const [filter, setFilter] = useState<"all" | "matched" | "needsReview" | "unplanned">("all");
-  const historyFeed = useQuery(api.mobileUx.getHistoryFeed, {
-    filter,
-    limit: 60,
-  });
-  const importedWorkouts = useQuery(api.healthkit.listImportedWorkouts, {
-    limit: 100,
-  });
-
-  const selectedWorkout =
+  const historyCounts = useQuery(
+    api.mobileUx.getHistoryFeedCounts,
+    route.screen === "feed" ? {} : "skip",
+  );
+  const historyFeed = usePaginatedQuery(
+    api.mobileUx.listHistoryFeedPage,
+    route.screen === "feed"
+      ? {
+          filter,
+        }
+      : "skip",
+    { initialNumItems: HISTORY_PAGE_SIZE },
+  );
+  const selectedWorkout = useQuery(
+    api.healthkit.getImportedWorkoutDetail,
     route.screen === "detail"
-      ? importedWorkouts?.find((workout) => workout._id === route.healthKitWorkoutId) ?? null
-      : null;
+      ? {
+          healthKitWorkoutId: route.healthKitWorkoutId,
+        }
+      : "skip",
+  );
+
+  const totalItemsForFilter =
+    filter === "all"
+      ? (historyCounts?.matched ?? 0) +
+        (historyCounts?.needsReview ?? 0) +
+        (historyCounts?.unplanned ?? 0)
+      : filter === "matched"
+        ? (historyCounts?.matched ?? 0)
+        : filter === "needsReview"
+          ? (historyCounts?.needsReview ?? 0)
+          : (historyCounts?.unplanned ?? 0);
+  const isLoadingMore = route.screen === "feed" && historyFeed.status === "LoadingMore";
+  const canLoadMore = route.screen === "feed" && historyFeed.status === "CanLoadMore";
 
   if (route.screen === "detail") {
     return (
@@ -167,13 +190,13 @@ export function HistoryScreen({
         subtitle="Filter the feed to the runs that need action, then open one compact detail screen per workout."
       />
 
-      {historyFeed === undefined ? <StatusBanner message="Loading workout history..." /> : null}
+      {historyFeed.status === "LoadingFirstPage" ? <StatusBanner message="Loading workout history..." /> : null}
 
       <SectionCard title="Feed filters" description="Counts update before you drill into a workout.">
         <MetricGrid>
-          <MetricStat label="Matched" value={String(historyFeed?.counts.matched ?? 0)} />
-          <MetricStat label="Needs review" value={String(historyFeed?.counts.needsReview ?? 0)} />
-          <MetricStat label="Unplanned" value={String(historyFeed?.counts.unplanned ?? 0)} />
+          <MetricStat label="Matched" value={String(historyCounts?.matched ?? 0)} />
+          <MetricStat label="Needs review" value={String(historyCounts?.needsReview ?? 0)} />
+          <MetricStat label="Unplanned" value={String(historyCounts?.unplanned ?? 0)} />
         </MetricGrid>
         <ChoiceRow
           options={["all", "matched", "needsReview", "unplanned"]}
@@ -183,36 +206,48 @@ export function HistoryScreen({
       </SectionCard>
 
       <SectionCard title="Recent runs" description="Tap through for matching, check-in, and segment detail.">
-        {historyFeed?.items.length ? (
-          historyFeed.items.map((workout) => (
-            <View key={String(workout._id)} style={styles.historyWorkoutBlock}>
-              <View style={styles.statusRow}>
-                <Text style={styles.historyWorkoutTitle}>{formatWorkoutDate(workout.startedAt)}</Text>
-                <Text
-                  style={[
-                    styles.statusBadge,
-                    workout.status === "matched"
-                      ? styles.statusBadgeMatched
-                      : workout.status === "needsReview"
-                        ? styles.statusBadgeNeedsReview
-                        : styles.statusBadgeUnmatched,
-                  ]}
-                >
-                  {formatMatchStatus(workout.status)}
+        {historyFeed.results.length ? (
+          <>
+            {historyFeed.results.map((workout) => (
+              <View key={String(workout._id)} style={styles.historyWorkoutBlock}>
+                <View style={styles.statusRow}>
+                  <Text style={styles.historyWorkoutTitle}>{formatWorkoutDate(workout.startedAt)}</Text>
+                  <Text
+                    style={[
+                      styles.statusBadge,
+                      workout.status === "matched"
+                        ? styles.statusBadgeMatched
+                        : workout.status === "needsReview"
+                          ? styles.statusBadgeNeedsReview
+                          : styles.statusBadgeUnmatched,
+                    ]}
+                  >
+                    {formatMatchStatus(workout.status)}
+                  </Text>
+                </View>
+                <Text style={styles.helperText}>
+                  {formatDistanceForDisplay(workout.distanceMeters, unitPreference)} ·{" "}
+                  {formatDurationClock(workout.durationSeconds)} · Pace{" "}
+                  {formatPaceSecondsPerMeterForDisplay(workout.rawPaceSecondsPerMeter ?? undefined, unitPreference)}
                 </Text>
+                <PrimaryButton
+                  label={workout.status === "matched" ? "Open run detail" : "Review run"}
+                  onPress={() => onRouteChange({ screen: "detail", healthKitWorkoutId: workout._id })}
+                />
               </View>
-              <Text style={styles.helperText}>
-                {formatDistanceForDisplay(workout.distanceMeters, unitPreference)} ·{" "}
-                {formatDurationClock(workout.durationSeconds)} · Pace{" "}
-                {formatPaceSecondsPerMeterForDisplay(workout.rawPaceSecondsPerMeter ?? undefined, unitPreference)}
-              </Text>
-              <PrimaryButton
-                label={workout.status === "matched" ? "Open run detail" : "Review run"}
-                onPress={() => onRouteChange({ screen: "detail", healthKitWorkoutId: workout._id })}
+            ))}
+            {canLoadMore ? (
+              <SecondaryButton
+                label={isLoadingMore ? "Loading next 10..." : "Load next 10"}
+                onPress={() => historyFeed.loadMore(HISTORY_PAGE_SIZE)}
+                disabled={isLoadingMore}
               />
-            </View>
-          ))
-        ) : (
+            ) : null}
+            {historyFeed.status === "Exhausted" && totalItemsForFilter > 0 ? (
+              <Text style={styles.helperText}>{`Showing all ${historyFeed.results.length} workouts for this filter.`}</Text>
+            ) : null}
+          </>
+        ) : historyFeed.status === "LoadingFirstPage" ? null : (
           <Text style={styles.bodyText}>No workouts match this filter yet.</Text>
         )}
       </SectionCard>
