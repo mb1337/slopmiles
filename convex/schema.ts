@@ -45,7 +45,6 @@ const aiRequestStatusValidator = v.union(...aiRequestStatuses.map((status) => v.
 const aiRequestPriorityValidator = v.union(...aiRequestPriorities.map((priority) => v.literal(priority)));
 const coachMessageAuthorValidator = v.union(v.literal("coach"), v.literal("user"));
 const coachMessageKindValidator = v.union(v.literal("message"), v.literal("event"));
-const healthKitIntervalTypeValidator = v.union(v.literal("lap"), v.literal("segment"));
 const workoutTypeValidator = v.union(...workoutTypes.map((type) => v.literal(type)));
 const workoutVenueValidator = v.union(...workoutVenues.map((venue) => v.literal(venue)));
 const workoutOriginValidator = v.union(...workoutOrigins.map((origin) => v.literal(origin)));
@@ -71,7 +70,6 @@ const workoutSegmentValidator = v.object({
   restUnit: v.optional(v.union(v.literal("seconds"), v.literal("meters"))),
 });
 const healthKitIntervalValidator = v.object({
-  type: healthKitIntervalTypeValidator,
   startedAt: v.number(),
   endedAt: v.number(),
   durationSeconds: v.number(),
@@ -82,15 +80,6 @@ const healthKitIntervalValidator = v.object({
   elevationAscentMeters: v.optional(v.number()),
   elevationDescentMeters: v.optional(v.number()),
   averageHeartRate: v.optional(v.number()),
-});
-const healthKitIntervalChainValidator = v.object({
-  chainIndex: v.number(),
-  startedAt: v.number(),
-  endedAt: v.number(),
-  durationSeconds: v.number(),
-  intervalCount: v.number(),
-  distanceMeters: v.optional(v.number()),
-  intervals: v.array(healthKitIntervalValidator),
 });
 
 export default defineSchema({
@@ -309,7 +298,7 @@ export default defineSchema({
     elevationDescentMeters: v.optional(v.number()),
     averageHeartRate: v.optional(v.number()),
     maxHeartRate: v.optional(v.number()),
-    intervalChains: v.optional(v.array(healthKitIntervalChainValidator)),
+    intervals: v.optional(v.array(healthKitIntervalValidator)),
     sourceName: v.optional(v.string()),
     sourceBundleIdentifier: v.optional(v.string()),
     importedAt: v.number(),

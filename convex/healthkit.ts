@@ -5,11 +5,11 @@ import { internal } from "./_generated/api";
 import { internalAction, internalMutation, mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
 import { healthKitSyncSources } from "./constants";
+import { normalizeImportedWorkoutIntervals } from "./healthkitIntervals";
 import { buildHealthKitImportUserPatch, buildHealthKitSyncStatusPatch } from "./healthkitSyncState";
 import { listExecutionSummariesByHealthKitWorkoutId, reconcileImportedWorkoutExecution } from "./workoutExecutionHelpers";
 
 const importedWorkoutIntervalValidator = v.object({
-  type: v.union(v.literal("lap"), v.literal("segment")),
   startedAt: v.number(),
   endedAt: v.number(),
   durationSeconds: v.number(),
@@ -20,16 +20,6 @@ const importedWorkoutIntervalValidator = v.object({
   elevationAscentMeters: v.optional(v.number()),
   elevationDescentMeters: v.optional(v.number()),
   averageHeartRate: v.optional(v.number()),
-});
-
-const importedWorkoutIntervalChainValidator = v.object({
-  chainIndex: v.number(),
-  startedAt: v.number(),
-  endedAt: v.number(),
-  durationSeconds: v.number(),
-  intervalCount: v.number(),
-  distanceMeters: v.optional(v.number()),
-  intervals: v.array(importedWorkoutIntervalValidator),
 });
 
 const importedWorkoutValidator = v.object({
@@ -45,7 +35,7 @@ const importedWorkoutValidator = v.object({
   elevationDescentMeters: v.optional(v.number()),
   averageHeartRate: v.optional(v.number()),
   maxHeartRate: v.optional(v.number()),
-  intervalChains: v.optional(v.array(importedWorkoutIntervalChainValidator)),
+  intervals: v.optional(v.array(importedWorkoutIntervalValidator)),
   sourceName: v.optional(v.string()),
   sourceBundleIdentifier: v.optional(v.string()),
 });
@@ -127,7 +117,7 @@ export const seedImportWorkouts = mutation({
         elevationDescentMeters: workout.elevationDescentMeters,
         averageHeartRate: workout.averageHeartRate,
         maxHeartRate: workout.maxHeartRate,
-        intervalChains: workout.intervalChains,
+        intervals: normalizeImportedWorkoutIntervals(workout),
         sourceName: workout.sourceName,
         sourceBundleIdentifier: workout.sourceBundleIdentifier,
         importedAt: now,
@@ -288,6 +278,7 @@ export const listImportedWorkouts = query({
       .slice(0, limit)
       .map((workout) => ({
         ...workout,
+        intervals: normalizeImportedWorkoutIntervals(workout),
         execution: executionSummaryByHealthKitWorkoutId.get(String(workout._id)) ?? null,
       }));
   },

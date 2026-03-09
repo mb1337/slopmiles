@@ -4,6 +4,7 @@ import { getAuthUserId } from "@convex-dev/auth/server";
 import { query } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
+import { hasImportedWorkoutIntervals } from "./healthkitIntervals";
 import { deriveCurrentWeekNumber, isWeekGeneratable } from "./planWeeks";
 import {
   getActivePlan,
@@ -258,7 +259,7 @@ async function listHistoryFeed(
         elevationDescentMeters: workout.elevationDescentMeters,
         status,
         execution,
-        hasIntervals: (workout.intervalChains?.length ?? 0) > 0,
+        hasIntervals: hasImportedWorkoutIntervals(workout),
       };
     });
 

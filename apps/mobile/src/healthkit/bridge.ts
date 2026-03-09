@@ -18,6 +18,8 @@ import {
 } from "@slopmiles/domain";
 import { Platform } from "react-native";
 
+import { buildMarkerBoundedIntervals } from "./intervalMarkers";
+
 export type HealthKitAuthorizationStatus = "authorized" | "denied" | "notDetermined" | "unavailable";
 
 export type HealthKitPermissionResult = {
@@ -39,13 +41,12 @@ export type HealthKitImportedWorkout = {
   elevationDescentMeters?: number;
   averageHeartRate?: number;
   maxHeartRate?: number;
-  intervalChains?: HealthKitWorkoutIntervalChain[];
+  intervals?: HealthKitWorkoutInterval[];
   sourceName?: string;
   sourceBundleIdentifier?: string;
 };
 
 export type HealthKitWorkoutInterval = {
-  type: "lap" | "segment";
   startedAt: number;
   endedAt: number;
   durationSeconds: number;
@@ -56,16 +57,6 @@ export type HealthKitWorkoutInterval = {
   elevationAscentMeters?: number;
   elevationDescentMeters?: number;
   averageHeartRate?: number;
-};
-
-export type HealthKitWorkoutIntervalChain = {
-  chainIndex: number;
-  startedAt: number;
-  endedAt: number;
-  durationSeconds: number;
-  intervalCount: number;
-  distanceMeters?: number;
-  intervals: HealthKitWorkoutInterval[];
 };
 
 export type HealthKitSeedPayload = {
@@ -183,16 +174,8 @@ type WorkoutProxy = Awaited<ReturnType<typeof queryWorkoutSamples>>[number];
 type RouteGapAnalysis = NonNullable<ReturnType<typeof analyzeRouteForGap>>;
 type RouteLocationForGap = Parameters<typeof analyzeRouteForGap>[0][number];
 
-function resolveEventIntervalType(eventType: WorkoutEventType): HealthKitWorkoutInterval["type"] | null {
-  if (eventType === WorkoutEventType.lap) {
-    return "lap";
-  }
-
-  if (eventType === WorkoutEventType.segment) {
-    return "segment";
-  }
-
-  return null;
+function isMarkerEventType(eventType: WorkoutEventType): boolean {
+  return eventType === WorkoutEventType.marker;
 }
 
 function resolveWorkoutDurationSeconds(workout: WorkoutProxy): number {
@@ -373,30 +356,28 @@ async function resolveWorkoutIntervals(
     return undefined;
   }
 
-  const intervalEvents = [...events]
-    .filter((event) => resolveEventIntervalType(event.type) !== null)
+  const markerEvents = [...events]
+    .filter((event) => isMarkerEventType(event.type))
     .sort((left, right) => left.startDate.getTime() - right.startDate.getTime());
 
-  if (intervalEvents.length === 0) {
+  if (markerEvents.length === 0) {
+    return undefined;
+  }
+
+  const markerBoundaries = buildMarkerBoundedIntervals({
+    workoutStartedAt: workout.startDate.getTime(),
+    workoutEndedAt: workout.endDate.getTime(),
+    markerTimestamps: markerEvents.map((event) => event.startDate.getTime()),
+  });
+  if (markerBoundaries.length <= 1) {
     return undefined;
   }
 
   const distanceSlices = await resolveWorkoutDistanceSlices(workout);
 
   const intervals = await Promise.all(
-    intervalEvents.map(async (event) => {
-      const type = resolveEventIntervalType(event.type);
-      if (!type) {
-        return null;
-      }
-
-      const startedAt = event.startDate.getTime();
-      const endedAt = event.endDate.getTime();
-      if (endedAt <= startedAt) {
-        return null;
-      }
-
-      const averageHeartRate = await queryIntervalStats(workout, event.startDate, event.endDate);
+    markerBoundaries.map(async ({ startedAt, endedAt }) => {
+      const averageHeartRate = await queryIntervalStats(workout, new Date(startedAt), new Date(endedAt));
       const distanceMeters = resolveIntervalDistanceMeters(distanceSlices, startedAt, endedAt);
       const gapAggregate = routeGapAnalysis
         ? aggregateGapMicroSegmentsForInterval(routeGapAnalysis.microSegments, startedAt, endedAt)
@@ -405,7 +386,6 @@ async function resolveWorkoutIntervals(
         gapAggregate?.rawPaceSecondsPerMeter ?? calculatePaceSecondsPerMeter(Math.round((endedAt - startedAt) / 1000), distanceMeters);
 
       return {
-        type,
         startedAt,
         endedAt,
         durationSeconds: Math.round((endedAt - startedAt) / 1000),
@@ -438,126 +418,6 @@ async function resolveWorkoutIntervals(
   return validIntervals.length > 0 ? validIntervals : undefined;
 }
 
-function buildIntervalChain(chainIndex: number, intervals: HealthKitWorkoutInterval[]): HealthKitWorkoutIntervalChain {
-  const startedAt = intervals[0]?.startedAt ?? 0;
-  const endedAt = intervals[intervals.length - 1]?.endedAt ?? startedAt;
-  let distanceMetersTotal = 0;
-  let hasDistance = false;
-
-  for (const interval of intervals) {
-    if (typeof interval.distanceMeters === "number") {
-      distanceMetersTotal += interval.distanceMeters;
-      hasDistance = true;
-    }
-  }
-
-  return {
-    chainIndex,
-    startedAt,
-    endedAt,
-    durationSeconds: Math.max(0, Math.round((endedAt - startedAt) / 1000)),
-    intervalCount: intervals.length,
-    ...(hasDistance ? { distanceMeters: distanceMetersTotal } : {}),
-    intervals,
-  };
-}
-
-function resolveWorkoutIntervalChains(
-  intervals: HealthKitWorkoutInterval[] | undefined,
-): HealthKitWorkoutIntervalChain[] | undefined {
-  if (!intervals || intervals.length === 0) {
-    return undefined;
-  }
-
-  const orderedIntervals = [...intervals].sort((left, right) => {
-    if (left.startedAt !== right.startedAt) {
-      return left.startedAt - right.startedAt;
-    }
-    if (left.endedAt !== right.endedAt) {
-      return left.endedAt - right.endedAt;
-    }
-    if (left.type !== right.type) {
-      return left.type < right.type ? -1 : 1;
-    }
-    return left.durationSeconds - right.durationSeconds;
-  });
-
-  const endedAtSet = new Set<number>(orderedIntervals.map((interval) => interval.endedAt));
-  const chains: HealthKitWorkoutIntervalChain[] = [];
-
-  const usedIndices = new Set<number>();
-
-  const rootIndices: number[] = [];
-  for (let index = 0; index < orderedIntervals.length; index += 1) {
-    const interval = orderedIntervals[index]!;
-    if (!endedAtSet.has(interval.startedAt)) {
-      rootIndices.push(index);
-    }
-  }
-
-  const findNextIndex = (endedAt: number): number | null => {
-    let nextIndex: number | null = null;
-
-    for (let index = 0; index < orderedIntervals.length; index += 1) {
-      if (usedIndices.has(index)) {
-        continue;
-      }
-
-      const candidate = orderedIntervals[index]!;
-      if (candidate.startedAt !== endedAt) {
-        continue;
-      }
-
-      if (nextIndex === null) {
-        nextIndex = index;
-        continue;
-      }
-
-      const currentBest = orderedIntervals[nextIndex]!;
-      if (candidate.endedAt < currentBest.endedAt) {
-        nextIndex = index;
-      }
-    }
-
-    return nextIndex;
-  };
-
-  const consumeFrom = (startIndex: number) => {
-    if (usedIndices.has(startIndex)) {
-      return;
-    }
-
-    const chainIntervals: HealthKitWorkoutInterval[] = [];
-    let currentIndex: number | null = startIndex;
-
-    while (currentIndex !== null) {
-      if (usedIndices.has(currentIndex)) {
-        break;
-      }
-
-      const currentInterval = orderedIntervals[currentIndex]!;
-      chainIntervals.push(currentInterval);
-      usedIndices.add(currentIndex);
-
-      currentIndex = findNextIndex(currentInterval.endedAt);
-    }
-
-    if (chainIntervals.length > 0) {
-      chains.push(buildIntervalChain(chains.length + 1, chainIntervals));
-    }
-  };
-
-  for (const rootIndex of rootIndices) {
-    consumeFrom(rootIndex);
-  }
-
-  for (let index = 0; index < orderedIntervals.length; index += 1) {
-    consumeFrom(index);
-  }
-
-  return chains.length > 0 ? chains : undefined;
-}
-
 async function serializeWorkout(workout: WorkoutProxy): Promise<HealthKitImportedWorkout> {
   const durationSeconds = resolveWorkoutDurationSeconds(workout);
   const [heartRateStats, distanceMeters, routeLocations] = await Promise.all([
@@ -567,7 +427,6 @@ async function serializeWorkout(workout: WorkoutProxy): Promise<HealthKitImporte
   ]);
   const routeGapAnalysis = resolveRouteGapAnalysis(routeLocations, workout);
   const intervals = await resolveWorkoutIntervals(workout, routeGapAnalysis);
-  const intervalChains = resolveWorkoutIntervalChains(intervals);
   const rawPaceSecondsPerMeter = calculatePaceSecondsPerMeter(durationSeconds, distanceMeters);
   const elevationFromMetadata = resolveWorkoutElevationFromMetadata(workout);
 
@@ -596,7 +455,7 @@ async function serializeWorkout(workout: WorkoutProxy): Promise<HealthKitImporte
         : {}),
     averageHeartRate: heartRateStats.averageHeartRate,
     maxHeartRate: heartRateStats.maxHeartRate,
-    intervalChains,
+    intervals,
     sourceName: workout.sourceRevision.source.name,
     sourceBundleIdentifier: workout.sourceRevision.source.bundleIdentifier,
   } satisfies HealthKitImportedWorkout;

@@ -6,6 +6,7 @@ import {
   resolveActualPaceMetrics,
   type SegmentComparison,
 } from "./workoutMetrics";
+import { hasImportedWorkoutIntervals, normalizeImportedWorkoutIntervals } from "./healthkitIntervals";
 
 type ReaderCtx = {
   db: DatabaseReader;
@@ -98,14 +99,7 @@ function formatModifier(modifier: Doc<"workoutExecutions">["modifiers"][number])
 }
 
 function flattenImportedIntervals(workout: Doc<"healthKitWorkouts">) {
-  return (workout.intervalChains ?? [])
-    .flatMap((chain) => chain.intervals)
-    .sort((left, right) => {
-      if (left.startedAt !== right.startedAt) {
-        return left.startedAt - right.startedAt;
-      }
-      return left.endedAt - right.endedAt;
-    });
+  return normalizeImportedWorkoutIntervals(workout);
 }
 
 function buildSegmentComparisons(
@@ -166,7 +160,7 @@ function describeTerrainContext(importedWorkout: Doc<"healthKitWorkouts">): stri
 }
 
 function isStructuredImportedWorkout(workout: Doc<"healthKitWorkouts">): boolean {
-  return (workout.intervalChains?.length ?? 0) > 0;
+  return hasImportedWorkoutIntervals(workout);
 }
 
 function isEligibleCandidateType(
@@ -926,7 +920,7 @@ export async function getExecutionDetailRecord(
       elevationDescentMeters: importedWorkout.elevationDescentMeters,
       averageHeartRate: importedWorkout.averageHeartRate,
       maxHeartRate: importedWorkout.maxHeartRate,
-      intervalChains: importedWorkout.intervalChains,
+      intervals: normalizeImportedWorkoutIntervals(importedWorkout),
       sourceName: importedWorkout.sourceName,
       sourceBundleIdentifier: importedWorkout.sourceBundleIdentifier,
     },

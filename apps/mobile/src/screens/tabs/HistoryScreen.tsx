@@ -130,34 +130,27 @@ export function HistoryScreen({
               </SectionCard>
             )}
 
-            {selectedWorkout.intervalChains?.length ? (
-              <SectionCard title="Segment analysis" description="Expanded detail stays below the summary and match actions.">
-                {selectedWorkout.intervalChains.map((chain) => (
-                  <View key={`${String(selectedWorkout._id)}-${chain.chainIndex}`} style={styles.historyChainBlock}>
-                    <Text style={styles.historyChainTitle}>Chain {chain.chainIndex}</Text>
-                    <Text style={styles.helperText}>
-                      {chain.intervalCount} intervals · {formatDurationClock(chain.durationSeconds)} ·{" "}
-                      {formatDistanceForDisplay(chain.distanceMeters, unitPreference)}
-                    </Text>
-                    {chain.intervals.map((interval, index) => (
-                      <View
-                        key={`${String(selectedWorkout._id)}-${chain.chainIndex}-${interval.startedAt}-${index}`}
-                        style={styles.historyIntervalRow}
-                      >
-                        <Text style={styles.historyIntervalLabel}>{interval.type === "lap" ? "Lap" : "Segment"} {index + 1}</Text>
-                        <View style={{ flex: 1 }}>
-                          <Text style={styles.historyIntervalValue}>
-                            {formatDistanceForDisplay(interval.distanceMeters, unitPreference)} ·{" "}
-                            {formatDurationClock(interval.durationSeconds)}
-                          </Text>
-                          <Text style={styles.helperText}>
-                            Pace {formatPaceSecondsPerMeterForDisplay(interval.rawPaceSecondsPerMeter ?? undefined, unitPreference)}
-                          </Text>
-                        </View>
+            {selectedWorkout.intervals?.length ? (
+              <SectionCard title="Segment analysis" description="Intervals are shown as one ordered sequence.">
+                <View style={styles.historyIntervalList}>
+                  {selectedWorkout.intervals.map((interval, index) => (
+                    <View
+                      key={`${String(selectedWorkout._id)}-${interval.startedAt}-${interval.endedAt}-${index}`}
+                      style={styles.historyIntervalRow}
+                    >
+                      <Text style={styles.historyIntervalLabel}>{`Segment ${index + 1}`}</Text>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.historyIntervalValue}>
+                          {formatDistanceForDisplay(interval.distanceMeters, unitPreference)} ·{" "}
+                          {formatDurationClock(interval.durationSeconds)}
+                        </Text>
+                        <Text style={styles.helperText}>
+                          Pace {formatPaceSecondsPerMeterForDisplay(interval.rawPaceSecondsPerMeter ?? undefined, unitPreference)}
+                        </Text>
                       </View>
-                    ))}
-                  </View>
-                ))}
+                    </View>
+                  ))}
+                </View>
               </SectionCard>
             ) : null}
           </>
