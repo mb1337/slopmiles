@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useMutation, useQuery } from "convex/react";
+import { useMutation, usePaginatedQuery, useQuery } from "convex/react";
 import {
   formatDateKeyForDisplay as formatDateKey,
   formatDateTimeForDisplay as formatDateTime,
@@ -54,6 +54,13 @@ import {
 
 function formatRaceTime(seconds: number | null | undefined) {
   return typeof seconds === "number" ? formatDuration(seconds) : "-";
+}
+
+const WEB_TIME_BUCKET_MS = 15 * 60 * 1000;
+const WEB_HISTORY_PAGE_SIZE = 10;
+
+function getWebTimeBucketMs() {
+  return Math.floor(Date.now() / WEB_TIME_BUCKET_MS) * WEB_TIME_BUCKET_MS;
 }
 
 export function OnboardingPage({
@@ -531,7 +538,16 @@ export function OnboardingPage({
 }
 
 export function DashboardPage({ session }: { session: SessionData }) {
-  const dashboard = useQuery(api.companion.getDashboardView, {});
+  const [nowBucketMs, setNowBucketMs] = useState(getWebTimeBucketMs);
+  const dashboard = useQuery(api.companion.getDashboardView, { nowBucketMs });
+
+  useEffect(() => {
+    const intervalId = setInterval(() => {
+      setNowBucketMs(getWebTimeBucketMs());
+    }, 60 * 1000);
+
+    return () => clearInterval(intervalId);
+  }, []);
 
   const progressPercent = dashboard?.weekProgress
     ? Math.round(
@@ -709,7 +725,8 @@ export function PlanPage({
   session: SessionData;
   onRefresh: () => Promise<void>;
 }) {
-  const planView = useQuery(api.companion.getPlanView, {});
+  const [nowBucketMs, setNowBucketMs] = useState(getWebTimeBucketMs);
+  const planView = useQuery(api.companion.getPlanView, { nowBucketMs });
   const requestPlanGeneration = useMutation(api.coach.requestPlanGeneration);
   const createPlanFromGeneration = useMutation(api.coach.createPlanFromGeneration);
   const activateDraftPlan = useMutation(api.plans.activateDraftPlan);
@@ -752,6 +769,14 @@ export function PlanPage({
     useState<DistanceUnitOption>("kilometers");
   const [raceGoalTime, setRaceGoalTime] = useState("");
   const [showCreateDraft, setShowCreateDraft] = useState(true);
+
+  useEffect(() => {
+    const intervalId = setInterval(() => {
+      setNowBucketMs(getWebTimeBucketMs());
+    }, 60 * 1000);
+
+    return () => clearInterval(intervalId);
+  }, []);
 
   const run = async (task: () => Promise<unknown>, success?: string) => {
     setStatus(null);
@@ -1479,11 +1504,12 @@ export function PlanPage({
 export function WeekPage({ session }: { session: SessionData }) {
   const params = useParams();
   const weekNumber = Number(params.weekNumber ?? "1");
-  const planView = useQuery(api.companion.getPlanView, {});
+  const [nowBucketMs, setNowBucketMs] = useState(getWebTimeBucketMs);
+  const planView = useQuery(api.companion.getPlanView, { nowBucketMs });
   const planId = planView?.activePlan?._id ?? planView?.draftPlans[0]?._id;
   const week = useQuery(
     api.companion.getWeekView,
-    planId ? { planId, weekNumber } : "skip",
+    planId ? { planId, weekNumber, nowBucketMs } : "skip",
   );
   const saveWeekAvailabilityOverride = useMutation(
     api.companion.saveWeekAvailabilityOverride,
@@ -1500,6 +1526,14 @@ export function WeekPage({ session }: { session: SessionData }) {
   const [note, setNote] = useState("");
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const intervalId = setInterval(() => {
+      setNowBucketMs(getWebTimeBucketMs());
+    }, 60 * 1000);
+
+    return () => clearInterval(intervalId);
+  }, []);
 
   useEffect(() => {
     if (!week?.week.availabilityOverride) {
@@ -2021,8 +2055,24 @@ export function HistoryPage({ session }: { session: SessionData }) {
   const [filter, setFilter] = useState<"all" | "matched" | "needsReview" | "unplanned">(
     "all",
   );
-  const history = useQuery(api.companion.getHistoryView, { filter });
-  const firstNeedsReview = history?.items.find((item) => item.status === "needsReview");
+  const historyCounts = useQuery(api.history.getFeedCounts, {});
+  const historyFeed = usePaginatedQuery(
+    api.history.listFeedPage,
+    { filter },
+    { initialNumItems: WEB_HISTORY_PAGE_SIZE },
+  );
+  const totalItemsForFilter =
+    filter === "all"
+      ? (historyCounts?.matched ?? 0) +
+        (historyCounts?.needsReview ?? 0) +
+        (historyCounts?.unplanned ?? 0)
+      : filter === "matched"
+        ? (historyCounts?.matched ?? 0)
+        : filter === "needsReview"
+          ? (historyCounts?.needsReview ?? 0)
+          : (historyCounts?.unplanned ?? 0);
+  const isLoadingMore = historyFeed.status === "LoadingMore";
+  const canLoadMore = historyFeed.status === "CanLoadMore";
 
   return (
     <Screen
@@ -2035,8 +2085,8 @@ export function HistoryPage({ session }: { session: SessionData }) {
           matching, and adding context once the data is synced.
         </p>
       </Card>
-      {!history ? <StatusMessage message="Loading history…" /> : null}
-      {history ? (
+      {historyFeed.status === "LoadingFirstPage" ? <StatusMessage message="Loading history…" /> : null}
+      {historyCounts ? (
         <>
           <div className="two-column">
             <Card title="Filters" eyebrow="Feed">
@@ -2054,30 +2104,28 @@ export function HistoryPage({ session }: { session: SessionData }) {
               </div>
               <div className="mini-metrics">
                 <div className="mini-stat">
-                  <strong>{history.counts.matched}</strong>
+                  <strong>{historyCounts.matched}</strong>
                   <span>matched</span>
                 </div>
                 <div className="mini-stat">
-                  <strong>{history.counts.needsReview}</strong>
+                  <strong>{historyCounts.needsReview}</strong>
                   <span>needs review</span>
                 </div>
                 <div className="mini-stat">
-                  <strong>{history.counts.unplanned}</strong>
+                  <strong>{historyCounts.unplanned}</strong>
                   <span>unplanned</span>
                 </div>
               </div>
             </Card>
 
             <Card title="Priority" eyebrow="Fix first">
-              {firstNeedsReview ? (
+              {(historyCounts.needsReview ?? 0) > 0 ? (
                 <div className="stack">
                   <p>
                     You have runs waiting for match review. Clear those first so the
                     plan and coach feedback stay accurate.
                   </p>
-                  <ActionLink to={`/history/${String(firstNeedsReview._id)}`}>
-                    Review next unmatched run
-                  </ActionLink>
+                  <Button onClick={() => setFilter("needsReview")}>Show needs review</Button>
                 </div>
               ) : (
                 <p>No runs currently need review.</p>
@@ -2086,9 +2134,9 @@ export function HistoryPage({ session }: { session: SessionData }) {
           </div>
 
           <Card title="Recent runs" eyebrow="Feed items">
-            {history.items.length ? (
+            {historyFeed.results.length ? (
               <div className="stack">
-                {history.items.map((workout) => (
+                {historyFeed.results.map((workout) => (
                   <Link
                     className="row-card link-card"
                     key={String(workout._id)}
@@ -2107,8 +2155,16 @@ export function HistoryPage({ session }: { session: SessionData }) {
                     <span className="pill">{formatFriendlyLabel(workout.status)}</span>
                   </Link>
                 ))}
+                {canLoadMore ? (
+                  <Button disabled={isLoadingMore} onClick={() => historyFeed.loadMore(WEB_HISTORY_PAGE_SIZE)}>
+                    {isLoadingMore ? "Loading next 10…" : "Load next 10"}
+                  </Button>
+                ) : null}
+                {historyFeed.status === "Exhausted" && totalItemsForFilter > 0 ? (
+                  <p>{`Showing all ${historyFeed.results.length} workouts for this filter.`}</p>
+                ) : null}
               </div>
-            ) : (
+            ) : historyFeed.status === "LoadingFirstPage" ? null : (
               <p>No workouts match the current filter.</p>
             )}
           </Card>
@@ -2287,12 +2343,21 @@ export function HistoryWorkoutPage({ session }: { session: SessionData }) {
 }
 
 export function CoachPage() {
-  const coachView = useQuery(api.companion.getCoachView, {});
+  const [nowBucketMs, setNowBucketMs] = useState(getWebTimeBucketMs);
+  const coachView = useQuery(api.companion.getCoachView, { nowBucketMs });
   const sendCoachMessage = useMutation(api.coach.sendCoachMessage);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const intervalId = setInterval(() => {
+      setNowBucketMs(getWebTimeBucketMs());
+    }, 60 * 1000);
+
+    return () => clearInterval(intervalId);
+  }, []);
 
   const runSend = async (body?: string) => {
     const nextBody = (body ?? draft).trim();
@@ -2432,7 +2497,6 @@ export function SettingsPage({
   onRefresh: () => Promise<void>;
 }) {
   const settings = useQuery(api.companion.getSettingsView, {});
-  const planView = useQuery(api.companion.getPlanView, {});
   const updateName = useMutation(api.users.updateName);
   const updateUnitPreference = useMutation(api.users.updateUnitPreference);
   const updateVolumePreference = useMutation(api.users.updateVolumePreference);
@@ -3011,7 +3075,7 @@ export function SettingsPage({
                   <Field label="Attach to active plan">
                     <select defaultValue="no" disabled>
                       <option value="no">
-                        {planView?.activePlan ? "Add from Plan page instead" : "No active plan"}
+                        {settings.hasActivePlan ? "Add from Plan page instead" : "No active plan"}
                       </option>
                     </select>
                   </Field>

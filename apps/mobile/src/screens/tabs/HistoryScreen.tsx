@@ -69,11 +69,11 @@ export function HistoryScreen({
   const HISTORY_PAGE_SIZE = 10;
   const [filter, setFilter] = useState<"all" | "matched" | "needsReview" | "unplanned">("all");
   const historyCounts = useQuery(
-    api.mobileUx.getHistoryFeedCounts,
+    api.history.getFeedCounts,
     route.screen === "feed" ? {} : "skip",
   );
   const historyFeed = usePaginatedQuery(
-    api.mobileUx.listHistoryFeedPage,
+    api.history.listFeedPage,
     route.screen === "feed"
       ? {
           filter,

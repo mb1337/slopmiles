@@ -427,5 +427,6 @@ export default defineSchema({
     createdAt: v.number(),
   })
     .index("by_plan_id", ["planId"])
-    .index("by_user_id", ["userId"]),
+    .index("by_user_id", ["userId"])
+    .index("by_user_id_created_at", ["userId", "createdAt"]),
 });

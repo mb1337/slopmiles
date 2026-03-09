@@ -1,10 +1,12 @@
 import { v } from "convex/values";
 import { getAuthUserId } from "@convex-dev/auth/server";
-
 import { mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { deriveCurrentWeekNumber, isWeekGeneratable } from "./planWeeks";
-import { getExecutionDetailRecord, listExecutionSummariesByHealthKitWorkoutId, listExecutionSummariesByPlannedWorkoutId } from "./workoutExecutionHelpers";
+import {
+  getExecutionDetailRecord,
+  listPlannedWorkoutExecutionStatusesByPlanId,
+} from "./workoutExecutionHelpers";
 import { addDays, dateKeyFromEpochMs, type DateKey } from "../packages/domain/src/calendar";
 import {
   distanceUnits,
@@ -77,10 +79,12 @@ function formatPlannedVolume(plan: Doc<"trainingPlans">, absoluteVolume: number)
 async function loadActivePlan(ctx: QueryCtx | MutationCtx, userId: Id<"users">) {
   const plans = await ctx.db
     .query("trainingPlans")
-    .withIndex("by_user_id", (queryBuilder) => queryBuilder.eq("userId", userId))
-    .collect();
+    .withIndex("by_user_id_status", (queryBuilder) =>
+      queryBuilder.eq("userId", userId).eq("status", "active"),
+    )
+    .take(1);
 
-  return plans.find((plan) => plan.status === "active") ?? null;
+  return plans[0] ?? null;
 }
 
 async function loadPlanGoal(ctx: QueryCtx | MutationCtx, plan: Doc<"trainingPlans"> | null) {
@@ -102,6 +106,62 @@ async function loadPlanWeek(
       queryBuilder.eq("planId", planId).eq("weekNumber", Math.round(weekNumber)),
     )
     .unique();
+}
+
+async function getLatestCoachMessage(ctx: QueryCtx, userId: Id<"users">) {
+  const messages = await ctx.db
+    .query("coachMessages")
+    .withIndex("by_user_id_author_created_at", (queryBuilder) =>
+      queryBuilder.eq("userId", userId).eq("author", "coach"),
+    )
+    .order("desc")
+    .take(1);
+
+  return messages[0] ?? null;
+}
+
+async function getLatestPlanGenerationRequest(ctx: QueryCtx, userId: Id<"users">) {
+  const requests = await ctx.db
+    .query("aiRequests")
+    .withIndex("by_user_id_call_type_created_at", (queryBuilder) =>
+      queryBuilder.eq("userId", userId).eq("callType", "planGeneration"),
+    )
+    .order("desc")
+    .take(1);
+
+  return requests[0] ?? null;
+}
+
+async function getLatestPlanAssessment(ctx: QueryCtx, userId: Id<"users">) {
+  const assessments = await ctx.db
+    .query("planAssessments")
+    .withIndex("by_user_id_created_at", (queryBuilder) => queryBuilder.eq("userId", userId))
+    .order("desc")
+    .take(1);
+
+  return assessments[0] ?? null;
+}
+
+async function getLatestWeekDetailGenerationRequest(args: {
+  ctx: QueryCtx;
+  userId: Id<"users">;
+  planId: Id<"trainingPlans">;
+  weekNumber: number;
+}) {
+  const requests = await args.ctx.db
+    .query("aiRequests")
+    .withIndex("by_user_id_call_type_created_at", (queryBuilder) =>
+      queryBuilder.eq("userId", args.userId).eq("callType", "weekDetailGeneration"),
+    )
+    .order("desc")
+    .take(50);
+
+  return (
+    requests.find((request) => {
+      const input = request.input as { planId?: Id<"trainingPlans">; weekNumber?: number } | undefined;
+      return input?.planId === args.planId && input?.weekNumber === args.weekNumber;
+    }) ?? null
+  );
 }
 
 function normalizeAvailabilityOverride(
@@ -175,22 +235,23 @@ export const getSessionState = query({
 });
 
 export const getDashboardView = query({
-  args: {},
-  handler: async (ctx) => {
+  args: {
+    nowBucketMs: v.number(),
+  },
+  handler: async (ctx, args) => {
     const userId = await requireAuthenticatedUserId(ctx);
-    const [user, activePlan, messages] = await Promise.all([
+    const [user, activePlan, latestCoachMessage] = await Promise.all([
       ctx.db.get(userId),
       loadActivePlan(ctx, userId),
-      ctx.db
-        .query("coachMessages")
-        .withIndex("by_user_id_created_at", (queryBuilder) => queryBuilder.eq("userId", userId))
-        .collect(),
+      getLatestCoachMessage(ctx, userId),
     ]);
 
     const activeGoal = await loadPlanGoal(ctx, activePlan);
+    const currentWeekNumber =
+      activePlan?.startDateKey ? deriveCurrentWeekNumber(activePlan, args.nowBucketMs) : null;
     const currentWeek =
-      activePlan && activePlan.startDateKey
-        ? await loadPlanWeek(ctx, activePlan._id, deriveCurrentWeekNumber(activePlan, Date.now()) ?? 1)
+      activePlan && currentWeekNumber
+        ? await loadPlanWeek(ctx, activePlan._id, currentWeekNumber)
         : null;
     const weekWorkouts = currentWeek
       ? await ctx.db
@@ -198,12 +259,13 @@ export const getDashboardView = query({
           .withIndex("by_week_id_scheduled_date_key", (queryBuilder) => queryBuilder.eq("weekId", currentWeek._id))
           .collect()
       : [];
-    const executionByWorkoutId = await listExecutionSummariesByPlannedWorkoutId(ctx, userId);
+    const executionStatusResult =
+      activePlan ? await listPlannedWorkoutExecutionStatusesByPlanId(ctx, activePlan._id) : null;
+    const executionByWorkoutId = executionStatusResult?.byPlannedWorkoutId ?? new Map();
     const nextWorkout =
       weekWorkouts
         .sort((left, right) => left.scheduledDateKey.localeCompare(right.scheduledDateKey))
-        .find((workout) => (executionByWorkoutId.get(String(workout._id))?.matchStatus ?? "unmatched") !== "matched") ?? null;
-    const latestCoachMessage = [...messages].reverse().find((message) => message.author === "coach") ?? null;
+        .find((workout) => executionByWorkoutId.get(String(workout._id))?.matchStatus !== "matched") ?? null;
     const completedWorkouts = weekWorkouts.filter(
       (workout) => executionByWorkoutId.get(String(workout._id))?.matchStatus === "matched" || workout.status === "completed",
     ).length;
@@ -218,7 +280,7 @@ export const getDashboardView = query({
             _id: activePlan._id,
             goalLabel: activeGoal?.label ?? "Current plan",
             numberOfWeeks: activePlan.numberOfWeeks,
-            currentWeekNumber: deriveCurrentWeekNumber(activePlan, Date.now()),
+            currentWeekNumber,
             peakWeekVolume: activePlan.peakWeekVolume,
             volumeMode: activePlan.volumeMode,
           }
@@ -256,18 +318,17 @@ export const getDashboardView = query({
 });
 
 export const getPlanView = query({
-  args: {},
-  handler: async (ctx) => {
+  args: {
+    nowBucketMs: v.number(),
+  },
+  handler: async (ctx, args) => {
     const userId = await requireAuthenticatedUserId(ctx);
     const [plans, requests] = await Promise.all([
       ctx.db
         .query("trainingPlans")
         .withIndex("by_user_id", (queryBuilder) => queryBuilder.eq("userId", userId))
         .collect(),
-      ctx.db
-        .query("aiRequests")
-        .withIndex("by_user_id", (queryBuilder) => queryBuilder.eq("userId", userId))
-        .collect(),
+      getLatestPlanGenerationRequest(ctx, userId),
     ]);
 
     const sortedPlans = [...plans].sort((left, right) => right.createdAt - left.createdAt);
@@ -298,10 +359,7 @@ export const getPlanView = query({
         ])
       : [null, [], [], [], []];
 
-    const latestProposal =
-      requests
-        .filter((request) => request.callType === "planGeneration")
-        .sort((left, right) => right.createdAt - left.createdAt)[0] ?? null;
+    const latestProposal = requests ?? null;
 
     return {
       activePlan: targetPlan
@@ -311,7 +369,7 @@ export const getPlanView = query({
             goalType: goal?.type ?? "race",
             targetDate: goal?.targetDate ?? null,
             goalTimeSeconds: goal?.goalTimeSeconds ?? null,
-            currentWeekNumber: targetPlan.startDateKey ? deriveCurrentWeekNumber(targetPlan, Date.now()) : null,
+            currentWeekNumber: targetPlan.startDateKey ? deriveCurrentWeekNumber(targetPlan, args.nowBucketMs) : null,
             weeks: weeks
               .sort((left, right) => left.weekNumber - right.weekNumber)
               .map((week) => ({
@@ -342,6 +400,7 @@ export const getWeekView = query({
   args: {
     planId: v.id("trainingPlans"),
     weekNumber: v.number(),
+    nowBucketMs: v.number(),
   },
   handler: async (ctx, args) => {
     const userId = await requireAuthenticatedUserId(ctx);
@@ -355,7 +414,7 @@ export const getWeekView = query({
       throw new Error("Week not found.");
     }
 
-    const [goal, workouts, strengthWorkouts, races, executionByWorkoutId] = await Promise.all([
+    const [goal, workouts, strengthWorkouts, races, executionStatusResult, latestRequest] = await Promise.all([
       ctx.db.get(plan.goalId),
       ctx.db
         .query("workouts")
@@ -369,8 +428,15 @@ export const getWeekView = query({
         .query("races")
         .withIndex("by_plan_id", (queryBuilder) => queryBuilder.eq("planId", plan._id))
         .collect(),
-      listExecutionSummariesByPlannedWorkoutId(ctx, userId),
+      listPlannedWorkoutExecutionStatusesByPlanId(ctx, plan._id),
+      getLatestWeekDetailGenerationRequest({
+        ctx,
+        userId,
+        planId: plan._id,
+        weekNumber: week.weekNumber,
+      }),
     ]);
+    const executionByWorkoutId = executionStatusResult.byPlannedWorkoutId;
 
     return {
       plan: {
@@ -378,13 +444,20 @@ export const getWeekView = query({
         goalLabel: goal?.label ?? "Current plan",
         status: plan.status,
         volumeMode: plan.volumeMode,
-        currentWeekNumber: plan.startDateKey ? deriveCurrentWeekNumber(plan, Date.now()) : null,
+        currentWeekNumber: plan.startDateKey ? deriveCurrentWeekNumber(plan, args.nowBucketMs) : null,
       },
       week: {
         ...week,
         availabilityOverride: normalizeAvailabilityOverride(week.availabilityOverride),
       },
-      canGenerate: plan.status === "active" ? isWeekGeneratable(plan, week.weekNumber, Date.now()) : false,
+      canGenerate: plan.status === "active" ? isWeekGeneratable(plan, week.weekNumber, args.nowBucketMs) : false,
+      latestRequest: latestRequest
+        ? {
+            _id: latestRequest._id,
+            status: latestRequest.status,
+            errorMessage: latestRequest.errorMessage,
+          }
+        : null,
       workouts: workouts
         .sort((left, right) => left.scheduledDateKey.localeCompare(right.scheduledDateKey))
         .map((workout) => ({
@@ -449,48 +522,6 @@ export const getWorkoutView = query({
   },
 });
 
-export const getHistoryView = query({
-  args: {
-    filter: v.optional(v.union(v.literal("all"), v.literal("matched"), v.literal("needsReview"), v.literal("unplanned"))),
-  },
-  handler: async (ctx, args) => {
-    const userId = await requireAuthenticatedUserId(ctx);
-    const workouts = await ctx.db
-      .query("healthKitWorkouts")
-      .withIndex("by_user_id", (queryBuilder) => queryBuilder.eq("userId", userId))
-      .collect();
-    const executions = await listExecutionSummariesByHealthKitWorkoutId(ctx, userId);
-    const filter = args.filter ?? "all";
-
-    const items = workouts
-      .sort((left, right) => right.startedAt - left.startedAt)
-      .map((workout) => {
-        const execution = executions.get(String(workout._id)) ?? null;
-        const status =
-          execution?.matchStatus === "matched"
-            ? "matched"
-            : execution?.matchStatus === "needsReview"
-              ? "needsReview"
-              : "unplanned";
-
-        return {
-          ...workout,
-          execution,
-          status,
-        };
-      });
-
-    return {
-      counts: {
-        matched: items.filter((item) => item.status === "matched").length,
-        needsReview: items.filter((item) => item.status === "needsReview").length,
-        unplanned: items.filter((item) => item.status === "unplanned").length,
-      },
-      items: items.filter((item) => filter === "all" || item.status === filter),
-    };
-  },
-});
-
 export const getHistoryWorkoutView = query({
   args: {
     healthKitWorkoutId: v.id("healthKitWorkouts"),
@@ -516,19 +547,19 @@ export const getHistoryWorkoutView = query({
 });
 
 export const getCoachView = query({
-  args: {},
-  handler: async (ctx) => {
+  args: {
+    nowBucketMs: v.number(),
+  },
+  handler: async (ctx, args) => {
     const userId = await requireAuthenticatedUserId(ctx);
-    const [messages, activePlan, assessments, user] = await Promise.all([
+    const [messages, activePlan, latestAssessment, user] = await Promise.all([
       ctx.db
         .query("coachMessages")
         .withIndex("by_user_id_created_at", (queryBuilder) => queryBuilder.eq("userId", userId))
-        .collect(),
+        .order("desc")
+        .take(60),
       loadActivePlan(ctx, userId),
-      ctx.db
-        .query("planAssessments")
-        .withIndex("by_user_id", (queryBuilder) => queryBuilder.eq("userId", userId))
-        .collect(),
+      getLatestPlanAssessment(ctx, userId),
       ctx.db.get(userId),
     ]);
 
@@ -539,14 +570,12 @@ export const getCoachView = query({
         ? {
             _id: activePlan._id,
             goalLabel: goal?.label ?? "Current plan",
-            currentWeekNumber: activePlan.startDateKey ? deriveCurrentWeekNumber(activePlan, Date.now()) : null,
+            currentWeekNumber: activePlan.startDateKey ? deriveCurrentWeekNumber(activePlan, args.nowBucketMs) : null,
           }
         : null,
       currentVDOT: user?.currentVDOT ?? null,
-      messages: messages
-        .sort((left, right) => left.createdAt - right.createdAt)
-        .slice(-60),
-      latestAssessment: assessments.sort((left, right) => right.createdAt - left.createdAt)[0] ?? null,
+      messages: [...messages].reverse(),
+      latestAssessment: latestAssessment ?? null,
     };
   },
 });
@@ -555,7 +584,7 @@ export const getSettingsView = query({
   args: {},
   handler: async (ctx) => {
     const userId = await requireAuthenticatedUserId(ctx);
-    const [user, runningSchedule, competitiveness, personality, courses, races] = await Promise.all([
+    const [user, runningSchedule, competitiveness, personality, courses, races, activePlan] = await Promise.all([
       ctx.db.get(userId),
       ctx.db
         .query("runningSchedules")
@@ -577,6 +606,7 @@ export const getSettingsView = query({
         .query("races")
         .withIndex("by_user_id", (queryBuilder) => queryBuilder.eq("userId", userId))
         .collect(),
+      loadActivePlan(ctx, userId),
     ]);
 
     return {
@@ -588,6 +618,7 @@ export const getSettingsView = query({
         enabled: user?.strengthTrainingEnabled ?? false,
         equipment: user?.strengthEquipment ?? [],
       },
+      hasActivePlan: activePlan !== null,
       courses: courses.sort((left, right) => left.name.localeCompare(right.name)),
       races: races.sort((left, right) => right.plannedDate - left.plannedDate),
     };
