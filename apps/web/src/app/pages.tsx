@@ -1,6 +1,11 @@
 import { useEffect, useState } from "react";
 import { useMutation, usePaginatedQuery, useQuery } from "convex/react";
 import {
+  SETTINGS_COMPONENT_CAPABILITIES,
+  type CoachInboxView,
+  type DashboardPendingAction,
+} from "@slopmiles/component-contracts";
+import {
   formatDateKeyForDisplay as formatDateKey,
   formatDateTimeForDisplay as formatDateTime,
   formatDistanceForDisplay as formatDistance,
@@ -539,7 +544,7 @@ export function OnboardingPage({
 
 export function DashboardPage({ session }: { session: SessionData }) {
   const [nowBucketMs, setNowBucketMs] = useState(getWebTimeBucketMs);
-  const dashboard = useQuery(api.companion.getDashboardView, { nowBucketMs });
+  const dashboard = useQuery(api.dashboard.getDashboardView, { nowBucketMs });
 
   useEffect(() => {
     const intervalId = setInterval(() => {
@@ -571,7 +576,7 @@ export function DashboardPage({ session }: { session: SessionData }) {
               {dashboard.activePlan ? (
                 <div className="stack">
                   <div className="inset">
-                    <strong>{dashboard.activePlan.goalLabel}</strong>
+                    <strong>{dashboard.activePlan.label}</strong>
                     <p>
                       Week {dashboard.activePlan.currentWeekNumber ?? "—"} of{" "}
                       {dashboard.activePlan.numberOfWeeks}
@@ -618,17 +623,21 @@ export function DashboardPage({ session }: { session: SessionData }) {
               {dashboard.nextWorkout ? (
                 <div className="stack">
                   <div>
-                    <strong>{dashboard.nextWorkout.title}</strong>
+                    <strong>{formatWorkoutType(dashboard.nextWorkout.type)}</strong>
                     <p>
                       {formatDateKey(dashboard.nextWorkout.scheduledDateKey)}
                       {" · "}
-                      {dashboard.nextWorkout.absoluteVolumeLabel}
+                      {formatVolume(
+                        dashboard.activePlan?.volumeMode ?? session.user.volumePreference,
+                        dashboard.nextWorkout.absoluteVolume,
+                        session.user.unitPreference,
+                      )}
                     </p>
                   </div>
-                  {dashboard.nextWorkout.notes ? (
+                  {dashboard.nextWorkout.venue ? (
                     <div className="inset">
-                      <strong>Coach note</strong>
-                      <p>{dashboard.nextWorkout.notes}</p>
+                      <strong>Venue</strong>
+                      <p>{dashboard.nextWorkout.venue}</p>
                     </div>
                   ) : null}
                   <ActionLink
@@ -675,22 +684,22 @@ export function DashboardPage({ session }: { session: SessionData }) {
             </Card>
 
             <Card title="VDOT snapshot" eyebrow="Fitness">
-              {typeof dashboard.athlete.currentVDOT === "number" ? (
+              {typeof dashboard.currentVDOT === "number" ? (
                 <div className="stack">
-                  <p>Current VDOT {dashboard.athlete.currentVDOT.toFixed(1)}</p>
+                  <p>Current VDOT {dashboard.currentVDOT.toFixed(1)}</p>
                   <div className="metric-list wrap">
-                    <span>5K {formatRaceTime(projectedRaceTime(dashboard.athlete.currentVDOT, 5000))}</span>
-                    <span>10K {formatRaceTime(projectedRaceTime(dashboard.athlete.currentVDOT, 10000))}</span>
+                    <span>5K {formatRaceTime(projectedRaceTime(dashboard.currentVDOT, 5000))}</span>
+                    <span>10K {formatRaceTime(projectedRaceTime(dashboard.currentVDOT, 10000))}</span>
                     <span>
                       Half{" "}
                       {formatRaceTime(
-                        projectedRaceTime(dashboard.athlete.currentVDOT, 21097.5),
+                        projectedRaceTime(dashboard.currentVDOT, 21097.5),
                       )}
                     </span>
                     <span>
                       Marathon{" "}
                       {formatRaceTime(
-                        projectedRaceTime(dashboard.athlete.currentVDOT, 42195),
+                        projectedRaceTime(dashboard.currentVDOT, 42195),
                       )}
                     </span>
                   </div>
@@ -700,6 +709,35 @@ export function DashboardPage({ session }: { session: SessionData }) {
               )}
             </Card>
           </div>
+
+          <Card title="Pending actions" eyebrow="Triage">
+            {dashboard.pendingActions.length ? (
+              <div className="stack">
+                {dashboard.pendingActions.map((action: DashboardPendingAction) => (
+                  <div className="row-card" key={`${action.kind}-${action.label}`}>
+                    <div>
+                      <strong>{action.label}</strong>
+                      <div>{action.description}</div>
+                    </div>
+                    {action.kind === "createPlan" ? <ActionLink to="/plan">Open plan</ActionLink> : null}
+                    {action.kind === "activateDraft" ? <ActionLink to="/plan">Review draft</ActionLink> : null}
+                    {action.kind === "generateWeek" && typeof action.weekNumber === "number" ? (
+                      <ActionLink to={`/plan/week/${action.weekNumber}`}>Open week</ActionLink>
+                    ) : null}
+                    {action.kind === "submitCheckIn" && action.workoutId ? (
+                      <ActionLink to={`/plan/workout/${String(action.workoutId)}`}>Open workout</ActionLink>
+                    ) : null}
+                    {action.kind === "reviewHistory" && action.healthKitWorkoutId ? (
+                      <ActionLink to={`/history/${String(action.healthKitWorkoutId)}`}>Review run</ActionLink>
+                    ) : null}
+                    {action.kind === "messageCoach" ? <ActionLink to="/coach">Open coach</ActionLink> : null}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p>No actions are queued right now.</p>
+            )}
+          </Card>
 
           <Card
             title="Latest coach note"
@@ -726,17 +764,17 @@ export function PlanPage({
   onRefresh: () => Promise<void>;
 }) {
   const [nowBucketMs, setNowBucketMs] = useState(getWebTimeBucketMs);
-  const planView = useQuery(api.companion.getPlanView, { nowBucketMs });
+  const planView = useQuery(api.planOverview.getPlanOverviewView, { nowBucketMs });
   const requestPlanGeneration = useMutation(api.coach.requestPlanGeneration);
   const createPlanFromGeneration = useMutation(api.coach.createPlanFromGeneration);
   const activateDraftPlan = useMutation(api.plans.activateDraftPlan);
   const updateDraftPlanBasics = useMutation(api.plans.updateDraftPlanBasics);
   const updatePlanStatus = useMutation(api.plans.updatePlanStatus);
-  const updatePlanPeakVolume = useMutation(api.companion.updatePlanPeakVolume);
-  const changePlanGoal = useMutation(api.companion.changePlanGoal);
-  const reportPlanInterruption = useMutation(api.companion.reportPlanInterruption);
-  const upsertRace = useMutation(api.companion.upsertRace);
-  const deleteRace = useMutation(api.companion.deleteRace);
+  const updatePlanPeakVolume = useMutation(api.planOverview.updatePlanPeakVolume);
+  const changePlanGoal = useMutation(api.planOverview.changePlanGoal);
+  const reportPlanInterruption = useMutation(api.planOverview.reportPlanInterruption);
+  const upsertRace = useMutation(api.planOverview.upsertRace);
+  const deleteRace = useMutation(api.planOverview.deleteRace);
 
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -1505,23 +1543,23 @@ export function WeekPage({ session }: { session: SessionData }) {
   const params = useParams();
   const weekNumber = Number(params.weekNumber ?? "1");
   const [nowBucketMs, setNowBucketMs] = useState(getWebTimeBucketMs);
-  const planView = useQuery(api.companion.getPlanView, { nowBucketMs });
+  const planView = useQuery(api.planOverview.getPlanOverviewView, { nowBucketMs });
   const planId = planView?.activePlan?._id ?? planView?.draftPlans[0]?._id;
   const week = useQuery(
-    api.companion.getWeekView,
+    api.weekDetail.getWeekDetailView,
     planId ? { planId, weekNumber, nowBucketMs } : "skip",
   );
   const saveWeekAvailabilityOverride = useMutation(
-    api.companion.saveWeekAvailabilityOverride,
+    api.weekDetail.saveWeekAvailabilityOverride,
   );
   const clearWeekAvailabilityOverride = useMutation(
-    api.companion.clearWeekAvailabilityOverride,
+    api.weekDetail.clearWeekAvailabilityOverride,
   );
   const requestWeekDetailGeneration = useMutation(
     api.coach.requestWeekDetailGeneration,
   );
-  const toggleStrengthWorkout = useMutation(api.companion.toggleStrengthWorkout);
-  const deleteRace = useMutation(api.companion.deleteRace);
+  const toggleStrengthWorkout = useMutation(api.workoutDetail.toggleStrengthWorkout);
+  const deleteRace = useMutation(api.weekDetail.deleteRace);
   const [overrideDays, setOverrideDays] = useState<Weekday[]>([]);
   const [note, setNote] = useState("");
   const [message, setMessage] = useState<string | null>(null);
@@ -1794,11 +1832,11 @@ export function WorkoutPage({ session }: { session: SessionData }) {
   const params = useParams();
   const navigate = useNavigate();
   const workoutId = params.workoutId as Id<"workouts"> | undefined;
-  const detail = useQuery(api.companion.getWorkoutView, workoutId ? { workoutId } : "skip");
-  const skipWorkout = useMutation(api.workouts.skipWorkout);
-  const rescheduleWorkout = useMutation(api.workouts.rescheduleWorkout);
-  const bumpWorkout = useMutation(api.workouts.bumpWorkout);
-  const submitCheckIn = useMutation(api.workouts.submitCheckIn);
+  const detail = useQuery(api.workoutDetail.getWorkoutDetailView, workoutId ? { workoutId } : "skip");
+  const skipWorkout = useMutation(api.workoutDetail.skipWorkout);
+  const rescheduleWorkout = useMutation(api.workoutDetail.rescheduleWorkout);
+  const bumpWorkout = useMutation(api.workoutDetail.bumpWorkout);
+  const submitCheckIn = useMutation(api.workoutDetail.submitCheckIn);
 
   const [rescheduleDate, setRescheduleDate] = useState("");
   const [skipReason, setSkipReason] = useState("");
@@ -2055,9 +2093,9 @@ export function HistoryPage({ session }: { session: SessionData }) {
   const [filter, setFilter] = useState<"all" | "matched" | "needsReview" | "unplanned">(
     "all",
   );
-  const historyCounts = useQuery(api.history.getFeedCounts, {});
+  const historyCounts = useQuery(api.historyFeed.getHistoryFeedView, {});
   const historyFeed = usePaginatedQuery(
-    api.history.listFeedPage,
+    api.historyFeed.listHistoryFeedPage,
     { filter },
     { initialNumItems: WEB_HISTORY_PAGE_SIZE },
   );
@@ -2180,17 +2218,17 @@ export function HistoryWorkoutPage({ session }: { session: SessionData }) {
     | Id<"healthKitWorkouts">
     | undefined;
   const detail = useQuery(
-    api.companion.getHistoryWorkoutView,
+    api.historyDetail.getHistoryDetailView,
     healthKitWorkoutId ? { healthKitWorkoutId } : "skip",
   );
   const candidates = useQuery(
-    api.workouts.getMatchCandidates,
+    api.workoutDetail.getMatchCandidates,
     healthKitWorkoutId ? { healthKitWorkoutId } : "skip",
   );
-  const reconcileImportedWorkout = useMutation(api.workouts.reconcileImportedWorkout);
-  const linkImportedWorkout = useMutation(api.workouts.linkImportedWorkout);
-  const unlinkImportedWorkout = useMutation(api.workouts.unlinkImportedWorkout);
-  const submitCheckIn = useMutation(api.workouts.submitCheckIn);
+  const reconcileImportedWorkout = useMutation(api.workoutDetail.reconcileImportedWorkout);
+  const linkImportedWorkout = useMutation(api.workoutDetail.linkImportedWorkout);
+  const unlinkImportedWorkout = useMutation(api.workoutDetail.unlinkImportedWorkout);
+  const submitCheckIn = useMutation(api.workoutDetail.submitCheckIn);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -2344,7 +2382,7 @@ export function HistoryWorkoutPage({ session }: { session: SessionData }) {
 
 export function CoachPage() {
   const [nowBucketMs, setNowBucketMs] = useState(getWebTimeBucketMs);
-  const coachView = useQuery(api.companion.getCoachView, { nowBucketMs });
+  const coachView = useQuery(api.coachInbox.getCoachInboxView, { nowBucketMs }) as CoachInboxView | undefined;
   const sendCoachMessage = useMutation(api.coach.sendCoachMessage);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
@@ -2406,27 +2444,21 @@ export function CoachPage() {
               </p>
             </Card>
 
-            {coachView.latestAssessment ? (
-              <Card title="Latest assessment" eyebrow="Assessment">
-                <p>{coachView.latestAssessment.body}</p>
-              </Card>
-            ) : (
-              <Card title="Quick prompts" eyebrow="Start a conversation">
-                <div className="pill-row wrap">
-                  {coachPromptPresets.map((prompt) => (
-                    <button
-                      key={prompt}
-                      className="pill-button"
-                      disabled={sending}
-                      onClick={() => void runSend(prompt)}
-                      type="button"
-                    >
-                      {prompt}
-                    </button>
-                  ))}
-                </div>
-              </Card>
-            )}
+            <Card title="Quick prompts" eyebrow="Start a conversation">
+              <div className="pill-row wrap">
+                {coachView.suggestedPrompts.map((prompt) => (
+                  <button
+                    key={prompt}
+                    className="pill-button"
+                    disabled={sending}
+                    onClick={() => void runSend(prompt)}
+                    type="button"
+                  >
+                    {prompt}
+                  </button>
+                ))}
+              </div>
+            </Card>
           </div>
 
           <Card title="Conversation" eyebrow="Messages">
@@ -2496,21 +2528,21 @@ export function SettingsPage({
   session: SessionData;
   onRefresh: () => Promise<void>;
 }) {
-  const settings = useQuery(api.companion.getSettingsView, {});
-  const updateName = useMutation(api.users.updateName);
-  const updateUnitPreference = useMutation(api.users.updateUnitPreference);
-  const updateVolumePreference = useMutation(api.users.updateVolumePreference);
-  const updateTrackAccess = useMutation(api.users.updateTrackAccess);
-  const updateRunningSchedule = useMutation(api.users.updateRunningSchedule);
-  const updateCompetitiveness = useMutation(api.users.updateCompetitiveness);
-  const updatePersonality = useMutation(api.users.updatePersonality);
-  const updateStrengthPreferences = useMutation(api.users.updateStrengthPreferences);
-  const upsertCourse = useMutation(api.companion.upsertCourse);
-  const deleteCourse = useMutation(api.companion.deleteCourse);
-  const upsertRace = useMutation(api.companion.upsertRace);
-  const deleteRace = useMutation(api.companion.deleteRace);
-  const exportData = useQuery(api.companion.exportData, {});
-  const resetAppData = useMutation(api.users.resetAppData);
+  const settings = useQuery(api.settings.getSettingsView, {});
+  const updateName = useMutation(api.settings.updateName);
+  const updateUnitPreference = useMutation(api.settings.updateUnitPreference);
+  const updateVolumePreference = useMutation(api.settings.updateVolumePreference);
+  const updateTrackAccess = useMutation(api.settings.updateTrackAccess);
+  const updateRunningSchedule = useMutation(api.settings.updateRunningSchedule);
+  const updateCompetitiveness = useMutation(api.settings.updateCompetitiveness);
+  const updatePersonality = useMutation(api.settings.updatePersonality);
+  const updateStrengthPreferences = useMutation(api.settings.updateStrengthPreferences);
+  const upsertCourse = useMutation(api.settings.upsertCourse);
+  const deleteCourse = useMutation(api.settings.deleteCourse);
+  const upsertRace = useMutation(api.settings.upsertRace);
+  const deleteRace = useMutation(api.settings.deleteRace);
+  const exportData = useQuery(api.settings.exportData, {});
+  const resetAppData = useMutation(api.settings.resetAppData);
 
   const [name, setName] = useState(session.user.name);
   const [unitPreference, setUnitPreference] = useState<UnitPreference>(
@@ -2682,6 +2714,29 @@ export function SettingsPage({
       {!settings ? <StatusMessage message="Loading settings…" /> : null}
       {settings ? (
         <>
+          <Card title="Integrations" eyebrow="HealthKit">
+            <div className="stack">
+              <p>
+                HealthKit import is{" "}
+                {SETTINGS_COMPONENT_CAPABILITIES.healthKitImport === "mobile-only"
+                  ? "managed on iPhone."
+                  : "available on every client."}
+              </p>
+              <p>
+                Status: {settings.healthKit.authorized ? "Connected" : "Not connected"}
+                {settings.healthKit.lastSyncAt
+                  ? ` · last sync ${formatDateTime(settings.healthKit.lastSyncAt)}`
+                  : ""}
+                {settings.healthKit.lastSyncSource
+                  ? ` via ${settings.healthKit.lastSyncSource}`
+                  : ""}
+              </p>
+              {settings.healthKit.lastSyncError ? (
+                <p>Latest sync issue: {settings.healthKit.lastSyncError}</p>
+              ) : null}
+            </div>
+          </Card>
+
           <div className="two-column">
             <Card title="Profile" eyebrow="Account">
               <div className="stack">

@@ -13,6 +13,7 @@
     "@babel/runtime": "^7.28.6",
     "@convex-dev/auth": "^0.0.91",
     "@kingstinct/react-native-healthkit": "^13.2.3",
+    "@slopmiles/component-contracts": "workspace:*",
     "@slopmiles/domain": "workspace:*",
     "convex": "^1.32.0",
     "expo": "^55.0.5",

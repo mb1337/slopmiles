@@ -99,21 +99,21 @@ export function WorkoutExecutionDetail({
   unitPreference: UnitPreference;
   allowMatchControls?: boolean;
 }) {
-  const detail = useQuery(api.workouts.getExecutionDetail, {
+  const detail = useQuery(api.workoutDetail.getExecutionDetail, {
     executionId,
   });
   const candidateHealthKitWorkoutId = detail?.importedWorkout._id;
   const candidates = useQuery(
-    api.workouts.getMatchCandidates,
+    api.workoutDetail.getMatchCandidates,
     allowMatchControls && candidateHealthKitWorkoutId
       ? {
           healthKitWorkoutId: candidateHealthKitWorkoutId,
         }
       : "skip",
   );
-  const submitCheckIn = useMutation(api.workouts.submitCheckIn);
-  const linkImportedWorkout = useMutation(api.workouts.linkImportedWorkout);
-  const unlinkImportedWorkout = useMutation(api.workouts.unlinkImportedWorkout);
+  const submitCheckIn = useMutation(api.workoutDetail.submitCheckIn);
+  const linkImportedWorkout = useMutation(api.workoutDetail.linkImportedWorkout);
+  const unlinkImportedWorkout = useMutation(api.workoutDetail.unlinkImportedWorkout);
 
   const [rpe, setRpe] = useState<number | null>(null);
   const [modifiers, setModifiers] = useState<EffortModifier[]>([]);

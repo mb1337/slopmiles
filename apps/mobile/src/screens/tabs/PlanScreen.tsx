@@ -199,9 +199,9 @@ export function PlanScreen({
   onRouteChange: (route: PlanRoute) => void;
 }) {
   const [nowBucketMs, setNowBucketMs] = useState(getPlanTimeBucketMs);
-  const planOverview = useQuery(api.mobileUx.getPlanOverview, { nowBucketMs });
+  const planOverview = useQuery(api.planOverview.getPlanOverviewView, { nowBucketMs });
   const weekAgenda = useQuery(
-    api.mobileUx.getWeekAgenda,
+    api.weekDetail.getWeekDetailView,
     planOverview?.activePlan && route.screen === "week"
       ? {
           planId: planOverview.activePlan._id,
@@ -211,7 +211,7 @@ export function PlanScreen({
       : "skip",
   );
   const workoutDetail = useQuery(
-    api.mobileUx.getWorkoutDetailView,
+    api.workoutDetail.getWorkoutDetailView,
     route.screen === "workout"
       ? {
           workoutId: route.workoutId,
@@ -227,11 +227,11 @@ export function PlanScreen({
   const updatePlanStatus = useMutation(api.plans.updatePlanStatus);
   const requestWeekDetailGeneration = useMutation(api.coach.requestWeekDetailGeneration);
   const retryWeekDetailGeneration = useMutation(api.coach.retryWeekDetailGeneration);
-  const skipWorkout = useMutation(api.workouts.skipWorkout);
-  const rescheduleWorkout = useMutation(api.workouts.rescheduleWorkout);
-  const saveWeekAvailabilityOverride = useMutation(api.companion.saveWeekAvailabilityOverride);
-  const clearWeekAvailabilityOverride = useMutation(api.companion.clearWeekAvailabilityOverride);
-  const toggleStrengthWorkout = useMutation(api.companion.toggleStrengthWorkout);
+  const skipWorkout = useMutation(api.workoutDetail.skipWorkout);
+  const rescheduleWorkout = useMutation(api.workoutDetail.rescheduleWorkout);
+  const saveWeekAvailabilityOverride = useMutation(api.weekDetail.saveWeekAvailabilityOverride);
+  const clearWeekAvailabilityOverride = useMutation(api.weekDetail.clearWeekAvailabilityOverride);
+  const toggleStrengthWorkout = useMutation(api.workoutDetail.toggleStrengthWorkout);
 
   const [createStep, setCreateStep] = useState(0);
   const [goalType, setGoalType] = useState<PlanGoalType>("race");
@@ -264,7 +264,7 @@ export function PlanScreen({
   }, []);
 
   const activePlan = planOverview?.activePlan ?? null;
-  const proposal = planOverview?.proposal?.result ?? null;
+  const proposal = planOverview?.latestProposal?.result ?? planOverview?.proposal?.result ?? null;
   const selectedGoalLabel = goalPreset === "Custom" ? customGoalLabel.trim() : goalPreset;
   const targetDate = normalizeDate(targetDateValue);
   const formattedTargetDate = formatTargetDate(targetDateValue);
@@ -646,7 +646,7 @@ export function PlanScreen({
           onAction={() => onRouteChange({ screen: "create" })}
         />
       ) : (
-        <SectionCard title={activePlan.goal.label} description={`${activePlan.numberOfWeeks} weeks · peak ${Math.round(activePlan.peakWeekVolume)} ${activePlan.volumeMode === "time" ? "min" : "m"}`}>
+        <SectionCard title={activePlan.goalLabel} description={`${activePlan.numberOfWeeks} weeks · peak ${Math.round(activePlan.peakWeekVolume)} ${activePlan.volumeMode === "time" ? "min" : "m"}`}>
           <MetricGrid>
             <MetricStat label="Current week" value={activePlan.currentWeekNumber ? String(activePlan.currentWeekNumber) : "-"} />
             <MetricStat label="Next week" value={activePlan.nextWeekNumber ? String(activePlan.nextWeekNumber) : "-"} />
@@ -686,7 +686,7 @@ export function PlanScreen({
         {planOverview?.draftPlans.length ? (
           planOverview.draftPlans.map((draft) => (
             <View key={String(draft._id)} style={styles.subtleBlock}>
-              <Text style={styles.sectionCardTitle}>{draft.goal.label}</Text>
+              <Text style={styles.sectionCardTitle}>{draft.goalLabel ?? draft.goal?.label ?? "Draft plan"}</Text>
               <Text style={styles.helperText}>
                 {draft.numberOfWeeks} weeks · peak {Math.round(draft.peakWeekVolume)} {draft.volumeMode === "time" ? "min" : "m"}
               </Text>

@@ -69,11 +69,11 @@ export function HistoryScreen({
   const HISTORY_PAGE_SIZE = 10;
   const [filter, setFilter] = useState<"all" | "matched" | "needsReview" | "unplanned">("all");
   const historyCounts = useQuery(
-    api.history.getFeedCounts,
+    api.historyFeed.getHistoryFeedView,
     route.screen === "feed" ? {} : "skip",
   );
   const historyFeed = usePaginatedQuery(
-    api.history.listFeedPage,
+    api.historyFeed.listHistoryFeedPage,
     route.screen === "feed"
       ? {
           filter,
@@ -82,7 +82,7 @@ export function HistoryScreen({
     { initialNumItems: HISTORY_PAGE_SIZE },
   );
   const selectedWorkout = useQuery(
-    api.healthkit.getImportedWorkoutDetail,
+    api.historyDetail.getHistoryDetailView,
     route.screen === "detail"
       ? {
           healthKitWorkoutId: route.healthKitWorkoutId,
@@ -108,7 +108,7 @@ export function HistoryScreen({
       <ScrollView contentContainerStyle={styles.container}>
         <ScreenHeader
           eyebrow="History"
-          title={selectedWorkout ? formatWorkoutDate(selectedWorkout.startedAt) : "Workout detail"}
+          title={selectedWorkout ? formatWorkoutDate(selectedWorkout.workout.startedAt) : "Workout detail"}
           subtitle="Review summary first, then use the execution block to reconcile and check in."
           actionLabel="Back to feed"
           onAction={() => onRouteChange({ screen: "feed" })}
@@ -118,31 +118,31 @@ export function HistoryScreen({
 
         {selectedWorkout ? (
           <>
-            <SectionCard title="Run summary" description={formatMatchStatus(normalizeMatchStatus(selectedWorkout.execution?.matchStatus))}>
+            <SectionCard title="Run summary" description={formatMatchStatus(normalizeMatchStatus(selectedWorkout.workout.execution?.matchStatus))}>
               <MetricGrid>
-                <MetricStat label="Distance" value={formatDistanceForDisplay(selectedWorkout.distanceMeters, unitPreference)} />
-                <MetricStat label="Duration" value={formatDurationClock(selectedWorkout.durationSeconds)} />
+                <MetricStat label="Distance" value={formatDistanceForDisplay(selectedWorkout.workout.distanceMeters, unitPreference)} />
+                <MetricStat label="Duration" value={formatDurationClock(selectedWorkout.workout.durationSeconds)} />
                 <MetricStat
                   label="Pace"
-                  value={formatPaceSecondsPerMeterForDisplay(selectedWorkout.rawPaceSecondsPerMeter ?? undefined, unitPreference)}
+                  value={formatPaceSecondsPerMeterForDisplay(selectedWorkout.workout.rawPaceSecondsPerMeter ?? undefined, unitPreference)}
                 />
                 <MetricStat
                   label="Avg HR"
-                  value={typeof selectedWorkout.averageHeartRate === "number" ? `${Math.round(selectedWorkout.averageHeartRate)} bpm` : "-"}
+                  value={typeof selectedWorkout.workout.averageHeartRate === "number" ? `${Math.round(selectedWorkout.workout.averageHeartRate)} bpm` : "-"}
                 />
               </MetricGrid>
-              {typeof selectedWorkout.elevationAscentMeters === "number" || typeof selectedWorkout.elevationDescentMeters === "number" ? (
+              {typeof selectedWorkout.workout.elevationAscentMeters === "number" || typeof selectedWorkout.workout.elevationDescentMeters === "number" ? (
                 <Text style={styles.helperText}>
-                  Elevation +{formatElevationForDisplay(selectedWorkout.elevationAscentMeters ?? 0, unitPreference)} / -
-                  {formatElevationForDisplay(selectedWorkout.elevationDescentMeters ?? 0, unitPreference)}
+                  Elevation +{formatElevationForDisplay(selectedWorkout.workout.elevationAscentMeters ?? 0, unitPreference)} / -
+                  {formatElevationForDisplay(selectedWorkout.workout.elevationDescentMeters ?? 0, unitPreference)}
                 </Text>
               ) : null}
             </SectionCard>
 
-            {selectedWorkout.execution ? (
+            {selectedWorkout.executionDetail ? (
               <SectionCard title="Reconcile and review" description="Match controls, check-in, and coach feedback stay together here.">
                 <WorkoutExecutionDetail
-                  executionId={selectedWorkout.execution._id as Id<"workoutExecutions">}
+                  executionId={selectedWorkout.executionDetail.execution._id as Id<"workoutExecutions">}
                   unitPreference={unitPreference}
                   allowMatchControls
                 />
@@ -153,12 +153,12 @@ export function HistoryScreen({
               </SectionCard>
             )}
 
-            {selectedWorkout.intervals?.length ? (
+            {selectedWorkout.workout.intervals?.length ? (
               <SectionCard title="Segment analysis" description="Intervals are shown as one ordered sequence.">
                 <View style={styles.historyIntervalList}>
-                  {selectedWorkout.intervals.map((interval, index) => (
+                  {selectedWorkout.workout.intervals.map((interval, index) => (
                     <View
-                      key={`${String(selectedWorkout._id)}-${interval.startedAt}-${interval.endedAt}-${index}`}
+                      key={`${String(selectedWorkout.workout._id)}-${interval.startedAt}-${interval.endedAt}-${index}`}
                       style={styles.historyIntervalRow}
                     >
                       <Text style={styles.historyIntervalLabel}>{`Segment ${index + 1}`}</Text>

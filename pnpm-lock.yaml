@@ -48,6 +48,9 @@ importers:
       '@kingstinct/react-native-healthkit':
         specifier: ^13.2.3
         version: 13.2.3(react-native-nitro-modules@0.34.1(react-native@0.83.2(@babel/core@7.29.0)(@types/react@19.2.14)(react@19.2.0))(react@19.2.0))(react-native@0.83.2(@babel/core@7.29.0)(@types/react@19.2.14)(react@19.2.0))(react@19.2.0)
+      '@slopmiles/component-contracts':
+        specifier: workspace:*
+        version: link:../../packages/component-contracts
       '@slopmiles/domain':
         specifier: workspace:*
         version: link:../../packages/domain
@@ -103,6 +106,9 @@ importers:
       '@convex-dev/auth':
         specifier: ^0.0.91
         version: 0.0.91(@auth/core@0.37.0)(convex@1.32.0(react@18.3.1))(react@18.3.1)
+      '@slopmiles/component-contracts':
+        specifier: workspace:*
+        version: link:../../packages/component-contracts
       '@slopmiles/domain':
         specifier: workspace:*
         version: link:../../packages/domain
@@ -146,6 +152,16 @@ importers:
       vitest:
         specifier: ^4.0.18
         version: 4.0.18(@types/node@22.19.13)(jsdom@28.1.0)(lightningcss@1.31.1)(terser@5.46.0)(yaml@2.8.2)
+
+  packages/component-contracts:
+    dependencies:
+      '@slopmiles/domain':
+        specifier: workspace:*
+        version: link:../domain
+    devDependencies:
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
 
   packages/domain:
     devDependencies:

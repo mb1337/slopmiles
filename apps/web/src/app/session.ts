@@ -4,13 +4,13 @@ import { useMutation } from "convex/react";
 import { api } from "../convex";
 
 export type SessionPayload = Awaited<
-  ReturnType<ReturnType<typeof useMutation<typeof api.users.bootstrapSession>>>
+  ReturnType<ReturnType<typeof useMutation<typeof api.session.bootstrapSession>>>
 >;
 
 export type SessionData = NonNullable<SessionPayload>;
 
 export function useBootstrapSession() {
-  const bootstrap = useMutation(api.users.bootstrapSession);
+  const bootstrap = useMutation(api.session.bootstrapSession);
   const [session, setSession] = useState<SessionPayload | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -35,4 +35,3 @@ export function useBootstrapSession() {
 
   return { session, loading, error, refresh };
 }
-

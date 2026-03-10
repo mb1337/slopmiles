@@ -13,7 +13,7 @@ import { CoachScreen } from "./tabs/CoachScreen";
 import { HistoryScreen } from "./tabs/HistoryScreen";
 import { PlanScreen } from "./tabs/PlanScreen";
 import { SettingsScreen } from "./tabs/SettingsScreen";
-import { TodayScreen } from "./tabs/TodayScreen";
+import { DashboardScreen } from "./tabs/TodayScreen";
 import { styles } from "../styles";
 import type { HealthKitSyncResult, HistoryRoute, PlanRoute, Tab } from "../types";
 
@@ -60,7 +60,7 @@ export function MainTabs({
   onUpdatePersonality: (value: { preset: Personality["name"]; customDescription?: string }) => Promise<void>;
   onSyncHealthKit: () => Promise<HealthKitSyncResult>;
 }) {
-  const [activeTab, setActiveTab] = useState<Tab>("today");
+  const [activeTab, setActiveTab] = useState<Tab>("dashboard");
   const [planRoute, setPlanRoute] = useState<PlanRoute>({ screen: "overview" });
   const [historyRoute, setHistoryRoute] = useState<HistoryRoute>({ screen: "feed" });
 
@@ -77,8 +77,8 @@ export function MainTabs({
   return (
     <SafeAreaView style={styles.screen}>
       <View style={styles.tabContent}>
-        {activeTab === "today" ? (
-          <TodayScreen
+        {activeTab === "dashboard" ? (
+          <DashboardScreen
             userName={userName}
             unitPreference={unitPreference}
             onOpenCreatePlan={() => openPlan({ screen: "create" })}
@@ -132,7 +132,7 @@ export function MainTabs({
       </View>
       <View style={styles.tabBar}>
         {[
-          ["today", "Today"],
+          ["dashboard", "Dashboard"],
           ["plan", "Plan"],
           ["history", "History"],
           ["coach", "Coach"],

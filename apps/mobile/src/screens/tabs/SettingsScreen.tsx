@@ -1,14 +1,21 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Alert, ScrollView, Text, TextInput, View } from "react-native";
-import { useQuery } from "convex/react";
+import { Alert, ScrollView, Share, Text, TextInput, View } from "react-native";
+import { useMutation, useQuery } from "convex/react";
+import { SETTINGS_COMPONENT_CAPABILITIES } from "@slopmiles/component-contracts";
 import {
   COMPETITIVENESS_LEVELS,
+  DISTANCE_UNITS,
   PERSONALITY_PRESETS,
+  STRENGTH_EQUIPMENT_OPTIONS,
+  SURFACE_TYPES,
   VOLUME_MODES,
   WEEKDAYS,
   type CompetitivenessLevel,
+  type DistanceUnit,
   type Personality,
   type RunningSchedule,
+  type SurfaceType,
+  type StrengthEquipment,
   type UnitPreference,
   type VolumeMode,
   type Weekday,
@@ -213,6 +220,54 @@ function formatSyncTimestamp(timestamp: number | null | undefined): string {
   return new Date(timestamp).toLocaleString();
 }
 
+function toMeters(value: string, unit: DistanceUnit): number | undefined {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric) || numeric <= 0) {
+    return undefined;
+  }
+
+  switch (unit) {
+    case "meters":
+      return numeric;
+    case "kilometers":
+      return numeric * 1000;
+    case "miles":
+      return numeric * 1609.344;
+    default:
+      return undefined;
+  }
+}
+
+function parseDurationText(value: string): number | undefined {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return undefined;
+  }
+
+  const parts = trimmed.split(":").map((part) => Number(part));
+  if (parts.some((part) => !Number.isFinite(part) || part < 0)) {
+    return undefined;
+  }
+
+  if (parts.length === 2) {
+    const [minutes, seconds] = parts;
+    if (minutes === undefined || seconds === undefined) {
+      return undefined;
+    }
+    return minutes * 60 + seconds;
+  }
+
+  if (parts.length === 3) {
+    const [hours, minutes, seconds] = parts;
+    if (hours === undefined || minutes === undefined || seconds === undefined) {
+      return undefined;
+    }
+    return hours * 3600 + minutes * 60 + seconds;
+  }
+
+  return undefined;
+}
+
 export function SettingsScreen({
   userName,
   unitPreference,
@@ -255,7 +310,13 @@ export function SettingsScreen({
   onSyncHealthKit: () => Promise<HealthKitSyncResult>;
 }) {
   const { signOut } = useAuthActions();
-  const healthKitImportSummary = useQuery(api.healthkit.getSyncSummary, {});
+  const settings = useQuery(api.settings.getSettingsView, {});
+  const exportData = useQuery(api.settings.exportData, {});
+  const updateStrengthPreferences = useMutation(api.settings.updateStrengthPreferences);
+  const upsertCourse = useMutation(api.settings.upsertCourse);
+  const deleteCourse = useMutation(api.settings.deleteCourse);
+  const upsertRace = useMutation(api.settings.upsertRace);
+  const deleteRace = useMutation(api.settings.deleteRace);
   const [name, setName] = useState(userName);
   const [selectedUnitPreference, setSelectedUnitPreference] = useState<UnitPreference>(unitPreference);
   const [selectedVolumePreference, setSelectedVolumePreference] = useState<VolumeMode>(volumePreference);
@@ -272,6 +333,19 @@ export function SettingsScreen({
   const [customPersonalityDescription, setCustomPersonalityDescription] = useState(
     personality.name === "custom" ? personality.description : "",
   );
+  const [strengthEnabled, setStrengthEnabled] = useState(false);
+  const [strengthEquipment, setStrengthEquipment] = useState<StrengthEquipment[]>([]);
+  const [courseName, setCourseName] = useState("");
+  const [courseDistanceValue, setCourseDistanceValue] = useState("1");
+  const [courseDistanceUnit, setCourseDistanceUnit] = useState<DistanceUnit>("miles");
+  const [courseSurface, setCourseSurface] = useState<SurfaceType>("road");
+  const [courseNotes, setCourseNotes] = useState("");
+  const [raceLabel, setRaceLabel] = useState("");
+  const [raceDate, setRaceDate] = useState("");
+  const [raceDistanceValue, setRaceDistanceValue] = useState("5");
+  const [raceDistanceUnit, setRaceDistanceUnit] = useState<DistanceUnit>("kilometers");
+  const [raceGoalTime, setRaceGoalTime] = useState("");
+  const [raceActualTime, setRaceActualTime] = useState("");
 
   const [savingName, setSavingName] = useState(false);
   const [savingPreferences, setSavingPreferences] = useState(false);
@@ -292,6 +366,9 @@ export function SettingsScreen({
   const [healthKitError, setHealthKitError] = useState<string | null>(null);
   const [signingOut, setSigningOut] = useState(false);
   const [signOutError, setSignOutError] = useState<string | null>(null);
+  const [extrasMessage, setExtrasMessage] = useState<string | null>(null);
+  const [extrasError, setExtrasError] = useState<string | null>(null);
+  const [savingExtras, setSavingExtras] = useState(false);
   const [activeTimePicker, setActiveTimePicker] = useState<{
     day: Weekday;
     part: "morning" | "night";
@@ -353,6 +430,11 @@ export function SettingsScreen({
     setSelectedPersonality(personality.name);
     setCustomPersonalityDescription(personality.name === "custom" ? personality.description : "");
   }, [incomingPersonalitySignature]);
+
+  useEffect(() => {
+    setStrengthEnabled(settings?.strengthPreference.enabled ?? false);
+    setStrengthEquipment(settings?.strengthPreference.equipment ?? []);
+  }, [settings?.strengthPreference.enabled, settings?.strengthPreference.equipment]);
 
   const toggleDay = (day: Weekday) => {
     setPreferredRunningDays((previous) => {
@@ -728,6 +810,23 @@ export function SettingsScreen({
     );
   };
 
+  const runExtras = async (task: () => Promise<void>, success: string) => {
+    setSavingExtras(true);
+    setExtrasMessage(null);
+    setExtrasError(null);
+    try {
+      await task();
+      setExtrasMessage(success);
+    } catch (error) {
+      setExtrasError(String(error));
+    } finally {
+      setSavingExtras(false);
+    }
+  };
+
+  const courseDistanceMeters = toMeters(courseDistanceValue, courseDistanceUnit);
+  const raceDistanceMeters = toMeters(raceDistanceValue, raceDistanceUnit);
+
   return (
     <ScrollView contentContainerStyle={styles.container}>
       <ScreenHeader
@@ -741,15 +840,18 @@ export function SettingsScreen({
           Status: {healthKitAuthorized ? "Connected" : "Not connected"}. Connect or re-sync to keep recent running history and matching current.
         </Text>
         <Text style={styles.helperText}>
+          Import capability: {SETTINGS_COMPONENT_CAPABILITIES.healthKitImport === "mobile-only" ? "Managed on mobile only." : "Available on every client."}
+        </Text>
+        <Text style={styles.helperText}>
           Background sync: {backgroundSyncEnabled ? "Enabled" : "Unavailable"}
           {backgroundSyncReason ? ` · ${backgroundSyncReason}` : ""}
         </Text>
         <Text style={styles.helperText}>
-          Last sync: {formatSyncTimestamp(healthKitImportSummary?.lastSyncAt)}
-          {healthKitImportSummary?.lastSyncSource ? ` via ${healthKitImportSummary.lastSyncSource}` : ""}
+          Last sync: {formatSyncTimestamp(settings?.healthKit.lastSyncAt)}
+          {settings?.healthKit.lastSyncSource ? ` via ${settings.healthKit.lastSyncSource}` : ""}
         </Text>
-        {healthKitImportSummary?.lastSyncError ? (
-          <Text style={styles.helperText}>Latest sync issue: {healthKitImportSummary.lastSyncError}</Text>
+        {settings?.healthKit.lastSyncError ? (
+          <Text style={styles.helperText}>Latest sync issue: {settings.healthKit.lastSyncError}</Text>
         ) : null}
         {healthKitMessage ? <Text style={styles.helperText}>{healthKitMessage}</Text> : null}
         {healthKitError ? <Text style={styles.errorText}>{healthKitError}</Text> : null}
@@ -957,6 +1059,251 @@ export function SettingsScreen({
         {coachingMessage ? <Text style={styles.helperText}>{coachingMessage}</Text> : null}
         {coachingError ? <Text style={styles.errorText}>{coachingError}</Text> : null}
         {savingCoaching ? <Text style={styles.helperText}>Saving coach style...</Text> : null}
+      </Panel>
+
+      <Panel title="Strength Defaults">
+        <Text style={styles.bodyText}>Keep strength preferences aligned with web so both clients can build the same plan structure.</Text>
+        <FieldGroup label="Include strength by default">
+          <ChoiceRow
+            options={["yes", "no"]}
+            selected={strengthEnabled ? "yes" : "no"}
+            onChange={(value) => {
+              setStrengthEnabled(value === "yes");
+              setExtrasMessage(null);
+              setExtrasError(null);
+            }}
+          />
+        </FieldGroup>
+        {strengthEnabled ? (
+          <FieldGroup label="Available equipment">
+            <TagGrid
+              options={STRENGTH_EQUIPMENT_OPTIONS}
+              selected={strengthEquipment}
+              onToggle={(value) => {
+                const equipment = value as StrengthEquipment;
+                setStrengthEquipment((current) =>
+                  current.includes(equipment)
+                    ? current.filter((entry) => entry !== equipment)
+                    : [...current, equipment],
+                );
+                setExtrasMessage(null);
+                setExtrasError(null);
+              }}
+            />
+          </FieldGroup>
+        ) : null}
+        <PrimaryButton
+          label={savingExtras ? "Saving..." : "Save strength defaults"}
+          disabled={savingExtras || resetting || syncingHealthKit || signingOut}
+          onPress={() =>
+            void runExtras(async () => {
+              await updateStrengthPreferences({
+                enabled: strengthEnabled,
+                equipment: strengthEnabled ? strengthEquipment : [],
+              });
+            }, "Strength defaults saved.")
+          }
+        />
+      </Panel>
+
+      <Panel title="Courses">
+        <Text style={styles.bodyText}>Courses are shared across web and mobile plan generation.</Text>
+        <FieldGroup label="Course name">
+          <TextInput
+            style={styles.input}
+            value={courseName}
+            onChangeText={setCourseName}
+            placeholder="Park loop"
+            placeholderTextColor="#7a848c"
+          />
+        </FieldGroup>
+        <FieldGroup label="Distance">
+          <View style={styles.timeInputRow}>
+            <View style={styles.timeInputBlock}>
+              <TextInput
+                style={styles.input}
+                value={courseDistanceValue}
+                onChangeText={setCourseDistanceValue}
+                keyboardType="decimal-pad"
+                placeholder="1"
+                placeholderTextColor="#7a848c"
+              />
+            </View>
+            <View style={styles.timeInputBlock}>
+              <ChoiceRow options={DISTANCE_UNITS} selected={courseDistanceUnit} onChange={(value) => setCourseDistanceUnit(value as DistanceUnit)} />
+            </View>
+          </View>
+        </FieldGroup>
+        <FieldGroup label="Surface">
+          <ChoiceRow options={SURFACE_TYPES} selected={courseSurface} onChange={(value) => setCourseSurface(value as SurfaceType)} />
+        </FieldGroup>
+        <FieldGroup label="Notes">
+          <TextInput
+            style={[styles.input, styles.textArea]}
+            value={courseNotes}
+            onChangeText={setCourseNotes}
+            multiline
+            placeholder="Short description or landmarks"
+            placeholderTextColor="#7a848c"
+          />
+        </FieldGroup>
+        <PrimaryButton
+          label={savingExtras ? "Saving..." : "Add course"}
+          disabled={savingExtras || !courseName.trim() || !courseDistanceMeters}
+          onPress={() =>
+            void runExtras(async () => {
+              await upsertCourse({
+                name: courseName.trim(),
+                distanceMeters: courseDistanceMeters!,
+                distanceUnit: courseDistanceUnit,
+                surface: courseSurface,
+                notes: courseNotes.trim() || undefined,
+              });
+              setCourseName("");
+              setCourseDistanceValue("1");
+              setCourseDistanceUnit("miles");
+              setCourseSurface("road");
+              setCourseNotes("");
+            }, "Course saved.")
+          }
+        />
+        {settings?.courses.map((course) => (
+          <View key={String(course._id)} style={styles.subtleBlock}>
+            <Text style={styles.sectionCardTitle}>{course.name}</Text>
+            <Text style={styles.helperText}>
+              {course.distanceMeters}m · {course.distanceUnit} · {course.surface}
+            </Text>
+            {course.notes ? <Text style={styles.bodyText}>{course.notes}</Text> : null}
+            <SecondaryButton
+              label="Delete course"
+              onPress={() =>
+                void runExtras(async () => {
+                  await deleteCourse({ courseId: course._id });
+                }, "Course deleted.")
+              }
+              disabled={savingExtras}
+            />
+          </View>
+        ))}
+      </Panel>
+
+      <Panel title="Race Results">
+        <Text style={styles.bodyText}>Manage standalone race data from the same component model the web app uses.</Text>
+        <FieldGroup label="Race label">
+          <TextInput
+            style={styles.input}
+            value={raceLabel}
+            onChangeText={setRaceLabel}
+            placeholder="Spring 10K"
+            placeholderTextColor="#7a848c"
+          />
+        </FieldGroup>
+        <FieldGroup label="Race date">
+          <TextInput
+            style={styles.input}
+            value={raceDate}
+            onChangeText={setRaceDate}
+            placeholder="2026-04-18"
+            placeholderTextColor="#7a848c"
+          />
+        </FieldGroup>
+        <FieldGroup label="Distance">
+          <View style={styles.timeInputRow}>
+            <View style={styles.timeInputBlock}>
+              <TextInput
+                style={styles.input}
+                value={raceDistanceValue}
+                onChangeText={setRaceDistanceValue}
+                keyboardType="decimal-pad"
+                placeholder="5"
+                placeholderTextColor="#7a848c"
+              />
+            </View>
+            <View style={styles.timeInputBlock}>
+              <ChoiceRow options={DISTANCE_UNITS} selected={raceDistanceUnit} onChange={(value) => setRaceDistanceUnit(value as DistanceUnit)} />
+            </View>
+          </View>
+        </FieldGroup>
+        <FieldGroup label="Goal time">
+          <TextInput
+            style={styles.input}
+            value={raceGoalTime}
+            onChangeText={setRaceGoalTime}
+            placeholder="45:00"
+            placeholderTextColor="#7a848c"
+          />
+        </FieldGroup>
+        <FieldGroup label="Actual time">
+          <TextInput
+            style={styles.input}
+            value={raceActualTime}
+            onChangeText={setRaceActualTime}
+            placeholder="43:20"
+            placeholderTextColor="#7a848c"
+          />
+        </FieldGroup>
+        <PrimaryButton
+          label={savingExtras ? "Saving..." : "Add race"}
+          disabled={savingExtras || !raceLabel.trim() || !raceDate || !raceDistanceMeters}
+          onPress={() =>
+            void runExtras(async () => {
+              await upsertRace({
+                label: raceLabel.trim(),
+                plannedDate: new Date(`${raceDate}T00:00:00`).getTime(),
+                distanceMeters: raceDistanceMeters!,
+                goalTimeSeconds: parseDurationText(raceGoalTime),
+                actualTimeSeconds: parseDurationText(raceActualTime),
+                isPrimaryGoal: false,
+              });
+              setRaceLabel("");
+              setRaceDate("");
+              setRaceDistanceValue("5");
+              setRaceDistanceUnit("kilometers");
+              setRaceGoalTime("");
+              setRaceActualTime("");
+            }, "Race saved.")
+          }
+        />
+        {settings?.races.map((race) => (
+          <View key={String(race._id)} style={styles.subtleBlock}>
+            <Text style={styles.sectionCardTitle}>{race.label}</Text>
+            <Text style={styles.helperText}>
+              {new Date(race.plannedDate).toLocaleDateString()} · {race.distanceMeters}m
+            </Text>
+            {typeof race.goalTimeSeconds === "number" ? <Text style={styles.helperText}>Goal time: {race.goalTimeSeconds}s</Text> : null}
+            {typeof race.actualTimeSeconds === "number" ? <Text style={styles.helperText}>Actual time: {race.actualTimeSeconds}s</Text> : null}
+            {!race.isPrimaryGoal ? (
+              <SecondaryButton
+                label="Delete race"
+                onPress={() =>
+                  void runExtras(async () => {
+                    await deleteRace({ raceId: race._id });
+                  }, "Race deleted.")
+                }
+                disabled={savingExtras}
+              />
+            ) : (
+              <Text style={styles.helperText}>Primary goal races stay attached to the plan flow.</Text>
+            )}
+          </View>
+        ))}
+      </Panel>
+
+      <Panel title="Data Export">
+        <Text style={styles.bodyText}>Share the current JSON export without leaving mobile settings.</Text>
+        {extrasMessage ? <Text style={styles.helperText}>{extrasMessage}</Text> : null}
+        {extrasError ? <Text style={styles.errorText}>{extrasError}</Text> : null}
+        <PrimaryButton
+          label="Share export JSON"
+          disabled={!exportData || savingExtras}
+          onPress={() =>
+            void runExtras(async () => {
+              await Share.share({
+                message: JSON.stringify(exportData, null, 2),
+              });
+            }, "Export JSON opened in the share sheet.")
+          }
+        />
       </Panel>
 
       <Panel title="Advanced">

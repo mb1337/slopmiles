@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { ScrollView, Text, View } from "react-native";
 import { useQuery } from "convex/react";
+import type { DashboardPendingAction } from "@slopmiles/component-contracts";
 import {
   formatDateKeyForDisplay,
   formatDistanceForDisplay,
@@ -39,7 +40,7 @@ function formatAbsoluteVolume(volumeMode: VolumeMode, absoluteVolume: number, un
   return formatDistanceForDisplay(absoluteVolume, unitPreference);
 }
 
-export function TodayScreen({
+export function DashboardScreen({
   userName,
   unitPreference,
   onOpenCreatePlan,
@@ -70,12 +71,37 @@ export function TodayScreen({
     };
   }, []);
 
-  const summary = useQuery(api.mobileUx.getHomeSummary, { nowBucketMs });
+  const summary = useQuery(api.dashboard.getDashboardView, { nowBucketMs });
+
+  const renderPendingAction = (action: DashboardPendingAction) => (
+    <View key={`${action.kind}-${action.label}`} style={styles.subtleBlock}>
+      <Text style={styles.sectionCardTitle}>{action.label}</Text>
+      <Text style={styles.helperText}>{action.description}</Text>
+      {action.kind === "createPlan" ? <PrimaryButton label="Create plan" onPress={onOpenCreatePlan} /> : null}
+      {action.kind === "activateDraft" ? <PrimaryButton label="Review draft" onPress={onOpenPlanOverview} /> : null}
+      {action.kind === "generateWeek" && typeof action.weekNumber === "number" ? (
+        <PrimaryButton label={`Open week ${action.weekNumber}`} onPress={() => onOpenWeek(action.weekNumber)} />
+      ) : null}
+      {action.kind === "submitCheckIn" && action.workoutId && typeof action.weekNumber === "number" ? (
+        <PrimaryButton
+          label="Open check-in"
+          onPress={() => onOpenWorkout(action.workoutId as Id<"workouts">, action.weekNumber)}
+        />
+      ) : null}
+      {action.kind === "reviewHistory" && action.healthKitWorkoutId ? (
+        <PrimaryButton
+          label="Review run"
+          onPress={() => onOpenHistoryDetail(action.healthKitWorkoutId as Id<"healthKitWorkouts">)}
+        />
+      ) : null}
+      {action.kind === "messageCoach" ? <PrimaryButton label="Message coach" onPress={onOpenCoach} /> : null}
+    </View>
+  );
 
   return (
     <ScrollView contentContainerStyle={styles.container}>
-      <ScreenHeader
-        eyebrow="Today"
+        <ScreenHeader
+        eyebrow="Dashboard"
         title={`Ready to train${userName ? `, ${userName}` : ""}`}
         subtitle="Open the next decision quickly: create a plan, generate the week, check in, or review data."
       />
@@ -137,30 +163,7 @@ export function TodayScreen({
       ) : null}
 
       <SectionCard title="Pending actions" description="Only actions that move training forward show up here.">
-        {summary?.pendingActions?.map((action) => (
-          <View key={`${action.kind}-${action.label}`} style={styles.subtleBlock}>
-            <Text style={styles.sectionCardTitle}>{action.label}</Text>
-            <Text style={styles.helperText}>{action.description}</Text>
-            {action.kind === "createPlan" ? <PrimaryButton label="Create plan" onPress={onOpenCreatePlan} /> : null}
-            {action.kind === "activateDraft" ? <PrimaryButton label="Review draft" onPress={onOpenPlanOverview} /> : null}
-            {action.kind === "generateWeek" && typeof action.weekNumber === "number" ? (
-              <PrimaryButton label={`Open week ${action.weekNumber}`} onPress={() => onOpenWeek(action.weekNumber!)} />
-            ) : null}
-            {action.kind === "submitCheckIn" && action.workoutId && typeof action.weekNumber === "number" ? (
-              <PrimaryButton
-                label="Open check-in"
-                onPress={() => onOpenWorkout(action.workoutId as Id<"workouts">, action.weekNumber!)}
-              />
-            ) : null}
-            {action.kind === "reviewHistory" && action.healthKitWorkoutId ? (
-              <PrimaryButton
-                label="Review run"
-                onPress={() => onOpenHistoryDetail(action.healthKitWorkoutId as Id<"healthKitWorkouts">)}
-              />
-            ) : null}
-            {action.kind === "messageCoach" ? <PrimaryButton label="Message coach" onPress={onOpenCoach} /> : null}
-          </View>
-        ))}
+        {summary?.pendingActions?.map(renderPendingAction)}
       </SectionCard>
 
       <SectionCard title="Coach latest" description="The most recent coach note or system update.">
@@ -199,3 +202,5 @@ export function TodayScreen({
     </ScrollView>
   );
 }
+
+export { DashboardScreen as TodayScreen };

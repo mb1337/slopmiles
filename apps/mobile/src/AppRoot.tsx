@@ -51,15 +51,15 @@ function isSessionPayload(value: unknown): value is SessionPayload {
 
 export default function AppRoot() {
   const { signOut } = useAuthActions();
-  const bootstrapSession = useMutation(api.users.bootstrapSession);
-  const resetAppData = useMutation(api.users.resetAppData);
-  const updateName = useMutation(api.users.updateName);
-  const updateUnitPreference = useMutation(api.users.updateUnitPreference);
-  const updateVolumePreference = useMutation(api.users.updateVolumePreference);
-  const updateTrackAccess = useMutation(api.users.updateTrackAccess);
-  const updateRunningSchedule = useMutation(api.users.updateRunningSchedule);
-  const updateCompetitivenessPreference = useMutation(api.users.updateCompetitiveness);
-  const updatePersonalityPreference = useMutation(api.users.updatePersonality);
+  const bootstrapSession = useMutation(api.session.bootstrapSession);
+  const resetAppData = useMutation(api.settings.resetAppData);
+  const updateName = useMutation(api.settings.updateName);
+  const updateUnitPreference = useMutation(api.settings.updateUnitPreference);
+  const updateVolumePreference = useMutation(api.settings.updateVolumePreference);
+  const updateTrackAccess = useMutation(api.settings.updateTrackAccess);
+  const updateRunningSchedule = useMutation(api.settings.updateRunningSchedule);
+  const updateCompetitivenessPreference = useMutation(api.settings.updateCompetitiveness);
+  const updatePersonalityPreference = useMutation(api.settings.updatePersonality);
   const setHealthKitAuthorizationStatus = useMutation(api.healthkit.setAuthorizationStatus);
   const seedHealthKitImportWorkouts = useMutation(api.healthkit.seedImportWorkouts);
   const setHealthKitSyncStatus = useMutation(api.healthkit.setSyncStatus);

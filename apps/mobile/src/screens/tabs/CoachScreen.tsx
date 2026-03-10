@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import { ScrollView, Text, TextInput, View } from "react-native";
 import { useMutation, useQuery } from "convex/react";
 
+import type { CoachInboxView } from "@slopmiles/component-contracts";
+
 import { api } from "../../convex";
 import {
   PrimaryButton,
@@ -35,7 +37,7 @@ export function CoachScreen({
   onOpenHistory: () => void;
 }) {
   const [nowBucketMs, setNowBucketMs] = useState(getCoachTimeBucketMs);
-  const inbox = useQuery(api.mobileUx.getCoachInboxSummary, { nowBucketMs });
+  const inbox = useQuery(api.coachInbox.getCoachInboxView, { nowBucketMs }) as CoachInboxView | undefined;
   const sendCoachMessage = useMutation(api.coach.sendCoachMessage);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);

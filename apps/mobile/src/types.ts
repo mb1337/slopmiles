@@ -50,7 +50,7 @@ export type HealthKitSyncResult = {
   reason?: string;
 };
 
-export type Tab = "today" | "plan" | "history" | "coach" | "settings";
+export type Tab = "dashboard" | "plan" | "history" | "coach" | "settings";
 
 export type PlanRoute =
   | { screen: "overview" }
