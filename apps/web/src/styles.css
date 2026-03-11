@@ -425,6 +425,105 @@ code {
   gap: 0.75rem;
 }
 
+.execution-block,
+.execution-section,
+.execution-rep-list,
+.candidate-list,
+.lap-list {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.execution-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.execution-status {
+  font-size: 0.88rem;
+}
+
+.execution-status-matched {
+  background: rgba(31, 122, 80, 0.12);
+  color: var(--success);
+}
+
+.execution-status-needs-review {
+  background: rgba(184, 93, 52, 0.12);
+  color: var(--accent-strong);
+}
+
+.execution-status-unmatched {
+  background: rgba(156, 55, 35, 0.12);
+  color: var(--danger);
+}
+
+.execution-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 0.75rem;
+}
+
+.execution-metric-card,
+.candidate-card,
+.lap-row {
+  border-radius: 20px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.5);
+  padding: 0.9rem 1rem;
+}
+
+.execution-metric-card strong {
+  display: block;
+  font-size: 1.05rem;
+  margin-top: 0.2rem;
+}
+
+.execution-section h3 {
+  margin: 0;
+}
+
+.execution-rep-row {
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr);
+  gap: 0.75rem;
+  align-items: start;
+}
+
+.execution-rep-label {
+  display: block;
+}
+
+.execution-rep-copy {
+  display: grid;
+  gap: 0.3rem;
+  color: var(--muted);
+}
+
+.candidate-card,
+.lap-row {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.lap-row {
+  grid-template-columns: 88px minmax(0, 1fr);
+  gap: 0.75rem;
+  align-items: start;
+}
+
+.lap-label {
+  display: block;
+}
+
+.lap-copy {
+  display: grid;
+  gap: 0.3rem;
+  color: var(--muted);
+}
+
 .toggle {
   display: flex;
   align-items: center;
@@ -582,6 +681,14 @@ code {
 
   .segment-row {
     grid-template-columns: 1fr;
+  }
+
+  .execution-header,
+  .lap-row,
+  .execution-rep-row {
+    grid-template-columns: 1fr;
+    flex-direction: column;
+    align-items: flex-start;
   }
 
   .button,
