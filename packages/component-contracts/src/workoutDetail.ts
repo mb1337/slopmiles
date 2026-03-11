@@ -11,6 +11,7 @@ export type WorkoutDetailView = {
     weekNumber: number;
     weekStartDateKey: string;
     weekEndDateKey: string;
+    vdotAtGeneration?: number;
   };
   workout: {
     _id: string;

@@ -1,4 +1,8 @@
 import type { EffortModifier, UnitPreference, VolumeMode, WorkoutType } from "./index";
+import {
+  resolveDisplayedPaceRangeSecondsPerMeterFromVdot,
+  resolveRepresentativePaceSecondsPerMeterFromVdot,
+} from "./vdot";
 
 const IMPERIAL_REGION_CODES = new Set(["US", "LR", "MM"]);
 
@@ -116,12 +120,70 @@ export function formatPaceSecondsPerMeterForDisplay(
   unitPreference: UnitPreference,
   locale?: string,
 ): string {
+  const rounded = formatRoundedPaceValue(paceSecondsPerMeter, unitPreference, locale);
+  if (!rounded) {
+    return "-";
+  }
+
+  return `${rounded.clock} / ${rounded.unitLabel}`;
+}
+
+export function formatPaceRangeSecondsPerMeterForDisplay(
+  paceRangeSecondsPerMeter: readonly [number, number] | null | undefined,
+  unitPreference: UnitPreference,
+  locale?: string,
+): string {
+  if (
+    !paceRangeSecondsPerMeter ||
+    paceRangeSecondsPerMeter.length !== 2 ||
+    paceRangeSecondsPerMeter.some((pace) => typeof pace !== "number" || !Number.isFinite(pace) || pace <= 0)
+  ) {
+    return "-";
+  }
+
+  const sortedPaces = [...paceRangeSecondsPerMeter].sort((left, right) => left - right);
+  const lower = formatRoundedPaceValue(sortedPaces[0], unitPreference, locale);
+  const upper = formatRoundedPaceValue(sortedPaces[1], unitPreference, locale);
+
+  if (!lower || !upper || lower.unitLabel !== upper.unitLabel) {
+    return "-";
+  }
+
+  return `${lower.clock}-${upper.clock} / ${lower.unitLabel}`;
+}
+
+export function formatResolvedPaceTargetForDisplay(
+  vdot: number | null | undefined,
+  paceZone: string,
+  unitPreference: UnitPreference,
+  locale?: string,
+): string | null {
+  const displayedRange = resolveDisplayedPaceRangeSecondsPerMeterFromVdot(vdot, paceZone);
+  if (displayedRange) {
+    const formattedRange = formatPaceRangeSecondsPerMeterForDisplay(displayedRange, unitPreference, locale);
+    return formattedRange === "-" ? null : formattedRange;
+  }
+
+  const representativePace = resolveRepresentativePaceSecondsPerMeterFromVdot(vdot, paceZone);
+  if (representativePace === null) {
+    return null;
+  }
+
+  const formattedPace = formatPaceSecondsPerMeterForDisplay(representativePace, unitPreference, locale);
+  return formattedPace === "-" ? null : formattedPace;
+}
+
+function formatRoundedPaceValue(
+  paceSecondsPerMeter: number | null | undefined,
+  unitPreference: UnitPreference,
+  locale?: string,
+): { clock: string; unitLabel: "mi" | "km" } | null {
   if (
     typeof paceSecondsPerMeter !== "number" ||
     !Number.isFinite(paceSecondsPerMeter) ||
     paceSecondsPerMeter <= 0
   ) {
-    return "-";
+    return null;
   }
 
   const useImperial = prefersImperialDistance(unitPreference, locale);
@@ -130,7 +192,10 @@ export function formatPaceSecondsPerMeterForDisplay(
   const minutes = Math.floor(paceSeconds / 60);
   const seconds = paceSeconds % 60;
 
-  return `${minutes}:${String(seconds).padStart(2, "0")} / ${useImperial ? "mi" : "km"}`;
+  return {
+    clock: `${minutes}:${String(seconds).padStart(2, "0")}`,
+    unitLabel: useImperial ? "mi" : "km",
+  };
 }
 
 export function formatElevationForDisplay(

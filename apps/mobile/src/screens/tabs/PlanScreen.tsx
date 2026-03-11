@@ -6,6 +6,7 @@ import {
   VOLUME_MODES,
   formatDateKeyForDisplay,
   formatDistanceForDisplay,
+  formatResolvedPaceTargetForDisplay,
   formatWorkoutTypeLabel,
   type UnitPreference,
   type VolumeMode,
@@ -87,15 +88,17 @@ function formatSegment(segment: {
   repetitions?: number;
   restValue?: number;
   restUnit?: "seconds" | "meters";
-}): string {
+}, unitPreference: UnitPreference, vdotAtGeneration?: number): string {
   const target = segment.targetUnit === "seconds" ? formatDurationSeconds(segment.targetValue) : `${Math.round(segment.targetValue)}m`;
   const reps = segment.repetitions ? `${segment.repetitions} x ` : "";
   const rest =
     typeof segment.restValue === "number" && segment.restUnit
       ? ` / ${segment.restUnit === "seconds" ? formatDurationSeconds(segment.restValue) : `${Math.round(segment.restValue)}m`} easy`
       : "";
+  const explicitPace = formatResolvedPaceTargetForDisplay(vdotAtGeneration ?? null, segment.paceZone, unitPreference);
+  const paceLabel = explicitPace ? `${segment.paceZone} (${explicitPace})` : segment.paceZone;
 
-  return `${segment.label}: ${reps}${target} @ ${segment.paceZone}${rest}`;
+  return `${segment.label}: ${reps}${target} @ ${paceLabel}${rest}`;
 }
 
 function formatAbsoluteVolume(volumeMode: VolumeMode, absoluteVolume: number, unitPreference: UnitPreference) {
@@ -1118,7 +1121,7 @@ export function PlanScreen({
             {workoutDetail.workout.segments.length > 0 ? (
               workoutDetail.workout.segments.map((segment, index) => (
                 <Text key={`${String(workoutDetail.workout._id)}-${index}`} style={styles.helperText}>
-                  {formatSegment(segment)}
+                  {formatSegment(segment, unitPreference, workoutDetail.week.vdotAtGeneration)}
                 </Text>
               ))
             ) : (

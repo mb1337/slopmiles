@@ -107,7 +107,7 @@ function flattenImportedIntervals(workout: Doc<"healthKitWorkouts">) {
 function buildSegmentComparisons(
   plannedWorkout: Doc<"workouts"> | null,
   importedWorkout: Doc<"healthKitWorkouts">,
-  currentVdot: number | null | undefined,
+  weekVdotAtGeneration: number | null | undefined,
 ): SegmentComparison[] {
   if (!plannedWorkout) {
     return [];
@@ -116,7 +116,7 @@ function buildSegmentComparisons(
   return buildStructuredSegmentComparisons({
     segments: plannedWorkout.segments,
     intervals: flattenImportedIntervals(importedWorkout),
-    currentVdot,
+    vdotAtGeneration: weekVdotAtGeneration,
   });
 }
 
@@ -594,6 +594,7 @@ async function generateFeedback(
     throw new Error("Imported workout not found for execution.");
   }
 
+  const plannedWeek = plannedWorkout ? await ctx.db.get(plannedWorkout.weekId) : null;
   const plan =
     execution.planId ? await ctx.db.get(execution.planId) : await getActivePlan(ctx, execution.userId);
   const adjustments: string[] = [];
@@ -626,7 +627,11 @@ async function generateFeedback(
       : null;
   const paceMetrics = resolveWorkoutPaceMetrics(importedWorkout);
   const terrainContext = describeTerrainContext(importedWorkout);
-  const segmentComparisons = buildSegmentComparisons(plannedWorkout, importedWorkout, user?.currentVDOT ?? null);
+  const segmentComparisons = buildSegmentComparisons(
+    plannedWorkout,
+    importedWorkout,
+    plannedWeek?.vdotAtGeneration ?? null,
+  );
   const structuredSummary = summarizeStructuredComparisons(segmentComparisons);
 
   if (!plannedWorkout || !plan) {
@@ -951,18 +956,22 @@ export async function getExecutionDetailRecord(
     return null;
   }
 
-  const [importedWorkout, plannedWorkout, plan, user] = await Promise.all([
+  const [importedWorkout, plannedWorkout, plan] = await Promise.all([
     ctx.db.get(execution.healthKitWorkoutId),
     execution.plannedWorkoutId ? ctx.db.get(execution.plannedWorkoutId) : Promise.resolve(null),
     execution.planId ? ctx.db.get(execution.planId) : Promise.resolve(null),
-    ctx.db.get(execution.userId),
   ]);
 
   if (!importedWorkout) {
     return null;
   }
 
-  const segmentComparisons = buildSegmentComparisons(plannedWorkout, importedWorkout, user?.currentVDOT ?? null);
+  const plannedWeek = plannedWorkout ? await ctx.db.get(plannedWorkout.weekId) : null;
+  const segmentComparisons = buildSegmentComparisons(
+    plannedWorkout,
+    importedWorkout,
+    plannedWeek?.vdotAtGeneration ?? null,
+  );
 
   return {
     execution: buildExecutionSummary(execution, importedWorkout),

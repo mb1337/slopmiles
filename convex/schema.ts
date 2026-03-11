@@ -203,6 +203,7 @@ export default defineSchema({
     weekEndDateKey: v.string(),
     targetVolumePercent: v.number(),
     targetVolumeAbsolute: v.number(),
+    vdotAtGeneration: v.optional(v.number()),
     emphasis: v.string(),
     coachNotes: v.optional(v.string()),
     availabilityOverride: v.optional(v.any()),

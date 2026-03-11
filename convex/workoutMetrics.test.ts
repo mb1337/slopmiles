@@ -9,7 +9,7 @@ import {
 describe("workout metrics", () => {
   it("builds rep comparisons for exact interval counts", () => {
     const comparisons = buildStructuredSegmentComparisons({
-      currentVdot: 50,
+      vdotAtGeneration: 50,
       segments: [
         {
           order: 2,
@@ -47,7 +47,7 @@ describe("workout metrics", () => {
 
   it("marks missing reps as inferred", () => {
     const comparisons = buildStructuredSegmentComparisons({
-      currentVdot: 50,
+      vdotAtGeneration: 50,
       segments: [
         {
           order: 2,
@@ -82,7 +82,7 @@ describe("workout metrics", () => {
 
   it("appends extra reps as inferred rows", () => {
     const comparisons = buildStructuredSegmentComparisons({
-      currentVdot: 50,
+      vdotAtGeneration: 50,
       segments: [
         {
           order: 2,
@@ -117,6 +117,10 @@ describe("workout metrics", () => {
 
   it("returns null for unknown pace labels", () => {
     expect(resolvePlannedPaceSecondsPerMeter(50, "15K pace")).toBeNull();
+  });
+
+  it("returns null without a historical VDOT snapshot", () => {
+    expect(resolvePlannedPaceSecondsPerMeter(null, "T")).toBeNull();
   });
 
   it("prefers GAP over raw pace in actual pace metrics", () => {

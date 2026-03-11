@@ -11,6 +11,7 @@ import {
   formatDistanceForDisplay as formatDistance,
   formatDurationClock as formatDuration,
   formatPaceSecondsPerMeterForDisplay as formatPace,
+  formatResolvedPaceTargetForDisplay,
   formatVolumeForDisplay as formatVolume,
   projectedRaceTime,
   type CompetitivenessLevel,
@@ -61,6 +62,42 @@ import { WorkoutExecutionDetail, WorkoutLapList } from "./workoutExecution";
 
 function formatRaceTime(seconds: number | null | undefined) {
   return typeof seconds === "number" ? formatDuration(seconds) : "-";
+}
+
+function formatWorkoutSegmentLine(
+  segment: {
+    label: string;
+    paceZone: string;
+    targetValue: number;
+    targetUnit: "seconds" | "meters";
+    repetitions?: number;
+    restValue?: number;
+    restUnit?: "seconds" | "meters";
+  },
+  unitPreference: UnitPreference,
+  vdotAtGeneration?: number,
+) {
+  const target =
+    segment.targetUnit === "seconds"
+      ? formatDuration(segment.targetValue)
+      : `${Math.round(segment.targetValue)}m`;
+  const reps = segment.repetitions ? `${segment.repetitions} x ` : "";
+  const rest =
+    typeof segment.restValue === "number" && segment.restUnit
+      ? ` / ${
+          segment.restUnit === "seconds"
+            ? formatDuration(segment.restValue)
+            : `${Math.round(segment.restValue)}m`
+        } easy`
+      : "";
+  const explicitPace = formatResolvedPaceTargetForDisplay(
+    vdotAtGeneration ?? null,
+    segment.paceZone,
+    unitPreference,
+  );
+  const paceLabel = explicitPace ? `${segment.paceZone} (${explicitPace})` : segment.paceZone;
+
+  return `${segment.label}: ${reps}${target} @ ${paceLabel}${rest}`;
 }
 
 const WEB_TIME_BUCKET_MS = 15 * 60 * 1000;
@@ -1999,48 +2036,88 @@ export function WorkoutPage({ session }: { session: SessionData }) {
 
   return (
     <Screen
-      title="Workout detail"
-      subtitle="Handle schedule changes and post-run feedback without leaving the page."
-      actions={<Button kind="secondary" onClick={() => navigate(-1)}>Back</Button>}
+      title={detail ? formatWorkoutType(detail.workout.type) : "Workout detail"}
+      subtitle={
+        detail
+          ? `${formatDateKey(detail.workout.scheduledDateKey)} · Week ${detail.week.weekNumber}`
+          : "Loading workout…"
+      }
+      actions={
+        <Button
+          kind="secondary"
+          onClick={() =>
+            detail ? navigate(`/plan/week/${detail.week.weekNumber}`) : navigate(-1)
+          }
+        >
+          {detail ? `Week ${detail.week.weekNumber}` : "Back"}
+        </Button>
+      }
     >
       {message ? <StatusMessage message={message} tone="success" /> : null}
       {error ? <StatusMessage message={error} tone="error" /> : null}
       {!detail ? <StatusMessage message="Loading workout detail…" /> : null}
       {detail ? (
         <>
-          <Card title={formatWorkoutType(detail.workout.type)} eyebrow={`Week ${detail.week.weekNumber}`}>
+          <Card
+            title="Workout summary"
+            eyebrow={`${detail.plan.goalLabel} · ${detail.plan.volumeMode} mode`}
+          >
             <div className="stack">
-              <p>
-                {formatDateKey(detail.workout.scheduledDateKey)} ·{" "}
-                {formatVolume(
-                  detail.plan.volumeMode,
-                  detail.workout.absoluteVolume,
-                  session.user.unitPreference,
-                )}
-              </p>
-              {detail.workout.notes ? (
-                <div className="inset">
-                  <strong>Coach note</strong>
-                  <p>{detail.workout.notes}</p>
+              <div className="mini-metrics">
+                <div className="mini-stat">
+                  <strong>
+                    {formatVolume(
+                      detail.plan.volumeMode,
+                      detail.workout.absoluteVolume,
+                      session.user.unitPreference,
+                    )}
+                  </strong>
+                  <span>{Math.round(detail.workout.volumePercent * 100)}% of peak</span>
                 </div>
-              ) : null}
-              <div className="segment-list">
-                {detail.workout.segments.map((segment, index) => (
-                  <div className="segment-row" key={`${segment.label}-${index}`}>
-                    <strong>{segment.label}</strong>
-                    <span>{segment.paceZone}</span>
-                    <span>
-                      {segment.targetUnit === "seconds"
-                        ? formatDuration(segment.targetValue)
-                        : `${segment.targetValue} m`}
-                    </span>
-                  </div>
-                ))}
+                <div className="mini-stat">
+                  <strong>{detail.workout.venue}</strong>
+                  <span>venue</span>
+                </div>
               </div>
+              {detail.workout.notes ? (
+                <p>{detail.workout.notes}</p>
+              ) : null}
+            </div>
+          </Card>
+
+          <Card title="Segments" eyebrow="Ordered from summary down into pace-zone detail.">
+            <div className="stack">
+              {detail.workout.segments.length > 0 ? (
+                detail.workout.segments.map((segment, index) => (
+                  <p key={`${segment.label}-${index}`}>
+                    {formatWorkoutSegmentLine(
+                      segment,
+                      session.user.unitPreference,
+                      detail.week.vdotAtGeneration,
+                    )}
+                  </p>
+                ))
+              ) : (
+                <p>No structured segments were attached to this workout.</p>
+              )}
             </div>
           </Card>
 
           <div className="two-column">
+            <Card title="Actual run summary" eyebrow="After you run">
+              {detail.executionDetail ? (
+                <WorkoutExecutionDetail
+                  executionId={detail.executionDetail.execution._id as Id<"workoutExecutions">}
+                  unitPreference={session.user.unitPreference}
+                />
+              ) : (
+                <p>
+                  If the run was imported but not matched yet, review it from History and
+                  link it there.
+                </p>
+              )}
+            </Card>
+
             <Card title="Adjust the schedule" eyebrow="Before you run">
               <div className="stack">
                 <Field label="Skip reason">
@@ -2105,20 +2182,6 @@ export function WorkoutPage({ session }: { session: SessionData }) {
                   Save reschedule
                 </Button>
               </div>
-            </Card>
-
-            <Card title="Actual run summary" eyebrow="After you run">
-              {detail.executionDetail ? (
-                <WorkoutExecutionDetail
-                  executionId={detail.executionDetail.execution._id as Id<"workoutExecutions">}
-                  unitPreference={session.user.unitPreference}
-                />
-              ) : (
-                <p>
-                  No matched execution yet. Once the run syncs from iPhone, you can
-                  complete the check-in here or from History.
-                </p>
-              )}
             </Card>
           </div>
         </>

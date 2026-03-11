@@ -1,10 +1,7 @@
 import {
   calculatePaceSecondsPerMeter,
-  calculatePacesFromVdot,
   hasMeaningfulGapDifference,
-  projectedRaceTime,
-  TRAINING_ZONES,
-  type TrainingZone,
+  resolveRepresentativePaceSecondsPerMeterFromVdot,
 } from "../packages/domain/src";
 
 export type ComparableWorkoutSegment = {
@@ -61,7 +58,7 @@ type PlannedRepSlot = {
 export function buildStructuredSegmentComparisons(args: {
   segments: readonly ComparableWorkoutSegment[];
   intervals: readonly ComparableInterval[];
-  currentVdot: number | null | undefined;
+  vdotAtGeneration: number | null | undefined;
 }): SegmentComparison[] {
   const repeatedSegments = args.segments
     .filter((segment) => typeof segment.repetitions === "number" && segment.repetitions > 0)
@@ -102,7 +99,12 @@ export function buildStructuredSegmentComparisons(args: {
   for (let index = 0; index < pairedCount; index += 1) {
     const planned = plannedRepSlots[index] ?? null;
     const interval = actualIntervals[index] ?? null;
-    const comparison = buildRepComparison(planned?.segment ?? null, planned?.repIndex ?? index + 1, interval, args.currentVdot);
+    const comparison = buildRepComparison(
+      planned?.segment ?? null,
+      planned?.repIndex ?? index + 1,
+      interval,
+      args.vdotAtGeneration,
+    );
 
     if (planned) {
       comparisons[planned.segmentIndex]!.reps.push(comparison);
@@ -132,47 +134,10 @@ export function buildStructuredSegmentComparisons(args: {
 }
 
 export function resolvePlannedPaceSecondsPerMeter(
-  currentVdot: number | null | undefined,
+  vdotAtGeneration: number | null | undefined,
   paceZone: string,
 ): number | null {
-  if (typeof currentVdot !== "number" || !Number.isFinite(currentVdot) || currentVdot <= 0) {
-    return null;
-  }
-
-  const normalized = paceZone.trim();
-  if (TRAINING_ZONES.includes(normalized as TrainingZone)) {
-    const paces = calculatePacesFromVdot(currentVdot);
-    switch (normalized as TrainingZone) {
-      case "E":
-        return averagePaceRange(paces.E);
-      case "M":
-        return paces.M[0];
-      case "T":
-        return paces.T[0];
-      case "I":
-        return paces.I[0];
-      case "R":
-        return paces.R[0];
-      default:
-        return null;
-    }
-  }
-
-  const normalizedRace = normalized.toLowerCase();
-  if (normalizedRace === "5k pace") {
-    return projectedRaceTime(currentVdot, 5_000) / 5_000;
-  }
-  if (normalizedRace === "10k pace") {
-    return projectedRaceTime(currentVdot, 10_000) / 10_000;
-  }
-  if (normalizedRace === "half marathon pace") {
-    return projectedRaceTime(currentVdot, 21_097.5) / 21_097.5;
-  }
-  if (normalizedRace === "marathon pace") {
-    return projectedRaceTime(currentVdot, 42_195) / 42_195;
-  }
-
-  return null;
+  return resolveRepresentativePaceSecondsPerMeterFromVdot(vdotAtGeneration, paceZone);
 }
 
 export function resolveActualPaceMetrics(args: {
@@ -215,9 +180,11 @@ function buildRepComparison(
   segment: ComparableWorkoutSegment | null,
   repIndex: number,
   interval: ComparableInterval | null,
-  currentVdot: number | null | undefined,
+  vdotAtGeneration: number | null | undefined,
 ): SegmentRepComparison {
-  const plannedPaceSecondsPerMeter = segment ? resolvePlannedPaceSecondsPerMeter(currentVdot, segment.paceZone) : null;
+  const plannedPaceSecondsPerMeter = segment
+    ? resolvePlannedPaceSecondsPerMeter(vdotAtGeneration, segment.paceZone)
+    : null;
   const paceMetrics = resolveActualPaceMetrics({
     rawPaceSecondsPerMeter: interval?.rawPaceSecondsPerMeter,
     gradeAdjustedPaceSecondsPerMeter: interval?.gradeAdjustedPaceSecondsPerMeter,
@@ -300,10 +267,6 @@ function average(values: readonly number[]): number {
 
 function roundScore(value: number): number {
   return Math.round(value * 1000) / 1000;
-}
-
-function averagePaceRange(range: readonly [number, number]): number {
-  return (range[0] + range[1]) / 2;
 }
 
 export function resolveWorkoutRawPaceFromTotals(durationSeconds: number, distanceMeters: number | undefined): number | null {

@@ -1924,6 +1924,7 @@ export const finalizeWeekDetailGenerationSuccess = internalMutation({
 
     await ctx.db.patch(week._id, {
       coachNotes: validated.proposal.coachNotes,
+      vdotAtGeneration: user?.currentVDOT ?? undefined,
       generated: true,
       generatedByAiRequestId: request._id,
       updatedAt: now,

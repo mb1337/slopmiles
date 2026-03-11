@@ -65,6 +65,7 @@ export const getWorkoutDetailView = query({
         weekNumber: week.weekNumber,
         weekStartDateKey: week.weekStartDateKey,
         weekEndDateKey: week.weekEndDateKey,
+        vdotAtGeneration: week.vdotAtGeneration,
       },
       workout: {
         _id: workout._id,

@@ -4,6 +4,8 @@ import {
   formatDistanceForDisplay,
   formatDurationClock,
   formatPaceSecondsPerMeterForDisplay,
+  formatPaceRangeSecondsPerMeterForDisplay,
+  formatResolvedPaceTargetForDisplay,
   formatVolumeForDisplay,
   formatWorkoutTypeLabel,
   prefersImperialDistance,
@@ -29,6 +31,26 @@ describe("display helpers", () => {
 
   it("rounds pace cleanly at minute boundaries", () => {
     expect(formatPaceSecondsPerMeterForDisplay(360 / 1609.344, "imperial")).toBe("6:00 / mi");
+  });
+
+  it("formats pace ranges with a single unit suffix", () => {
+    expect(
+      formatPaceRangeSecondsPerMeterForDisplay(
+        [390 / 1609.344, 360 / 1609.344],
+        "imperial",
+      ),
+    ).toBe("6:00-6:30 / mi");
+  });
+
+  it("formats resolved VDOT pace targets for supported labels", () => {
+    expect(formatResolvedPaceTargetForDisplay(50, "E", "imperial")).toMatch(/^\d+:\d{2}-\d+:\d{2} \/ mi$/);
+    expect(formatResolvedPaceTargetForDisplay(50, "T", "imperial")).toMatch(/^\d+:\d{2} \/ mi$/);
+    expect(formatResolvedPaceTargetForDisplay(50, "5K pace", "metric")).toMatch(/^\d+:\d{2} \/ km$/);
+  });
+
+  it("returns no explicit pace when VDOT or pace labels are unsupported", () => {
+    expect(formatResolvedPaceTargetForDisplay(null, "T", "imperial")).toBeNull();
+    expect(formatResolvedPaceTargetForDisplay(50, "15K pace", "imperial")).toBeNull();
   });
 
   it("formats absolute volume by mode", () => {
