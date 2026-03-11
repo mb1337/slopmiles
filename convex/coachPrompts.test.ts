@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { buildPlanGenerationMessages, buildWeekDetailGenerationMessages } from "./coachPrompts";
+import { buildPlanAssessmentMessages, buildPlanGenerationMessages, buildWeekDetailGenerationMessages } from "./coachPrompts";
 
 describe("coach prompts", () => {
   it("includes strength preferences in the plan-generation payload", () => {
@@ -89,5 +89,54 @@ describe("coach prompts", () => {
     expect(userPayload.constraints.lockedRunningWorkouts).toHaveLength(1);
     expect(userPayload.strength.includeStrength).toBe(true);
     expect(userPayload.responseRequirements.strengthRule).toContain("strengthWorkouts");
+  });
+
+  it("includes assessment inputs and required response keys", () => {
+    const messages = buildPlanAssessmentMessages({
+      goalLabel: "Half Marathon",
+      planStatus: "completed",
+      completionStyle: "full",
+      volumeMode: "time",
+      peakWeekVolume: 540,
+      competitiveness: "balanced",
+      personalityDescription: "Brief, direct, no fluff.",
+      currentVDOT: 49.2,
+      weeks: [
+        {
+          weekNumber: 1,
+          emphasis: "Base",
+          targetVolumeAbsolute: 18000,
+          plannedWorkoutCount: 4,
+          completedWorkoutCount: 4,
+          actualCompletedVolume: 17600,
+        },
+      ],
+      detailWeeks: [
+        {
+          weekNumber: 1,
+          emphasis: "Base",
+          workouts: [
+            {
+              type: "easyRun",
+              scheduledDateKey: "2026-03-10",
+              status: "completed",
+              absoluteVolume: 3600,
+              executed: true,
+              actualDurationSeconds: 3540,
+            },
+          ],
+        },
+      ],
+      peakVolumeChanges: [],
+      goalChanges: [],
+      races: [],
+    });
+
+    const userPayload = JSON.parse(String(messages[1]?.content));
+
+    expect(userPayload.plan.completionStyle).toBe("full");
+    expect(userPayload.weekSummaries).toHaveLength(1);
+    expect(userPayload.responseRequirements.requiredKeys).toContain("summary");
+    expect(userPayload.responseRequirements.requiredKeys).toContain("discussionPrompts");
   });
 });

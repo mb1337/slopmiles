@@ -16,6 +16,7 @@ import {
   HistoryPage,
   HistoryWorkoutPage,
   OnboardingPage,
+  PastPlanPage,
   PlanPage,
   SettingsPage,
   WeekPage,
@@ -69,6 +70,7 @@ function AuthenticatedApp() {
         >
           <Route path="/dashboard" element={<DashboardPage session={session} />} />
           <Route path="/plan" element={<PlanPage onRefresh={refresh} session={session} />} />
+          <Route path="/plan/history/:planId" element={<PastPlanPage session={session} />} />
           <Route path="/plan/week/:weekNumber" element={<WeekPage session={session} />} />
           <Route path="/plan/workout/:workoutId" element={<WorkoutPage session={session} />} />
           <Route path="/history" element={<HistoryPage session={session} />} />

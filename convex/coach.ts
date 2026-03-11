@@ -5,8 +5,9 @@ import { internal } from "./_generated/api";
 import { action, internalAction, internalMutation, internalQuery, mutation, query } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
+import { validatePlanAssessmentResponse, type PlanAssessmentProposal } from "./assessmentContracts";
 import { validatePlanGenerationResponse, type PlanGenerationProposal } from "./coachContracts";
-import { buildPlanGenerationMessages, buildWeekDetailGenerationMessages } from "./coachPrompts";
+import { buildPlanAssessmentMessages, buildPlanGenerationMessages, buildWeekDetailGenerationMessages } from "./coachPrompts";
 import { validateWeekDetailResponse, type WeekDetailWorkoutProposal } from "./weekDetailContracts";
 import {
   aiCallTypes,
@@ -17,7 +18,7 @@ import {
   type StrengthEquipment,
   volumeModes,
 } from "./constants";
-import { isWeekGeneratable, resolveAbsoluteWeekVolume } from "./planWeeks";
+import { deriveCurrentWeekNumber, isWeekGeneratable, resolveAbsoluteWeekVolume } from "./planWeeks";
 import { listExecutionSummariesByPlannedWorkoutId } from "./workoutExecutionHelpers";
 import { dateKeyFromEpochMs } from "../packages/domain/src/calendar";
 
@@ -36,6 +37,8 @@ const PLAN_GENERATION_PROMPT_REVISION = "plan-generation-v1";
 const PLAN_GENERATION_SCHEMA_REVISION = "plan-generation-v1";
 const WEEK_DETAIL_PROMPT_REVISION = "week-detail-v2";
 const WEEK_DETAIL_SCHEMA_REVISION = "week-detail-v2";
+const PLAN_ASSESSMENT_PROMPT_REVISION = "plan-assessment-v1";
+const PLAN_ASSESSMENT_SCHEMA_REVISION = "plan-assessment-v1";
 const DEFAULT_OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
 const DEFAULT_OPENROUTER_MODEL = "openai/gpt-5-mini";
 
@@ -214,6 +217,17 @@ function createWeekDetailDedupeKey(input: {
   ].join("|");
 }
 
+function createPlanAssessmentDedupeKey(input: {
+  planId: Id<"trainingPlans">;
+}): string {
+  return [
+    "planAssessment",
+    input.planId,
+    PLAN_ASSESSMENT_PROMPT_REVISION,
+    PLAN_ASSESSMENT_SCHEMA_REVISION,
+  ].join("|");
+}
+
 function asPlanGenerationInput(
   value: unknown,
 ): {
@@ -292,6 +306,26 @@ function asWeekDetailInput(
   return {
     planId,
     weekNumber,
+  };
+}
+
+function asPlanAssessmentInput(
+  value: unknown,
+): {
+  planId: Id<"trainingPlans">;
+} {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("Invalid plan-assessment request input payload.");
+  }
+
+  const candidate = value as Record<string, unknown>;
+  const planId = candidate.planId as Id<"trainingPlans"> | undefined;
+  if (!planId || typeof planId !== "string") {
+    throw new Error("Plan-assessment input requires planId.");
+  }
+
+  return {
+    planId,
   };
 }
 
@@ -413,6 +447,56 @@ function extractStoredPlanProposal(value: unknown): PlanGenerationProposal | nul
     rationale: candidate.rationale,
     ...(typeof candidate.strengthApproach === "string" ? { strengthApproach: candidate.strengthApproach } : {}),
   };
+}
+
+function extractStoredPlanAssessment(value: unknown): PlanAssessmentProposal | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+
+  const candidate = value as {
+    summary?: unknown;
+    volumeAdherence?: unknown;
+    paceAdherence?: unknown;
+    vdotStart?: unknown;
+    vdotEnd?: unknown;
+    highlights?: unknown;
+    areasForImprovement?: unknown;
+    nextPlanSuggestion?: unknown;
+    discussionPrompts?: unknown;
+  };
+
+  if (
+    typeof candidate.summary !== "string" ||
+    typeof candidate.volumeAdherence !== "number" ||
+    typeof candidate.paceAdherence !== "number" ||
+    typeof candidate.vdotStart !== "number" ||
+    typeof candidate.vdotEnd !== "number" ||
+    !Array.isArray(candidate.highlights) ||
+    !Array.isArray(candidate.areasForImprovement) ||
+    typeof candidate.nextPlanSuggestion !== "string" ||
+    !Array.isArray(candidate.discussionPrompts)
+  ) {
+    return null;
+  }
+
+  return {
+    summary: candidate.summary,
+    volumeAdherence: candidate.volumeAdherence,
+    paceAdherence: candidate.paceAdherence,
+    vdotStart: candidate.vdotStart,
+    vdotEnd: candidate.vdotEnd,
+    highlights: candidate.highlights.filter((entry): entry is string => typeof entry === "string"),
+    areasForImprovement: candidate.areasForImprovement.filter((entry): entry is string => typeof entry === "string"),
+    nextPlanSuggestion: candidate.nextPlanSuggestion,
+    discussionPrompts: candidate.discussionPrompts.filter((entry): entry is string => typeof entry === "string"),
+  };
+}
+
+function resolveAssessmentRetryDelayMs(attemptCount: number): number {
+  const baseDelayMs = 60 * 1000;
+  const cappedAttempt = Math.max(1, attemptCount);
+  return baseDelayMs * 2 ** (cappedAttempt - 1);
 }
 
 async function materializeDraftPlanFromValidatedProposal(
@@ -799,6 +883,65 @@ export const requestWeekDetailGeneration = mutation({
   },
 });
 
+export const enqueuePlanAssessmentRequest = internalMutation({
+  args: {
+    planId: v.id("trainingPlans"),
+  },
+  handler: async (ctx, args) => {
+    const plan = await ctx.db.get(args.planId);
+    if (!plan) {
+      throw new Error("Plan not found.");
+    }
+
+    const dedupeKey = createPlanAssessmentDedupeKey({
+      planId: plan._id,
+    });
+    const existing = await ctx.db
+      .query("aiRequests")
+      .withIndex("by_user_id_call_type_dedupe_key", (queryBuilder) =>
+        queryBuilder.eq("userId", plan.userId).eq("callType", "planAssessment").eq("dedupeKey", dedupeKey),
+      )
+      .collect();
+
+    const inFlight = existing.find((request) => request.status === "queued" || request.status === "inProgress");
+    if (inFlight) {
+      return {
+        requestId: inFlight._id,
+        status: inFlight.status,
+        deduped: true,
+      };
+    }
+
+    const now = Date.now();
+    const requestId = await ctx.db.insert("aiRequests", {
+      userId: plan.userId,
+      callType: aiCallTypes[2],
+      status: aiRequestStatuses[0],
+      priority: aiRequestPriorities[2],
+      dedupeKey,
+      input: {
+        planId: plan._id,
+      },
+      attemptCount: 0,
+      maxAttempts: 3,
+      promptRevision: PLAN_ASSESSMENT_PROMPT_REVISION,
+      schemaRevision: PLAN_ASSESSMENT_SCHEMA_REVISION,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    await ctx.scheduler.runAfter(0, internal.coach.processPlanAssessmentRequest, {
+      requestId,
+    });
+
+    return {
+      requestId,
+      status: "queued" as const,
+      deduped: false,
+    };
+  },
+});
+
 export const sendCoachMessage = mutation({
   args: {
     body: v.string(),
@@ -940,6 +1083,72 @@ export const retryWeekDetailGeneration = mutation({
     return {
       requestId: request._id,
       status: "queued" as const,
+    };
+  },
+});
+
+export const retryPlanAssessment = mutation({
+  args: {
+    requestId: v.id("aiRequests"),
+  },
+  handler: async (ctx, args) => {
+    const userId = await requireAuthenticatedMutationUserId(ctx);
+    const request = await ctx.db.get(args.requestId);
+    if (!request || request.userId !== userId || request.callType !== "planAssessment") {
+      throw new Error("Plan-assessment request not found.");
+    }
+
+    if (request.status === "inProgress") {
+      return {
+        requestId: request._id,
+        status: request.status,
+      };
+    }
+
+    await ctx.db.patch(request._id, {
+      status: "queued",
+      errorCode: undefined,
+      errorMessage: undefined,
+      nextRetryAt: undefined,
+      completedAt: undefined,
+      updatedAt: Date.now(),
+    });
+
+    await ctx.scheduler.runAfter(0, internal.coach.processPlanAssessmentRequest, {
+      requestId: request._id,
+    });
+
+    return {
+      requestId: request._id,
+      status: "queued" as const,
+    };
+  },
+});
+
+export const retryDuePlanAssessments = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const userId = await requireAuthenticatedMutationUserId(ctx);
+    const now = Date.now();
+    const requests = await ctx.db
+      .query("aiRequests")
+      .withIndex("by_user_id_status", (queryBuilder) => queryBuilder.eq("userId", userId).eq("status", "queued"))
+      .collect();
+
+    const dueRequests = requests.filter(
+      (request) =>
+        request.callType === "planAssessment" &&
+        (request.nextRetryAt === undefined || request.nextRetryAt <= now),
+    );
+
+    for (const request of dueRequests) {
+      await ctx.scheduler.runAfter(0, internal.coach.processPlanAssessmentRequest, {
+        requestId: request._id,
+      });
+    }
+
+    return {
+      queuedCount: dueRequests.length,
     };
   },
 });
@@ -1249,6 +1458,234 @@ export const getWeekDetailGenerationContext = internalQuery({
   },
 });
 
+export const getPlanAssessmentContext = internalQuery({
+  args: {
+    requestId: v.id("aiRequests"),
+  },
+  handler: async (ctx, args) => {
+    const request = await ctx.db.get(args.requestId);
+    if (!request || request.callType !== "planAssessment") {
+      return null;
+    }
+
+    const input = asPlanAssessmentInput(request.input);
+    const plan = await ctx.db.get(input.planId);
+    if (!plan || (plan.status !== "completed" && plan.status !== "abandoned")) {
+      return null;
+    }
+
+    const [user, goal, competitiveness, personality, weeks, workouts, executions, peakVolumeChanges, goalChanges, races] =
+      await Promise.all([
+        ctx.db.get(request.userId),
+        ctx.db.get(plan.goalId),
+        ctx.db
+          .query("competitiveness")
+          .withIndex("by_user_id", (queryBuilder) => queryBuilder.eq("userId", request.userId))
+          .unique(),
+        ctx.db
+          .query("personalities")
+          .withIndex("by_user_id", (queryBuilder) => queryBuilder.eq("userId", request.userId))
+          .unique(),
+        ctx.db
+          .query("trainingWeeks")
+          .withIndex("by_plan_id", (queryBuilder) => queryBuilder.eq("planId", plan._id))
+          .collect(),
+        ctx.db.query("workouts").collect(),
+        ctx.db
+          .query("workoutExecutions")
+          .withIndex("by_plan_id", (queryBuilder) => queryBuilder.eq("planId", plan._id))
+          .collect(),
+        ctx.db
+          .query("peakVolumeChanges")
+          .withIndex("by_plan_id", (queryBuilder) => queryBuilder.eq("planId", plan._id))
+          .collect(),
+        ctx.db
+          .query("goalChanges")
+          .withIndex("by_plan_id", (queryBuilder) => queryBuilder.eq("planId", plan._id))
+          .collect(),
+        ctx.db
+          .query("races")
+          .withIndex("by_plan_id", (queryBuilder) => queryBuilder.eq("planId", plan._id))
+          .collect(),
+      ]);
+
+    if (!user || !goal) {
+      return null;
+    }
+
+    const weeksByNumber = [...weeks].sort((left, right) => left.weekNumber - right.weekNumber);
+    const derivedCompletedWeek =
+      plan.startDateKey ? deriveCurrentWeekNumber(plan, plan.updatedAt) ?? plan.numberOfWeeks : plan.numberOfWeeks;
+    const completedWeekCount = Math.min(plan.numberOfWeeks, Math.max(1, derivedCompletedWeek));
+    const includedWeeks = weeksByNumber.filter((week) => week.weekNumber <= completedWeekCount);
+    const targetWeekIds = new Set(includedWeeks.map((week) => String(week._id)));
+    const workoutsInIncludedWeeks = workouts.filter((workout) => targetWeekIds.has(String(workout.weekId)));
+
+    const executionsWithHealthKit = await Promise.all(
+      executions.map(async (execution) => ({
+        execution,
+        healthKitWorkout: await ctx.db.get(execution.healthKitWorkoutId),
+      })),
+    );
+
+    const executionByPlannedWorkoutId = new Map(
+      executionsWithHealthKit
+        .filter((entry) => entry.execution.plannedWorkoutId)
+        .map((entry) => [String(entry.execution.plannedWorkoutId), entry] as const),
+    );
+    const workoutsByWeekId = new Map<string, typeof workoutsInIncludedWeeks>();
+    for (const workout of workoutsInIncludedWeeks) {
+      const bucket = workoutsByWeekId.get(String(workout.weekId)) ?? [];
+      bucket.push(workout);
+      workoutsByWeekId.set(String(workout.weekId), bucket);
+    }
+
+    const raceWeekNumbers = new Set(
+      races
+        .map((race) => {
+          const week = includedWeeks.find((candidate) => {
+            const raceDateKey = dateKeyFromEpochMs(race.plannedDate, plan.canonicalTimeZoneId ?? "UTC");
+            return raceDateKey >= candidate.weekStartDateKey && raceDateKey <= candidate.weekEndDateKey;
+          });
+          return week?.weekNumber;
+        })
+        .filter((weekNumber): weekNumber is number => typeof weekNumber === "number"),
+    );
+
+    const peakWeek = [...includedWeeks].sort((left, right) => right.targetVolumeAbsolute - left.targetVolumeAbsolute)[0] ?? null;
+    const detailWeekNumbers = new Set<number>();
+    if (includedWeeks[0]) {
+      detailWeekNumbers.add(includedWeeks[0].weekNumber);
+    }
+    if (peakWeek) {
+      detailWeekNumbers.add(peakWeek.weekNumber);
+    }
+    for (const weekNumber of raceWeekNumbers) {
+      detailWeekNumbers.add(weekNumber);
+    }
+    for (const week of includedWeeks.slice(-2)) {
+      detailWeekNumbers.add(week.weekNumber);
+    }
+
+    const goalLabelById = new Map<string, string>();
+    goalLabelById.set(String(goal._id), goal.label);
+    const missingGoalIds = Array.from(
+      new Set(
+        goalChanges.flatMap((change) => [String(change.previousGoalId), String(change.newGoalId)]).filter(
+          (goalId) => !goalLabelById.has(goalId),
+        ),
+      ),
+    );
+    const missingGoalDocs = await Promise.all(missingGoalIds.map((goalId) => ctx.db.get(goalId as Id<"goals">)));
+    for (const goalDoc of missingGoalDocs) {
+      if (goalDoc) {
+        goalLabelById.set(String(goalDoc._id), goalDoc.label);
+      }
+    }
+
+    return {
+      request,
+      input,
+      plan,
+      promptInput: {
+        goalLabel: goal.label,
+        planStatus: plan.status,
+        completionStyle:
+          plan.status === "completed" && completedWeekCount >= plan.numberOfWeeks ? ("full" as const) : ("partial" as const),
+        volumeMode: plan.volumeMode,
+        peakWeekVolume: plan.peakWeekVolume,
+        competitiveness: competitiveness?.level ?? "balanced",
+        personalityDescription: personality?.description ?? "Direct and concise coaching.",
+        currentVDOT: user.currentVDOT ?? undefined,
+        weeks: includedWeeks.map((week) => {
+          const weekWorkouts = workoutsByWeekId.get(String(week._id)) ?? [];
+          const matchedExecutions = weekWorkouts
+            .map((workout) => executionByPlannedWorkoutId.get(String(workout._id)))
+            .filter((entry): entry is NonNullable<typeof entry> => Boolean(entry))
+            .filter((entry) => entry.execution.matchStatus === "matched");
+
+          const actualCompletedVolume = matchedExecutions.reduce((sum, entry) => {
+            if (plan.volumeMode === "time") {
+              return sum + (entry.healthKitWorkout?.durationSeconds ?? 0);
+            }
+            return sum + (entry.healthKitWorkout?.distanceMeters ?? 0);
+          }, 0);
+          const rpeValues = matchedExecutions
+            .map((entry) => entry.execution.rpe)
+            .filter((value): value is number => typeof value === "number");
+
+          return {
+            weekNumber: week.weekNumber,
+            emphasis: week.emphasis,
+            targetVolumeAbsolute: week.targetVolumeAbsolute,
+            plannedWorkoutCount: weekWorkouts.length,
+            completedWorkoutCount: matchedExecutions.length,
+            actualCompletedVolume,
+            ...(rpeValues.length > 0
+              ? {
+                  averageRpe:
+                    Math.round((rpeValues.reduce((sum, value) => sum + value, 0) / rpeValues.length) * 10) / 10,
+                }
+              : {}),
+            ...(week.interruptionType ? { interruptionType: week.interruptionType } : {}),
+          };
+        }),
+        detailWeeks: includedWeeks
+          .filter((week) => detailWeekNumbers.has(week.weekNumber))
+          .map((week) => ({
+            weekNumber: week.weekNumber,
+            emphasis: week.emphasis,
+            workouts: (workoutsByWeekId.get(String(week._id)) ?? [])
+              .sort((left, right) => left.scheduledDateKey.localeCompare(right.scheduledDateKey))
+              .map((workout) => {
+                const executionEntry = executionByPlannedWorkoutId.get(String(workout._id)) ?? null;
+                return {
+                  type: workout.type,
+                  scheduledDateKey: workout.scheduledDateKey,
+                  status: executionEntry?.execution.matchStatus === "matched" ? "completed" : workout.status,
+                  absoluteVolume: workout.absoluteVolume,
+                  executed: executionEntry?.execution.matchStatus === "matched",
+                  ...(typeof executionEntry?.execution.rpe === "number" ? { rpe: executionEntry.execution.rpe } : {}),
+                  ...(typeof executionEntry?.healthKitWorkout?.durationSeconds === "number"
+                    ? { actualDurationSeconds: executionEntry.healthKitWorkout.durationSeconds }
+                    : {}),
+                  ...(typeof executionEntry?.healthKitWorkout?.distanceMeters === "number"
+                    ? { actualDistanceMeters: executionEntry.healthKitWorkout.distanceMeters }
+                    : {}),
+                };
+              }),
+          })),
+        peakVolumeChanges: peakVolumeChanges
+          .sort((left, right) => left.createdAt - right.createdAt)
+          .map((change) => ({
+            previousPeakWeekVolume: change.previousPeakWeekVolume,
+            newPeakWeekVolume: change.newPeakWeekVolume,
+            reason: change.reason,
+            createdAt: change.createdAt,
+          })),
+        goalChanges: goalChanges
+          .sort((left, right) => left.createdAt - right.createdAt)
+          .map((change) => ({
+            previousGoalLabel: goalLabelById.get(String(change.previousGoalId)) ?? "Previous goal",
+            newGoalLabel: goalLabelById.get(String(change.newGoalId)) ?? "Updated goal",
+            reason: change.reason,
+            createdAt: change.createdAt,
+          })),
+        races: races
+          .sort((left, right) => left.plannedDate - right.plannedDate)
+          .map((race) => ({
+            label: race.label,
+            plannedDate: race.plannedDate,
+            distanceMeters: race.distanceMeters,
+            goalTimeSeconds: race.goalTimeSeconds,
+            actualTimeSeconds: race.actualTimeSeconds,
+            isPrimaryGoal: race.isPrimaryGoal,
+          })),
+      },
+    };
+  },
+});
+
 export const markRequestInProgress = internalMutation({
   args: {
     requestId: v.id("aiRequests"),
@@ -1518,6 +1955,87 @@ export const finalizeWeekDetailGenerationSuccess = internalMutation({
   },
 });
 
+export const finalizePlanAssessmentSuccess = internalMutation({
+  args: {
+    requestId: v.id("aiRequests"),
+    proposal: v.any(),
+    metadata: v.optional(v.any()),
+  },
+  handler: async (ctx, args) => {
+    const request = await ctx.db.get(args.requestId);
+    if (!request) {
+      return null;
+    }
+
+    if (request.callType !== "planAssessment") {
+      throw new Error("finalizePlanAssessmentSuccess only supports planAssessment requests.");
+    }
+
+    const input = asPlanAssessmentInput(request.input);
+    const plan = await ctx.db.get(input.planId);
+    if (!plan) {
+      throw new Error("Plan for assessment could not be loaded.");
+    }
+
+    const validated = validatePlanAssessmentResponse(args.proposal);
+    const metadata = asMetadata(args.metadata);
+    const result = {
+      ...validated.proposal,
+      ...(metadata ? { metadata } : {}),
+      corrections: validated.corrections,
+    };
+
+    const now = Date.now();
+    const existingAssessments = await ctx.db
+      .query("planAssessments")
+      .withIndex("by_plan_id", (queryBuilder) => queryBuilder.eq("planId", plan._id))
+      .collect();
+    const sortedAssessments = [...existingAssessments].sort((left, right) => right.createdAt - left.createdAt);
+
+    if (sortedAssessments[0]) {
+      await ctx.db.patch(sortedAssessments[0]._id, {
+        ...validated.proposal,
+        updatedAt: now,
+      });
+      for (const stale of sortedAssessments.slice(1)) {
+        await ctx.db.delete(stale._id);
+      }
+    } else {
+      await ctx.db.insert("planAssessments", {
+        userId: request.userId,
+        planId: plan._id,
+        ...validated.proposal,
+        createdAt: now,
+        updatedAt: now,
+      });
+    }
+
+    await ctx.db.patch(request._id, {
+      status: "succeeded",
+      result,
+      errorCode: undefined,
+      errorMessage: undefined,
+      nextRetryAt: undefined,
+      completedAt: now,
+      updatedAt: now,
+    });
+
+    await ctx.db.insert("coachMessages", {
+      userId: request.userId,
+      author: "coach",
+      kind: "event",
+      body: `Assessment ready for ${plan.status === "abandoned" ? "the closed block" : "the completed block"}.`,
+      planId: plan._id,
+      relatedRequestId: request._id,
+      createdAt: now,
+    });
+
+    return {
+      corrections: validated.corrections,
+    };
+  },
+});
+
 export const markRequestQueuedForRetry = internalMutation({
   args: {
     requestId: v.id("aiRequests"),
@@ -1536,6 +2054,7 @@ export const markRequestQueuedForRetry = internalMutation({
       errorCode: args.errorCode,
       errorMessage: args.errorMessage,
       nextRetryAt: args.nextRetryAt,
+      completedAt: undefined,
       updatedAt: Date.now(),
     });
   },
@@ -1570,7 +2089,9 @@ export const markRequestFailed = internalMutation({
       body:
         request.callType === "weekDetailGeneration"
           ? `Week detail generation failed: ${args.errorMessage}`
-          : `Plan generation failed: ${args.errorMessage}`,
+          : request.callType === "planAssessment"
+            ? `Plan assessment failed: ${args.errorMessage}`
+            : `Plan generation failed: ${args.errorMessage}`,
       relatedRequestId: request._id,
       createdAt: now,
     });
@@ -1720,6 +2241,77 @@ export const processWeekDetailGenerationRequest = internalAction({
       await ctx.runMutation(internal.coach.markRequestFailed, {
         requestId: args.requestId,
         errorCode: "WEEK_DETAIL_GENERATION_FAILED",
+        errorMessage: message,
+      });
+    }
+  },
+});
+
+export const processPlanAssessmentRequest = internalAction({
+  args: {
+    requestId: v.id("aiRequests"),
+  },
+  handler: async (ctx, args) => {
+    const started = await ctx.runMutation(internal.coach.markRequestInProgress, {
+      requestId: args.requestId,
+    });
+    if (!started) {
+      return;
+    }
+
+    try {
+      const context = await ctx.runQuery(internal.coach.getPlanAssessmentContext, {
+        requestId: args.requestId,
+      });
+      if (!context) {
+        throw new Error("Could not load plan-assessment context.");
+      }
+
+      const messages = buildPlanAssessmentMessages(context.promptInput);
+      const providerResponse = await callOpenRouter(messages);
+      const parsed = parseJsonPayloadFromModel(providerResponse.content);
+
+      const finalized = await ctx.runMutation(internal.coach.finalizePlanAssessmentSuccess, {
+        requestId: args.requestId,
+        proposal: parsed,
+        metadata: {
+          model: providerResponse.model,
+          providerRequestId: providerResponse.requestId,
+        },
+      });
+
+      if (finalized && finalized.corrections.length > 0) {
+        await ctx.runMutation(internal.coach.appendDiagnostic, {
+          requestId: args.requestId,
+          code: "PLAN_ASSESSMENT_AUTO_CORRECTED",
+          message: "Applied deterministic corrections to AI plan assessment.",
+          details: {
+            corrections: finalized.corrections,
+          },
+        });
+      }
+    } catch (error) {
+      const message = errorMessage(error);
+      await ctx.runMutation(internal.coach.appendDiagnostic, {
+        requestId: args.requestId,
+        code: "PLAN_ASSESSMENT_FAILED",
+        message,
+      });
+
+      if (started.attemptCount < started.maxAttempts) {
+        const nextRetryAt = Date.now() + resolveAssessmentRetryDelayMs(started.attemptCount);
+        await ctx.runMutation(internal.coach.markRequestQueuedForRetry, {
+          requestId: args.requestId,
+          errorCode: "PLAN_ASSESSMENT_FAILED",
+          errorMessage: message,
+          nextRetryAt,
+        });
+        return;
+      }
+
+      await ctx.runMutation(internal.coach.markRequestFailed, {
+        requestId: args.requestId,
+        errorCode: "PLAN_ASSESSMENT_FAILED",
         errorMessage: message,
       });
     }

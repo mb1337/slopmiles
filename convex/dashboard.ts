@@ -14,6 +14,7 @@ import {
   listPlanSummaries,
   requireAuthenticatedUserId,
 } from "./componentReadHelpers";
+import { loadPlanAssessmentStateMaps, resolvePlanAssessmentState } from "./planAssessmentHelpers";
 
 export const getDashboardView = query({
   args: {
@@ -27,6 +28,7 @@ export const getDashboardView = query({
       getLatestCoachMessage(ctx, userId),
       getLatestReviewWorkout({ ctx, userId }),
     ]);
+    const assessmentMaps = await loadPlanAssessmentStateMaps(ctx, userId);
 
     const sortedPlans = [...planSummaries].sort((left, right) => right.createdAt - left.createdAt);
     let activePlanSummary: (typeof sortedPlans)[number] | null = null;
@@ -90,6 +92,11 @@ export const getDashboardView = query({
               status: pastPlans[0].status,
               label: pastPlans[0].goal.label,
               createdAt: pastPlans[0].createdAt,
+              assessment: resolvePlanAssessmentState({
+                planId: pastPlans[0]._id,
+                assessmentByPlanId: assessmentMaps.assessmentByPlanId,
+                requestByPlanId: assessmentMaps.requestByPlanId,
+              }),
             }
           : null,
       };
@@ -227,6 +234,11 @@ export const getDashboardView = query({
             status: pastPlans[0].status,
             label: pastPlans[0].goal.label,
             createdAt: pastPlans[0].createdAt,
+            assessment: resolvePlanAssessmentState({
+              planId: pastPlans[0]._id,
+              assessmentByPlanId: assessmentMaps.assessmentByPlanId,
+              requestByPlanId: assessmentMaps.requestByPlanId,
+            }),
           }
         : null,
     };

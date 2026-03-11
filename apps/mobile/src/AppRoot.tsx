@@ -52,6 +52,7 @@ function isSessionPayload(value: unknown): value is SessionPayload {
 export default function AppRoot() {
   const { signOut } = useAuthActions();
   const bootstrapSession = useMutation(api.session.bootstrapSession);
+  const retryDuePlanAssessments = useMutation(api.coach.retryDuePlanAssessments);
   const resetAppData = useMutation(api.settings.resetAppData);
   const updateName = useMutation(api.settings.updateName);
   const updateUnitPreference = useMutation(api.settings.updateUnitPreference);
@@ -106,6 +107,13 @@ export default function AppRoot() {
     }
 
     setSession(payload);
+    if (payload.onboardingState.isComplete) {
+      try {
+        await retryDuePlanAssessments({});
+      } catch {
+        // Keep session bootstrap resilient even if retry scheduling fails.
+      }
+    }
     return payload;
   };
 
@@ -195,6 +203,22 @@ export default function AppRoot() {
 
     return importResult;
   };
+
+  useEffect(() => {
+    if (!session?.onboardingState.isComplete) {
+      return;
+    }
+
+    const appStateSubscription = AppState.addEventListener("change", (nextState) => {
+      if (nextState === "active") {
+        void retryDuePlanAssessments({});
+      }
+    });
+
+    return () => {
+      appStateSubscription.remove();
+    };
+  }, [retryDuePlanAssessments, session?.onboardingState.isComplete]);
 
   useEffect(() => {
     if (!session?.user.healthKitAuthorized) {

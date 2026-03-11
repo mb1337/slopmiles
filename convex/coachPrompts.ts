@@ -76,6 +76,61 @@ export type WeekDetailGenerationPromptInput = {
   volumeTargetMode: "exact" | "upToTarget";
 };
 
+export type PlanAssessmentPromptInput = {
+  goalLabel: string;
+  planStatus: "completed" | "abandoned";
+  completionStyle: "full" | "partial";
+  volumeMode: VolumeMode;
+  peakWeekVolume: number;
+  competitiveness: string;
+  personalityDescription: string;
+  currentVDOT?: number;
+  weeks: Array<{
+    weekNumber: number;
+    emphasis: string;
+    targetVolumeAbsolute: number;
+    plannedWorkoutCount: number;
+    completedWorkoutCount: number;
+    actualCompletedVolume: number;
+    averageRpe?: number;
+    interruptionType?: string;
+  }>;
+  detailWeeks: Array<{
+    weekNumber: number;
+    emphasis: string;
+    workouts: Array<{
+      type: string;
+      scheduledDateKey: string;
+      status: string;
+      absoluteVolume: number;
+      executed: boolean;
+      rpe?: number;
+      actualDurationSeconds?: number;
+      actualDistanceMeters?: number;
+    }>;
+  }>;
+  peakVolumeChanges: Array<{
+    previousPeakWeekVolume: number;
+    newPeakWeekVolume: number;
+    reason: string;
+    createdAt: number;
+  }>;
+  goalChanges: Array<{
+    previousGoalLabel: string;
+    newGoalLabel: string;
+    reason?: string;
+    createdAt: number;
+  }>;
+  races: Array<{
+    label: string;
+    plannedDate: number;
+    distanceMeters: number;
+    goalTimeSeconds?: number;
+    actualTimeSeconds?: number;
+    isPrimaryGoal: boolean;
+  }>;
+};
+
 const BASE_SYSTEM_PROMPT = [
   "You are SlopMiles, an expert running coach.",
   "Follow core training guardrails: 2-3 quality sessions max per week, long run roughly <=30% of weekly volume, conservative progression with down weeks, and clear hard/easy polarization.",
@@ -279,6 +334,80 @@ export function buildWeekDetailGenerationMessages(input: WeekDetailGenerationPro
         },
       ],
       coachNotes: "string",
+    },
+  };
+
+  return [
+    {
+      role: "system" as const,
+      content: systemPrompt,
+    },
+    {
+      role: "user" as const,
+      content: JSON.stringify(payload),
+    },
+  ];
+}
+
+const PLAN_ASSESSMENT_SYSTEM_PROMPT = [
+  "You are SlopMiles, an expert running coach.",
+  "This call is for an end-of-plan assessment.",
+  "Be direct, constructive, and grounded in the supplied training data.",
+  "Account for interruptions and partial completion without shaming the athlete.",
+  "Return strictly valid JSON. Do not include markdown, prose outside JSON, or comments.",
+].join(" ");
+
+export function buildPlanAssessmentMessages(input: PlanAssessmentPromptInput) {
+  const systemPrompt = `${PLAN_ASSESSMENT_SYSTEM_PROMPT} Personality voice guidance: ${input.personalityDescription}`;
+
+  const payload = {
+    plan: {
+      goalLabel: input.goalLabel,
+      status: input.planStatus,
+      completionStyle: input.completionStyle,
+      volumeMode: input.volumeMode,
+      peakWeekVolume: input.peakWeekVolume,
+      competitiveness: input.competitiveness,
+    },
+    runner: {
+      currentVDOT: input.currentVDOT,
+    },
+    weekSummaries: input.weeks,
+    detailWeeks: input.detailWeeks,
+    changes: {
+      peakVolumeChanges: input.peakVolumeChanges,
+      goalChanges: input.goalChanges,
+    },
+    races: input.races,
+    responseRequirements: {
+      jsonOnly: true,
+      requiredKeys: [
+        "summary",
+        "volumeAdherence",
+        "paceAdherence",
+        "vdotStart",
+        "vdotEnd",
+        "highlights",
+        "areasForImprovement",
+        "nextPlanSuggestion",
+        "discussionPrompts",
+      ],
+      adherenceRule: "volumeAdherence and paceAdherence must be decimals in [0,1].",
+      vdotRule:
+        "vdotStart and vdotEnd must be numeric VDOT estimates grounded in the provided data. If evidence is limited, stay conservative rather than inventing dramatic changes.",
+      listRule:
+        "highlights, areasForImprovement, and discussionPrompts must be non-empty arrays of concise strings.",
+    },
+    expectedShape: {
+      summary: "string",
+      volumeAdherence: "number",
+      paceAdherence: "number",
+      vdotStart: "number",
+      vdotEnd: "number",
+      highlights: ["string"],
+      areasForImprovement: ["string"],
+      nextPlanSuggestion: "string",
+      discussionPrompts: ["string"],
     },
   };
 

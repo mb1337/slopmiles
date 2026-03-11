@@ -1,3 +1,5 @@
+import type { PlanAssessmentStateView } from "./assessment";
+
 export type PlanOverviewView = {
   activePlan: {
     _id: string;
@@ -43,6 +45,7 @@ export type PlanOverviewView = {
       actualTimeSeconds?: number;
       isPrimaryGoal: boolean;
     }>;
+    assessment: PlanAssessmentStateView;
   } | null;
   draftPlans: Array<{
     _id: string;
@@ -59,6 +62,9 @@ export type PlanOverviewView = {
     peakWeekVolume: number;
     goalId: string;
     status: string;
+    goalLabel?: string;
+    createdAt: number;
+    assessment: PlanAssessmentStateView;
   }>;
   latestProposal: {
     _id: string;

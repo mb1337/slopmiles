@@ -48,7 +48,7 @@ export {
   workoutVenues,
 };
 
-export const aiCallTypes = ["planGeneration", "weekDetailGeneration"] as const;
+export const aiCallTypes = ["planGeneration", "weekDetailGeneration", "planAssessment"] as const;
 export const aiRequestStatuses = ["queued", "inProgress", "succeeded", "failed"] as const;
 export const aiRequestPriorities = ["userBlocking", "interactive", "background"] as const;
 export const healthKitSyncSources = ["manual", "background"] as const;

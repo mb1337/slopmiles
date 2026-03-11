@@ -85,6 +85,7 @@ export function MainTabs({
             onOpenPlanOverview={() => openPlan({ screen: "overview" })}
             onOpenWeek={(weekNumber) => openPlan({ screen: "week", weekNumber })}
             onOpenWorkout={(workoutId, weekNumber) => openPlan({ screen: "workout", workoutId, weekNumber })}
+            onOpenPastPlan={(planId) => openPlan({ screen: "pastPlan", planId })}
             onOpenHistoryDetail={(healthKitWorkoutId) => openHistory({ screen: "detail", healthKitWorkoutId })}
             onOpenCoach={() => setActiveTab("coach")}
           />
@@ -104,6 +105,7 @@ export function MainTabs({
           <CoachScreen
             onOpenPlan={() => openPlan({ screen: "overview" })}
             onOpenHistory={() => openHistory({ screen: "feed" })}
+            onOpenPastPlan={(planId) => openPlan({ screen: "pastPlan", planId })}
           />
         ) : null}
         {activeTab === "settings" ? (

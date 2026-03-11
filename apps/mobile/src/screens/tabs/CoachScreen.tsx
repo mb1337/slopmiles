@@ -4,7 +4,8 @@ import { useMutation, useQuery } from "convex/react";
 
 import type { CoachInboxView } from "@slopmiles/component-contracts";
 
-import { api } from "../../convex";
+import { api, type Id } from "../../convex";
+import { PlanAssessmentSummary } from "../../components/assessment";
 import {
   PrimaryButton,
   ScreenHeader,
@@ -32,15 +33,19 @@ function formatMessageTime(timestamp: number): string {
 export function CoachScreen({
   onOpenPlan,
   onOpenHistory,
+  onOpenPastPlan,
 }: {
   onOpenPlan: () => void;
   onOpenHistory: () => void;
+  onOpenPastPlan: (planId: Id<"trainingPlans">) => void;
 }) {
   const [nowBucketMs, setNowBucketMs] = useState(getCoachTimeBucketMs);
   const inbox = useQuery(api.coachInbox.getCoachInboxView, { nowBucketMs }) as CoachInboxView | undefined;
   const sendCoachMessage = useMutation(api.coach.sendCoachMessage);
+  const retryPlanAssessment = useMutation(api.coach.retryPlanAssessment);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
+  const [retryingAssessment, setRetryingAssessment] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -113,6 +118,32 @@ export function CoachScreen({
             ))}
           </View>
         </SectionCard>
+
+        {inbox?.latestAssessment ? (
+          <SectionCard
+            title={`${inbox.latestAssessment.planLabel} assessment`}
+            description={inbox.latestAssessment.planStatus}
+          >
+            <PlanAssessmentSummary
+              state={inbox.latestAssessment.state}
+              retrying={retryingAssessment}
+              onRetry={(requestId) => {
+                void (async () => {
+                  setRetryingAssessment(true);
+                  try {
+                    await retryPlanAssessment({ requestId: requestId as Id<"aiRequests"> });
+                  } finally {
+                    setRetryingAssessment(false);
+                  }
+                })();
+              }}
+            />
+            <SecondaryButton
+              label="Open block detail"
+              onPress={() => onOpenPastPlan(inbox.latestAssessment!.planId as Id<"trainingPlans">)}
+            />
+          </SectionCard>
+        ) : null}
 
         <SectionCard title="Messages" description="System updates can deep-link back to the relevant part of the app.">
           {inbox?.messages.map((message) => (

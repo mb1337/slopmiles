@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { ScrollView, Text, View } from "react-native";
-import { useQuery } from "convex/react";
+import { useMutation, useQuery } from "convex/react";
 import type { DashboardPendingAction } from "@slopmiles/component-contracts";
 import {
   formatDateKeyForDisplay,
@@ -13,6 +13,7 @@ import {
 } from "@slopmiles/domain";
 
 import { api, type Id } from "../../convex";
+import { PlanAssessmentSummary } from "../../components/assessment";
 import {
   EmptyStateCard,
   MetricGrid,
@@ -47,6 +48,7 @@ export function DashboardScreen({
   onOpenPlanOverview,
   onOpenWeek,
   onOpenWorkout,
+  onOpenPastPlan,
   onOpenHistoryDetail,
   onOpenCoach,
 }: {
@@ -56,6 +58,7 @@ export function DashboardScreen({
   onOpenPlanOverview: () => void;
   onOpenWeek: (weekNumber: number) => void;
   onOpenWorkout: (workoutId: Id<"workouts">, weekNumber: number) => void;
+  onOpenPastPlan: (planId: Id<"trainingPlans">) => void;
   onOpenHistoryDetail: (healthKitWorkoutId: Id<"healthKitWorkouts">) => void;
   onOpenCoach: () => void;
 }) {
@@ -72,6 +75,8 @@ export function DashboardScreen({
   }, []);
 
   const summary = useQuery(api.dashboard.getDashboardView, { nowBucketMs });
+  const retryPlanAssessment = useMutation(api.coach.retryPlanAssessment);
+  const [retryingAssessmentId, setRetryingAssessmentId] = useState<string | null>(null);
 
   const renderPendingAction = (action: DashboardPendingAction) => (
     <View key={`${action.kind}-${action.label}`} style={styles.subtleBlock}>
@@ -196,7 +201,24 @@ export function DashboardScreen({
           <Text style={styles.helperText}>
             Last updated {new Date(summary.pastPlan.createdAt).toLocaleDateString()}
           </Text>
-          <SecondaryButton label="Open plan history" onPress={onOpenPlanOverview} />
+          <PlanAssessmentSummary
+            state={summary.pastPlan.assessment}
+            retrying={retryingAssessmentId === summary.pastPlan.assessment.request?._id}
+            onRetry={(requestId) => {
+              void (async () => {
+                setRetryingAssessmentId(requestId);
+                try {
+                  await retryPlanAssessment({ requestId: requestId as Id<"aiRequests"> });
+                } finally {
+                  setRetryingAssessmentId(null);
+                }
+              })();
+            }}
+          />
+          <SecondaryButton
+            label="Open block detail"
+            onPress={() => onOpenPastPlan(summary.pastPlan!._id as Id<"trainingPlans">)}
+          />
         </SectionCard>
       ) : null}
     </ScrollView>

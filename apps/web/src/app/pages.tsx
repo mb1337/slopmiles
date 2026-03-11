@@ -22,6 +22,7 @@ import {
 import { Link, useNavigate, useParams } from "react-router-dom";
 
 import { api, type Id } from "../convex";
+import { PlanAssessmentSummary } from "./assessment";
 import { type SessionData } from "./session";
 import {
   ActionLink,
@@ -56,6 +57,7 @@ import {
   type SurfaceOption,
   weekdayOptions,
 } from "./shared";
+import { WorkoutExecutionDetail, WorkoutLapList } from "./workoutExecution";
 
 function formatRaceTime(seconds: number | null | undefined) {
   return typeof seconds === "number" ? formatDuration(seconds) : "-";
@@ -545,6 +547,8 @@ export function OnboardingPage({
 export function DashboardPage({ session }: { session: SessionData }) {
   const [nowBucketMs, setNowBucketMs] = useState(getWebTimeBucketMs);
   const dashboard = useQuery(api.dashboard.getDashboardView, { nowBucketMs });
+  const retryPlanAssessment = useMutation(api.coach.retryPlanAssessment);
+  const [retryingAssessmentId, setRetryingAssessmentId] = useState<string | null>(null);
 
   useEffect(() => {
     const intervalId = setInterval(() => {
@@ -750,6 +754,29 @@ export function DashboardPage({ session }: { session: SessionData }) {
               <p>No coach notes yet. Start the conversation from the Coach tab.</p>
             )}
           </Card>
+
+          {dashboard.pastPlan ? (
+            <Card
+              title={`${dashboard.pastPlan.label} assessment`}
+              eyebrow="Previous block"
+              actions={<ActionLink kind="secondary" to={`/plan/history/${String(dashboard.pastPlan._id)}`}>Open history</ActionLink>}
+            >
+              <PlanAssessmentSummary
+                state={dashboard.pastPlan.assessment}
+                retrying={retryingAssessmentId === dashboard.pastPlan.assessment.request?._id}
+                onRetry={(requestId) => {
+                  void (async () => {
+                    setRetryingAssessmentId(requestId);
+                    try {
+                      await retryPlanAssessment({ requestId: requestId as Id<"aiRequests"> });
+                    } finally {
+                      setRetryingAssessmentId(null);
+                    }
+                  })();
+                }}
+              />
+            </Card>
+          ) : null}
         </>
       ) : null}
     </Screen>
@@ -766,6 +793,7 @@ export function PlanPage({
   const [nowBucketMs, setNowBucketMs] = useState(getWebTimeBucketMs);
   const planView = useQuery(api.planOverview.getPlanOverviewView, { nowBucketMs });
   const requestPlanGeneration = useMutation(api.coach.requestPlanGeneration);
+  const retryPlanAssessment = useMutation(api.coach.retryPlanAssessment);
   const createPlanFromGeneration = useMutation(api.coach.createPlanFromGeneration);
   const activateDraftPlan = useMutation(api.plans.activateDraftPlan);
   const updateDraftPlanBasics = useMutation(api.plans.updateDraftPlanBasics);
@@ -807,6 +835,7 @@ export function PlanPage({
     useState<DistanceUnitOption>("kilometers");
   const [raceGoalTime, setRaceGoalTime] = useState("");
   const [showCreateDraft, setShowCreateDraft] = useState(true);
+  const [retryingAssessmentId, setRetryingAssessmentId] = useState<string | null>(null);
 
   useEffect(() => {
     const intervalId = setInterval(() => {
@@ -1520,14 +1549,33 @@ export function PlanPage({
                   <div>
                     {formatFriendlyLabel(plan.status)} · {plan.numberOfWeeks} weeks
                   </div>
+                  <PlanAssessmentSummary
+                    state={plan.assessment}
+                    retrying={retryingAssessmentId === plan.assessment.request?._id}
+                    onRetry={(requestId) => {
+                      void (async () => {
+                        setRetryingAssessmentId(requestId);
+                        try {
+                          await retryPlanAssessment({ requestId: requestId as Id<"aiRequests"> });
+                        } finally {
+                          setRetryingAssessmentId(null);
+                        }
+                      })();
+                    }}
+                  />
                 </div>
-                <span className="pill">
-                  {formatVolume(
-                    plan.volumeMode,
-                    plan.peakWeekVolume,
-                    session.user.unitPreference,
-                  )}
-                </span>
+                <div className="stack">
+                  <span className="pill">
+                    {formatVolume(
+                      plan.volumeMode,
+                      plan.peakWeekVolume,
+                      session.user.unitPreference,
+                    )}
+                  </span>
+                  <ActionLink kind="secondary" to={`/plan/history/${String(plan._id)}`}>
+                    Open block
+                  </ActionLink>
+                </div>
               </div>
             ))}
           </div>
@@ -1828,6 +1876,92 @@ export function WeekPage({ session }: { session: SessionData }) {
   );
 }
 
+export function PastPlanPage({ session }: { session: SessionData }) {
+  const params = useParams();
+  const planId = params.planId as Id<"trainingPlans"> | undefined;
+  const detail = useQuery(
+    api.planAssessments.getPastPlanDetailView,
+    planId ? { planId } : "skip",
+  );
+  const retryPlanAssessment = useMutation(api.coach.retryPlanAssessment);
+  const [message, setMessage] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [retrying, setRetrying] = useState(false);
+
+  return (
+    <Screen
+      title={detail ? detail.plan.goalLabel : "Past plan"}
+      subtitle="Read-only block history with the coach assessment attached."
+      actions={<ActionLink kind="secondary" to="/plan">Back to plan</ActionLink>}
+    >
+      {message ? <StatusMessage message={message} tone="success" /> : null}
+      {error ? <StatusMessage message={error} tone="error" /> : null}
+      {!detail ? <StatusMessage message="Loading past plan…" /> : null}
+      {detail ? (
+        <>
+          <Card
+            title="Assessment"
+            eyebrow={formatFriendlyLabel(detail.plan.status)}
+          >
+            <PlanAssessmentSummary
+              state={detail.assessment}
+              retrying={retrying}
+              onRetry={(requestId) => {
+                void (async () => {
+                  setMessage(null);
+                  setError(null);
+                  setRetrying(true);
+                  try {
+                    await retryPlanAssessment({ requestId: requestId as Id<"aiRequests"> });
+                    setMessage("Assessment retry queued.");
+                  } catch (retryError) {
+                    setError(String(retryError));
+                  } finally {
+                    setRetrying(false);
+                  }
+                })();
+              }}
+            />
+          </Card>
+
+          <Card title="Week structure" eyebrow="History">
+            <div className="stack">
+              {detail.weeks.map((week) => (
+                <div className="row-card" key={String(week._id)}>
+                  <div>
+                    <strong>Week {week.weekNumber}</strong>
+                    <div>
+                      {Math.round(week.targetVolumePercent * 100)}% of peak
+                      {" · "}
+                      {week.emphasis || "No emphasis"}
+                    </div>
+                    <div>
+                      {formatDateKey(week.weekStartDateKey)}
+                      {" - "}
+                      {formatDateKey(week.weekEndDateKey)}
+                      {week.interruptionType
+                        ? ` · ${formatFriendlyLabel(week.interruptionType)}`
+                        : ""}
+                    </div>
+                    {week.coachNotes ? <p>{week.coachNotes}</p> : null}
+                  </div>
+                  <span className="pill">
+                    {formatVolume(
+                      detail.plan.volumeMode,
+                      week.targetVolumeAbsolute,
+                      session.user.unitPreference,
+                    )}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </Card>
+        </>
+      ) : null}
+    </Screen>
+  );
+}
+
 export function WorkoutPage({ session }: { session: SessionData }) {
   const params = useParams();
   const navigate = useNavigate();
@@ -1836,14 +1970,9 @@ export function WorkoutPage({ session }: { session: SessionData }) {
   const skipWorkout = useMutation(api.workoutDetail.skipWorkout);
   const rescheduleWorkout = useMutation(api.workoutDetail.rescheduleWorkout);
   const bumpWorkout = useMutation(api.workoutDetail.bumpWorkout);
-  const submitCheckIn = useMutation(api.workoutDetail.submitCheckIn);
 
   const [rescheduleDate, setRescheduleDate] = useState("");
   const [skipReason, setSkipReason] = useState("");
-  const [rpe, setRpe] = useState("6");
-  const [notes, setNotes] = useState("");
-  const [selectedModifiers, setSelectedModifiers] = useState<EffortModifierOption[]>([]);
-  const [customModifierText, setCustomModifierText] = useState("");
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -1855,20 +1984,7 @@ export function WorkoutPage({ session }: { session: SessionData }) {
     if (detail.rescheduleOptions[0]) {
       setRescheduleDate(detail.rescheduleOptions[0]);
     }
-
-    if (detail.executionDetail) {
-      setRpe(String(detail.executionDetail.execution.rpe ?? 6));
-      setNotes(detail.executionDetail.execution.notes ?? "");
-      setSelectedModifiers(
-        (detail.executionDetail.execution.modifiers ?? []) as EffortModifierOption[],
-      );
-      setCustomModifierText(detail.executionDetail.execution.customModifierText ?? "");
-    } else {
-      setNotes("");
-      setSelectedModifiers([]);
-      setCustomModifierText("");
-    }
-  }, [detail?.workout._id, detail?.rescheduleOptions, detail?.executionDetail]);
+  }, [detail?.workout._id, detail?.rescheduleOptions]);
 
   const run = async (task: () => Promise<unknown>, success: string) => {
     setMessage(null);
@@ -1991,90 +2107,12 @@ export function WorkoutPage({ session }: { session: SessionData }) {
               </div>
             </Card>
 
-            <Card title="Check-in" eyebrow="After you run">
+            <Card title="Actual run summary" eyebrow="After you run">
               {detail.executionDetail ? (
-                <div className="stack">
-                  <div className="inset">
-                    <strong>Imported run</strong>
-                    <p>
-                      {formatDistance(
-                        detail.executionDetail.importedWorkout.distanceMeters,
-                        session.user.unitPreference,
-                      )}
-                      {" · "}
-                      {formatDuration(detail.executionDetail.importedWorkout.durationSeconds)}
-                      {" · pace "}
-                      {formatPace(
-                        detail.executionDetail.importedWorkout.rawPaceSecondsPerMeter,
-                        session.user.unitPreference,
-                      )}
-                    </p>
-                  </div>
-                  <Field label="RPE">
-                    <select onChange={(event) => setRpe(event.target.value)} value={rpe}>
-                      {Array.from({ length: 10 }, (_, index) => index + 1).map((value) => (
-                        <option key={value} value={value}>
-                          {value}
-                        </option>
-                      ))}
-                    </select>
-                  </Field>
-                  <Field label="Anything that changed how the run felt?">
-                    <div className="pill-row wrap">
-                      {effortModifierOptions.map((modifier) => (
-                        <button
-                          key={modifier}
-                          className={cx(
-                            "pill-button",
-                            selectedModifiers.includes(modifier) && "pill-button-active",
-                          )}
-                          onClick={() =>
-                            setSelectedModifiers((current) =>
-                              toggleArrayValue(modifier, current),
-                            )
-                          }
-                          type="button"
-                        >
-                          {formatFriendlyLabel(modifier)}
-                        </button>
-                      ))}
-                    </div>
-                  </Field>
-                  <Field label="Custom context">
-                    <input
-                      onChange={(event) => setCustomModifierText(event.target.value)}
-                      placeholder="Heat, bad legs, route change..."
-                      value={customModifierText}
-                    />
-                  </Field>
-                  <Field label="Notes">
-                    <textarea onChange={(event) => setNotes(event.target.value)} rows={3} value={notes} />
-                  </Field>
-                  <Button
-                    onClick={() =>
-                      void run(
-                        async () =>
-                          submitCheckIn({
-                            executionId: detail.executionDetail!.execution
-                              ._id as Id<"workoutExecutions">,
-                            rpe: Number(rpe),
-                            modifiers: selectedModifiers,
-                            customModifierText: customModifierText.trim() || undefined,
-                            notes,
-                          }),
-                        "Check-in submitted.",
-                      )
-                    }
-                  >
-                    Submit check-in
-                  </Button>
-                  {detail.executionDetail.execution.feedback.commentary ? (
-                    <div className="inset">
-                      <strong>Coach feedback</strong>
-                      <p>{detail.executionDetail.execution.feedback.commentary}</p>
-                    </div>
-                  ) : null}
-                </div>
+                <WorkoutExecutionDetail
+                  executionId={detail.executionDetail.execution._id as Id<"workoutExecutions">}
+                  unitPreference={session.user.unitPreference}
+                />
               ) : (
                 <p>
                   No matched execution yet. Once the run syncs from iPhone, you can
@@ -2221,14 +2259,7 @@ export function HistoryWorkoutPage({ session }: { session: SessionData }) {
     api.historyDetail.getHistoryDetailView,
     healthKitWorkoutId ? { healthKitWorkoutId } : "skip",
   );
-  const candidates = useQuery(
-    api.workoutDetail.getMatchCandidates,
-    healthKitWorkoutId ? { healthKitWorkoutId } : "skip",
-  );
   const reconcileImportedWorkout = useMutation(api.workoutDetail.reconcileImportedWorkout);
-  const linkImportedWorkout = useMutation(api.workoutDetail.linkImportedWorkout);
-  const unlinkImportedWorkout = useMutation(api.workoutDetail.unlinkImportedWorkout);
-  const submitCheckIn = useMutation(api.workoutDetail.submitCheckIn);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -2278,100 +2309,26 @@ export function HistoryWorkoutPage({ session }: { session: SessionData }) {
                 >
                   Try automatic match
                 </Button>
-                {detail.executionDetail ? (
-                  <Button
-                    kind="secondary"
-                    onClick={() =>
-                      void run(
-                        async () =>
-                          unlinkImportedWorkout({
-                            executionId: detail.executionDetail!.execution
-                              ._id as Id<"workoutExecutions">,
-                          }),
-                        "Unlinked imported workout.",
-                      )
-                    }
-                  >
-                    Unlink
-                  </Button>
-                ) : null}
               </div>
             </div>
           </Card>
 
-          <Card title="Match candidates" eyebrow="Review">
-            {candidates?.length ? (
-              <div className="stack">
-                {candidates.map((candidate) => (
-                  <div className="row-card" key={String(candidate.plannedWorkoutId)}>
-                    <div>
-                      <strong>{formatWorkoutType(candidate.type)}</strong>
-                      <div>
-                        Week {candidate.weekNumber} · confidence{" "}
-                        {Math.round(candidate.confidence * 100)}%
-                      </div>
-                    </div>
-                    <Button
-                      onClick={() =>
-                        void run(
-                          async () =>
-                            linkImportedWorkout({
-                              healthKitWorkoutId: detail.workout._id,
-                              plannedWorkoutId: candidate.plannedWorkoutId,
-                            }),
-                          "Workout linked.",
-                        )
-                      }
-                    >
-                      Link
-                    </Button>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <p>No candidate workouts were found for this run.</p>
-            )}
-          </Card>
-
           {detail.executionDetail ? (
-            <Card title="Execution detail" eyebrow="Check-in and feedback">
-              <div className="stack">
-                <p>
-                  Match {formatFriendlyLabel(detail.executionDetail.execution.matchStatus)} ·
-                  {" "}check-in {formatFriendlyLabel(detail.executionDetail.execution.checkInStatus)}
-                </p>
-                {detail.executionDetail.segmentComparisons.length > 0 ? (
-                  <div className="stack">
-                    {detail.executionDetail.segmentComparisons.map((segment, index) => (
-                      <div className="inset" key={`${segment.plannedLabel}-${index}`}>
-                        <strong>{segment.plannedLabel}</strong>
-                        <p>Adherence {Math.round(segment.adherenceScore * 100)}%</p>
-                      </div>
-                    ))}
-                  </div>
-                ) : null}
-                <Button
-                  kind="secondary"
-                  onClick={() =>
-                    void run(
-                      async () =>
-                        submitCheckIn({
-                          executionId: detail.executionDetail!.execution
-                            ._id as Id<"workoutExecutions">,
-                          rpe: 6,
-                          modifiers: [],
-                          notes: "Checked in from web.",
-                        }),
-                      "Quick check-in submitted.",
-                    )
-                  }
-                >
-                  Submit quick check-in
-                </Button>
-                {detail.executionDetail.execution.feedback.commentary ? (
-                  <p>{detail.executionDetail.execution.feedback.commentary}</p>
-                ) : null}
-              </div>
+            <Card title="Reconcile and review" eyebrow="Execution detail">
+              <WorkoutExecutionDetail
+                allowMatchControls
+                executionId={detail.executionDetail.execution._id as Id<"workoutExecutions">}
+                unitPreference={session.user.unitPreference}
+              />
+            </Card>
+          ) : null}
+
+          {detail.workout.intervals?.length ? (
+            <Card title="Lap detail" eyebrow="History">
+              <WorkoutLapList
+                intervals={detail.workout.intervals}
+                unitPreference={session.user.unitPreference}
+              />
             </Card>
           ) : null}
         </>
@@ -2384,8 +2341,10 @@ export function CoachPage() {
   const [nowBucketMs, setNowBucketMs] = useState(getWebTimeBucketMs);
   const coachView = useQuery(api.coachInbox.getCoachInboxView, { nowBucketMs }) as CoachInboxView | undefined;
   const sendCoachMessage = useMutation(api.coach.sendCoachMessage);
+  const retryPlanAssessment = useMutation(api.coach.retryPlanAssessment);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
+  const [retryingAssessmentId, setRetryingAssessmentId] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -2460,6 +2419,33 @@ export function CoachPage() {
               </div>
             </Card>
           </div>
+
+          {coachView.latestAssessment ? (
+            <Card
+              title={`${coachView.latestAssessment.planLabel} assessment`}
+              eyebrow="Latest block"
+              actions={
+                <ActionLink kind="secondary" to={`/plan/history/${coachView.latestAssessment.planId}`}>
+                  Open block
+                </ActionLink>
+              }
+            >
+              <PlanAssessmentSummary
+                state={coachView.latestAssessment.state}
+                retrying={retryingAssessmentId === coachView.latestAssessment.state.request?._id}
+                onRetry={(requestId) => {
+                  void (async () => {
+                    setRetryingAssessmentId(requestId);
+                    try {
+                      await retryPlanAssessment({ requestId: requestId as Id<"aiRequests"> });
+                    } finally {
+                      setRetryingAssessmentId(null);
+                    }
+                  })();
+                }}
+              />
+            </Card>
+          ) : null}
 
           <Card title="Conversation" eyebrow="Messages">
             {coachView.messages.length ? (

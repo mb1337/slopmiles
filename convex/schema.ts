@@ -423,8 +423,17 @@ export default defineSchema({
   planAssessments: defineTable({
     userId: v.id("users"),
     planId: v.id("trainingPlans"),
-    body: v.string(),
+    summary: v.string(),
+    volumeAdherence: v.number(),
+    paceAdherence: v.number(),
+    vdotStart: v.number(),
+    vdotEnd: v.number(),
+    highlights: v.array(v.string()),
+    areasForImprovement: v.array(v.string()),
+    nextPlanSuggestion: v.string(),
+    discussionPrompts: v.array(v.string()),
     createdAt: v.number(),
+    updatedAt: v.number(),
   })
     .index("by_plan_id", ["planId"])
     .index("by_user_id", ["userId"])

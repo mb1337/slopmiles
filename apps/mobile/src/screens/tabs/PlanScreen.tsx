@@ -29,6 +29,7 @@ import {
   TagGrid,
 } from "../../components/common";
 import { WorkoutExecutionDetail } from "../../components/workoutExecution";
+import { PlanAssessmentSummary } from "../../components/assessment";
 import { styles } from "../../styles";
 import type { PlanRoute } from "../../types";
 
@@ -218,9 +219,18 @@ export function PlanScreen({
         }
       : "skip",
   );
+  const pastPlanDetail = useQuery(
+    api.planAssessments.getPastPlanDetailView,
+    route.screen === "pastPlan"
+      ? {
+          planId: route.planId,
+        }
+      : "skip",
+  );
 
   const requestPlanGeneration = useMutation(api.coach.requestPlanGeneration);
   const retryPlanGeneration = useMutation(api.coach.retryPlanGeneration);
+  const retryPlanAssessment = useMutation(api.coach.retryPlanAssessment);
   const createPlanFromGeneration = useMutation(api.coach.createPlanFromGeneration);
   const activateDraftPlan = useMutation(api.plans.activateDraftPlan);
   const updateDraftPlanBasics = useMutation(api.plans.updateDraftPlanBasics);
@@ -740,6 +750,26 @@ export function PlanScreen({
         )}
       </SectionCard>
 
+      <SectionCard title="Past plans" description="Completed and abandoned blocks stay read-only, with the assessment attached.">
+        {planOverview?.pastPlans.length ? (
+          planOverview.pastPlans.map((plan) => (
+            <View key={String(plan._id)} style={styles.subtleBlock}>
+              <Text style={styles.sectionCardTitle}>{plan.goalLabel ?? "Past plan"}</Text>
+              <Text style={styles.helperText}>
+                {plan.status} · {plan.numberOfWeeks} weeks · peak {Math.round(plan.peakWeekVolume)} {plan.volumeMode === "time" ? "min" : "m"}
+              </Text>
+              <PlanAssessmentSummary state={plan.assessment} />
+              <SecondaryButton
+                label="Open block detail"
+                onPress={() => onRouteChange({ screen: "pastPlan", planId: plan._id })}
+              />
+            </View>
+          ))
+        ) : (
+          <Text style={styles.bodyText}>No completed or abandoned plans yet.</Text>
+        )}
+      </SectionCard>
+
       {activePlan ? (
         <SectionCard title="Plan controls" description="Keep destructive actions out of the main browsing flow.">
           <SecondaryButton
@@ -763,6 +793,62 @@ export function PlanScreen({
             }
           />
         </SectionCard>
+      ) : null}
+    </ScrollView>
+  );
+
+  const renderPastPlanView = () => (
+    <ScrollView contentContainerStyle={styles.container}>
+      <ScreenHeader
+        eyebrow="Plan history"
+        title={pastPlanDetail ? pastPlanDetail.plan.goalLabel : "Past plan"}
+        subtitle={pastPlanDetail ? `${pastPlanDetail.plan.status} · ${pastPlanDetail.plan.numberOfWeeks} weeks` : "Loading block..."}
+        actionLabel="Overview"
+        onAction={() => onRouteChange({ screen: "overview" })}
+      />
+
+      {error ? <StatusBanner tone="error" message={error} /> : null}
+      {message ? <StatusBanner tone="success" message={message} /> : null}
+      {pastPlanDetail === undefined ? <StatusBanner message="Loading plan history..." /> : null}
+
+      {pastPlanDetail ? (
+        <>
+          <SectionCard
+            title="Assessment"
+            description={`Peak ${Math.round(pastPlanDetail.plan.peakWeekVolume)} ${pastPlanDetail.plan.volumeMode === "time" ? "min" : "m"}`}
+          >
+            <PlanAssessmentSummary
+              state={pastPlanDetail.assessment}
+              retrying={busyLabel === "retry-assessment"}
+              onRetry={(requestId) => {
+                void runWithStatus("retry-assessment", async () => {
+                  await retryPlanAssessment({ requestId: requestId as Id<"aiRequests"> });
+                  setMessage("Assessment retry queued.");
+                });
+              }}
+            />
+          </SectionCard>
+
+          <SectionCard title="Week structure" description="Read-only history of the block structure.">
+            <View style={styles.weekList}>
+              {pastPlanDetail.weeks.map((week) => (
+                <View key={String(week._id)} style={styles.weekListRow}>
+                  <View style={styles.weekListHeader}>
+                    <Text style={styles.weekListTitle}>Week {week.weekNumber}</Text>
+                  </View>
+                  <Text style={styles.helperText}>
+                    {Math.round(week.targetVolumePercent * 100)}% of peak · {week.emphasis || "No emphasis"}
+                  </Text>
+                  <Text style={styles.helperText}>
+                    {formatDateKeyForDisplay(week.weekStartDateKey)} - {formatDateKeyForDisplay(week.weekEndDateKey)}
+                    {week.interruptionType ? ` · ${formatInterruptionLabel(week.interruptionType)}` : ""}
+                  </Text>
+                  {week.coachNotes ? <Text style={styles.bodyText}>{week.coachNotes}</Text> : null}
+                </View>
+              ))}
+            </View>
+          </SectionCard>
+        </>
       ) : null}
     </ScrollView>
   );
@@ -1108,6 +1194,10 @@ export function PlanScreen({
 
   if (route.screen === "workout") {
     return renderWorkoutView();
+  }
+
+  if (route.screen === "pastPlan") {
+    return renderPastPlanView();
   }
 
   return renderOverview();

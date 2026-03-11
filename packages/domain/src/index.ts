@@ -272,7 +272,15 @@ export type GoalChange = {
 export type AssessmentSummary = {
   id: string;
   planId: string;
-  body: string;
+  summary: string;
+  volumeAdherence: number;
+  paceAdherence: number;
+  vdotStart: number;
+  vdotEnd: number;
+  highlights: string[];
+  areasForImprovement: string[];
+  nextPlanSuggestion: string;
+  discussionPrompts: string[];
   createdAt: number;
 };
 

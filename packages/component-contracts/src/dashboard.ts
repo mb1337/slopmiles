@@ -1,3 +1,5 @@
+import type { PlanAssessmentStateView } from "./assessment";
+
 export type ComponentEntityId = string;
 
 export type DashboardPendingAction =
@@ -77,5 +79,6 @@ export type DashboardView = {
     status: string;
     label: string;
     createdAt: number;
+    assessment: PlanAssessmentStateView;
   } | null;
 };

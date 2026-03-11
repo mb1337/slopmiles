@@ -440,6 +440,9 @@ export const updatePlanStatus = mutation({
 
     const goal = await ctx.db.get(plan.goalId);
     if (args.status === "completed") {
+      await ctx.runMutation(internal.coach.enqueuePlanAssessmentRequest, {
+        planId: plan._id,
+      });
       await insertCoachEvent(
         ctx,
         userId,
@@ -449,6 +452,9 @@ export const updatePlanStatus = mutation({
     }
 
     if (args.status === "abandoned") {
+      await ctx.runMutation(internal.coach.enqueuePlanAssessmentRequest, {
+        planId: plan._id,
+      });
       await insertCoachEvent(
         ctx,
         userId,

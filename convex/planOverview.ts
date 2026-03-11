@@ -5,6 +5,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server";
 import { deriveCurrentWeekNumber } from "./planWeeks";
 import { goalTypes, planInterruptionTypes } from "./constants";
+import { loadPlanAssessmentStateMaps, resolvePlanAssessmentState } from "./planAssessmentHelpers";
 export { deleteRace, upsertRace } from "./settings";
 
 type PlanProposal = {
@@ -151,6 +152,7 @@ export const getPlanOverviewView = query({
         .collect(),
       getLatestPlanGenerationRequest(ctx, userId),
     ]);
+    const assessmentMaps = await loadPlanAssessmentStateMaps(ctx, userId);
 
     const sortedPlans = [...plans].sort((left, right) => right.createdAt - left.createdAt);
     const activePlanDoc = sortedPlans.find((plan) => plan.status === "active") ?? null;
@@ -251,6 +253,11 @@ export const getPlanOverviewView = query({
             peakVolumeChanges,
             goalChanges,
             races: races.sort((left, right) => left.plannedDate - right.plannedDate),
+            assessment: resolvePlanAssessmentState({
+              planId: targetPlan._id,
+              assessmentByPlanId: assessmentMaps.assessmentByPlanId,
+              requestByPlanId: assessmentMaps.requestByPlanId,
+            }),
           }
         : null,
       draftPlans: draftGoals.map(({ plan, goal }) => ({
@@ -278,6 +285,11 @@ export const getPlanOverviewView = query({
             }
           : null,
         goalLabel: goal?.label ?? "Past plan",
+        assessment: resolvePlanAssessmentState({
+          planId: plan._id,
+          assessmentByPlanId: assessmentMaps.assessmentByPlanId,
+          requestByPlanId: assessmentMaps.requestByPlanId,
+        }),
       })),
       latestProposal,
       proposal: latestProposal,

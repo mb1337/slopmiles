@@ -1,3 +1,5 @@
+import type { PlanAssessmentStateView } from "./assessment";
+
 export type CoachInboxView = {
   currentVDOT: number | null;
   competitiveness: string;
@@ -17,6 +19,12 @@ export type CoachInboxView = {
     volumeMode: string;
     peakWeekVolume: number;
     currentWeekNumber: number | null;
+  } | null;
+  latestAssessment: {
+    planId: string;
+    planLabel: string;
+    planStatus: string;
+    state: PlanAssessmentStateView;
   } | null;
   suggestedPrompts: string[];
   messages: Array<{

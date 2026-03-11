@@ -6,9 +6,11 @@ import { getActivePlan } from "./workoutExecutionHelpers";
 import {
   buildCoachPrompts,
   getLatestReviewWorkout,
+  listPlanSummaries,
   hasDraftPlan,
   requireAuthenticatedUserId,
 } from "./componentReadHelpers";
+import { loadPlanAssessmentStateMaps, resolvePlanAssessmentState } from "./planAssessmentHelpers";
 
 export const getCoachInboxView = query({
   args: {
@@ -16,7 +18,7 @@ export const getCoachInboxView = query({
   },
   handler: async (ctx, args) => {
     const userId = await requireAuthenticatedUserId(ctx);
-    const [user, runningSchedule, competitiveness, personality, messages, activePlan, reviewWorkout, draftPlanExists] = await Promise.all([
+    const [user, runningSchedule, competitiveness, personality, messages, activePlan, reviewWorkout, draftPlanExists, planSummaries] = await Promise.all([
       ctx.db.get(userId),
       ctx.db.query("runningSchedules").withIndex("by_user_id", (queryBuilder) => queryBuilder.eq("userId", userId)).unique(),
       ctx.db.query("competitiveness").withIndex("by_user_id", (queryBuilder) => queryBuilder.eq("userId", userId)).unique(),
@@ -25,10 +27,15 @@ export const getCoachInboxView = query({
       getActivePlan(ctx, userId),
       getLatestReviewWorkout({ ctx, userId }),
       hasDraftPlan(ctx, userId),
+      listPlanSummaries(ctx, userId),
     ]);
     const activePlanGoal = activePlan ? await ctx.db.get(activePlan.goalId) : null;
     const currentWeekNumber = activePlan ? deriveCurrentWeekNumber(activePlan, args.nowBucketMs) : null;
     const hasUnmatchedRun = reviewWorkout !== null;
+    const assessmentMaps = await loadPlanAssessmentStateMaps(ctx, userId);
+    const latestPastPlan = [...planSummaries]
+      .filter((plan) => plan.status === "completed" || plan.status === "abandoned")
+      .sort((left, right) => right.createdAt - left.createdAt)[0] ?? null;
 
     return {
       currentVDOT: user?.currentVDOT ?? null,
@@ -52,6 +59,18 @@ export const getCoachInboxView = query({
             volumeMode: activePlan.volumeMode,
             peakWeekVolume: activePlan.peakWeekVolume,
             currentWeekNumber,
+          }
+        : null,
+      latestAssessment: latestPastPlan
+        ? {
+            planId: String(latestPastPlan._id),
+            planLabel: latestPastPlan.goal.label,
+            planStatus: latestPastPlan.status,
+            state: resolvePlanAssessmentState({
+              planId: latestPastPlan._id,
+              assessmentByPlanId: assessmentMaps.assessmentByPlanId,
+              requestByPlanId: assessmentMaps.requestByPlanId,
+            }),
           }
         : null,
       suggestedPrompts: buildCoachPrompts({

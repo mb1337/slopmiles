@@ -57,6 +57,7 @@ export type PlanRoute =
   | { screen: "create" }
   | { screen: "proposal" }
   | { screen: "week"; weekNumber: number }
+  | { screen: "pastPlan"; planId: Id<"trainingPlans"> }
   | { screen: "workout"; weekNumber: number; workoutId: Id<"workouts"> };
 
 export type HistoryRoute =
