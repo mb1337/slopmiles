@@ -8,8 +8,8 @@ export function MissingConfigScreen() {
     <main className="auth-screen">
       <Card title="Missing web configuration" eyebrow="Configuration">
         <p>
-          Set <code>VITE_CONVEX_URL</code> for the web client before starting the
-          app.
+          Add <code>CONVEX_URL</code> to the repo root <code>.env.local</code>
+          before starting the app.
         </p>
       </Card>
     </main>
@@ -170,4 +170,3 @@ export function AppLoading() {
     </main>
   );
 }
-

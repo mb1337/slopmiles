@@ -88,7 +88,7 @@ function AuthenticatedApp() {
 }
 
 export function App() {
-  const convexUrl = import.meta.env.VITE_CONVEX_URL;
+  const convexUrl = import.meta.env.CONVEX_URL;
   const client = useMemo(
     () => (convexUrl ? new ConvexReactClient(convexUrl) : null),
     [convexUrl],

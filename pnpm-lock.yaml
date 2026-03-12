@@ -57,15 +57,21 @@ importers:
       convex:
         specifier: ^1.32.0
         version: 1.32.0(react@19.2.0)
+      dotenv:
+        specifier: ^16.4.7
+        version: 16.4.7
       expo:
         specifier: ^55.0.5
         version: 55.0.5(@babel/core@7.29.0)(@expo/dom-webview@55.0.3)(react-dom@19.2.0(react@19.2.0))(react-native@0.83.2(@babel/core@7.29.0)(@types/react@19.2.14)(react@19.2.0))(react@19.2.0)(typescript@5.9.3)
       expo-apple-authentication:
         specifier: ^55.0.8
         version: 55.0.8(expo@55.0.5)(react-native@0.83.2(@babel/core@7.29.0)(@types/react@19.2.14)(react@19.2.0))
+      expo-constants:
+        specifier: ~55.0.7
+        version: 55.0.7(expo@55.0.5)(react-native@0.83.2(@babel/core@7.29.0)(@types/react@19.2.14)(react@19.2.0))(typescript@5.9.3)
       expo-modules-core:
-        specifier: ^55.0.14
-        version: 55.0.14(react-native@0.83.2(@babel/core@7.29.0)(@types/react@19.2.14)(react@19.2.0))(react@19.2.0)
+        specifier: ~55.0.15
+        version: 55.0.15(react-native@0.83.2(@babel/core@7.29.0)(@types/react@19.2.14)(react@19.2.0))(react@19.2.0)
       expo-secure-store:
         specifier: ^55.0.8
         version: 55.0.8(expo@55.0.5)
@@ -92,7 +98,7 @@ importers:
         version: 3.1.2(react-native@0.83.2(@babel/core@7.29.0)(@types/react@19.2.14)(react@19.2.0))(react@19.2.0)
       slopmiles-healthkit:
         specifier: file:modules/slopmiles-healthkit
-        version: file:apps/mobile/modules/slopmiles-healthkit(expo-modules-core@55.0.14(react-native@0.83.2(@babel/core@7.29.0)(@types/react@19.2.14)(react@19.2.0))(react@19.2.0))(expo@55.0.5)
+        version: file:apps/mobile/modules/slopmiles-healthkit(expo-modules-core@55.0.15(react-native@0.83.2(@babel/core@7.29.0)(@types/react@19.2.14)(react@19.2.0))(react@19.2.0))(expo@55.0.5)
     devDependencies:
       '@types/react':
         specifier: ^19.2.14
@@ -2176,6 +2182,12 @@ packages:
 
   expo-modules-core@55.0.14:
     resolution: {integrity: sha512-eAerOnnhbZitUAKbY7B61kIudiabAz/m/oMGINms2+GeY1DRhdvrm5aAkhkHHmykPrg58PPryXtmF14YAYWViw==}
+    peerDependencies:
+      react: '*'
+      react-native: '*'
+
+  expo-modules-core@55.0.15:
+    resolution: {integrity: sha512-MAGz1SYSVgQbwVeUysWgPtLh8ozbBwORatXoA4w0NZqZBZzEyBgUQNhuwaroaIi9W8Ir3wy1McmZcDYDJNGmVw==}
     peerDependencies:
       react: '*'
       react-native: '*'
@@ -5924,6 +5936,12 @@ snapshots:
       react: 19.2.0
       react-native: 0.83.2(@babel/core@7.29.0)(@types/react@19.2.14)(react@19.2.0)
 
+  expo-modules-core@55.0.15(react-native@0.83.2(@babel/core@7.29.0)(@types/react@19.2.14)(react@19.2.0))(react@19.2.0):
+    dependencies:
+      invariant: 2.2.4
+      react: 19.2.0
+      react-native: 0.83.2(@babel/core@7.29.0)(@types/react@19.2.14)(react@19.2.0)
+
   expo-secure-store@55.0.8(expo@55.0.5):
     dependencies:
       expo: 55.0.5(@babel/core@7.29.0)(@expo/dom-webview@55.0.3)(react-dom@19.2.0(react@19.2.0))(react-native@0.83.2(@babel/core@7.29.0)(@types/react@19.2.14)(react@19.2.0))(react@19.2.0)(typescript@5.9.3)
@@ -7062,10 +7080,10 @@ snapshots:
 
   slash@3.0.0: {}
 
-  slopmiles-healthkit@file:apps/mobile/modules/slopmiles-healthkit(expo-modules-core@55.0.14(react-native@0.83.2(@babel/core@7.29.0)(@types/react@19.2.14)(react@19.2.0))(react@19.2.0))(expo@55.0.5):
+  slopmiles-healthkit@file:apps/mobile/modules/slopmiles-healthkit(expo-modules-core@55.0.15(react-native@0.83.2(@babel/core@7.29.0)(@types/react@19.2.14)(react@19.2.0))(react@19.2.0))(expo@55.0.5):
     dependencies:
       expo: 55.0.5(@babel/core@7.29.0)(@expo/dom-webview@55.0.3)(react-dom@19.2.0(react@19.2.0))(react-native@0.83.2(@babel/core@7.29.0)(@types/react@19.2.14)(react@19.2.0))(react@19.2.0)(typescript@5.9.3)
-      expo-modules-core: 55.0.14(react-native@0.83.2(@babel/core@7.29.0)(@types/react@19.2.14)(react@19.2.0))(react@19.2.0)
+      expo-modules-core: 55.0.15(react-native@0.83.2(@babel/core@7.29.0)(@types/react@19.2.14)(react@19.2.0))(react@19.2.0)
 
   slugify@1.6.6: {}
 

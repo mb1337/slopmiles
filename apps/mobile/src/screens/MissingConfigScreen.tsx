@@ -10,9 +10,10 @@ export function MissingConfigScreen() {
       <ScrollView contentContainerStyle={styles.container}>
         <Text style={styles.kicker}>Configuration</Text>
         <Text style={styles.heading}>Convex URL missing</Text>
-        <Panel title="Set EXPO_PUBLIC_CONVEX_URL">
+        <Panel title="Set CONVEX_URL">
           <Text style={styles.bodyText}>
-            Create apps/mobile/.env and set EXPO_PUBLIC_CONVEX_URL to your Convex deployment URL.
+            Add CONVEX_URL to the repo root .env.local so the web and mobile apps can share the
+            same Convex deployment URL.
           </Text>
         </Panel>
       </ScrollView>

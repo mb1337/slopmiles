@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import Constants from "expo-constants";
 import { StatusBar } from "expo-status-bar";
 import { Authenticated, AuthLoading, ConvexReactClient, Unauthenticated } from "convex/react";
 import { ConvexAuthProvider } from "@convex-dev/auth/react";
@@ -17,7 +18,7 @@ declare const process:
     }
   | undefined;
 
-const convexUrl = process?.env?.EXPO_PUBLIC_CONVEX_URL;
+const convexUrl = (Constants.expoConfig?.extra?.convexUrl as string | undefined)?.trim() || undefined;
 
 const secureStorage = {
   getItem: SecureStore.getItemAsync,
@@ -31,7 +32,7 @@ export default function App() {
       return null;
     }
     return new ConvexReactClient(convexUrl);
-  }, []);
+  }, [convexUrl]);
 
   if (!convex) {
     return (
