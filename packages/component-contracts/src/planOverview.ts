@@ -23,6 +23,7 @@ export type PlanOverviewView = {
       coachNotes?: string;
       generated: boolean;
       interruptionType: string | null;
+      interruptionNote?: string | null;
     }>;
     peakVolumeChanges: Array<{
       _id: string;

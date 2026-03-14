@@ -212,6 +212,7 @@ export const getPlanOverviewView = query({
         coachNotes: week.coachNotes,
         generated: week.generated,
         interruptionType: week.interruptionType ?? null,
+        interruptionNote: week.interruptionNote ?? null,
       }));
     const currentWeekNumber =
       targetPlan?.startDateKey ? deriveCurrentWeekNumber(targetPlan, args.nowBucketMs) : null;

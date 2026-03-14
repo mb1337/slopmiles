@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import { useMutation, useQuery } from "convex/react";
 import {
+  PLAN_INTERRUPTION_TYPES,
   WEEKDAYS,
   VOLUME_MODES,
   formatDateKeyForDisplay,
@@ -142,6 +143,27 @@ function formatInterruptionLabel(value: string): string {
   return value.charAt(0).toUpperCase() + value.slice(1);
 }
 
+function splitGoalTimeFields(seconds?: number | null) {
+  if (typeof seconds !== "number" || !Number.isFinite(seconds) || seconds <= 0) {
+    return {
+      hours: "",
+      minutes: "",
+      seconds: "",
+    };
+  }
+
+  const rounded = Math.max(0, Math.round(seconds));
+  const hours = Math.floor(rounded / 3600);
+  const minutes = Math.floor((rounded % 3600) / 60);
+  const remainder = rounded % 60;
+
+  return {
+    hours: hours > 0 ? String(hours) : "",
+    minutes: String(minutes),
+    seconds: String(remainder),
+  };
+}
+
 function parseGoalTimeText(hoursText: string, minutesText: string, secondsText: string): number | null {
   const hours = Number(hoursText.trim() || "0");
   const minutes = Number(minutesText.trim() || "0");
@@ -238,6 +260,9 @@ export function PlanScreen({
   const activateDraftPlan = useMutation(api.plans.activateDraftPlan);
   const updateDraftPlanBasics = useMutation(api.plans.updateDraftPlanBasics);
   const updatePlanStatus = useMutation(api.plans.updatePlanStatus);
+  const updatePlanPeakVolume = useMutation(api.planOverview.updatePlanPeakVolume);
+  const changePlanGoal = useMutation(api.planOverview.changePlanGoal);
+  const reportPlanInterruption = useMutation(api.planOverview.reportPlanInterruption);
   const requestWeekDetailGeneration = useMutation(api.coach.requestWeekDetailGeneration);
   const retryWeekDetailGeneration = useMutation(api.coach.retryWeekDetailGeneration);
   const skipWorkout = useMutation(api.workoutDetail.skipWorkout);
@@ -259,6 +284,17 @@ export function PlanScreen({
   const [raceDatePickerOpen, setRaceDatePickerOpen] = useState(false);
   const [proposalPeakOverride, setProposalPeakOverride] = useState("");
   const [draftPeakInputs, setDraftPeakInputs] = useState<Record<string, string>>({});
+  const [planPeakOverride, setPlanPeakOverride] = useState("");
+  const [goalEditType, setGoalEditType] = useState<PlanGoalType>("race");
+  const [goalEditLabel, setGoalEditLabel] = useState("");
+  const [goalEditDateValue, setGoalEditDateValue] = useState<Date | null>(null);
+  const [goalEditDatePickerOpen, setGoalEditDatePickerOpen] = useState(false);
+  const [goalEditHours, setGoalEditHours] = useState("");
+  const [goalEditMinutes, setGoalEditMinutes] = useState("");
+  const [goalEditSecondsText, setGoalEditSecondsText] = useState("");
+  const [interruptionType, setInterruptionType] =
+    useState<(typeof PLAN_INTERRUPTION_TYPES)[number]>("life");
+  const [interruptionNote, setInterruptionNote] = useState("");
   const [selectedRescheduleDate, setSelectedRescheduleDate] = useState<string>("");
   const [overrideDays, setOverrideDays] = useState<Array<(typeof WEEKDAYS)[number]>>([]);
   const [overrideNote, setOverrideNote] = useState("");
@@ -277,11 +313,22 @@ export function PlanScreen({
   }, []);
 
   const activePlan = planOverview?.activePlan ?? null;
+  const currentPlanWeek =
+    activePlan?.currentWeekNumber && activePlan.trainingWeeks
+      ? activePlan.trainingWeeks.find((week) => week.weekNumber === activePlan.currentWeekNumber) ?? null
+      : null;
   const proposal = planOverview?.latestProposal?.result ?? planOverview?.proposal?.result ?? null;
   const selectedGoalLabel = goalPreset === "Custom" ? customGoalLabel.trim() : goalPreset;
   const targetDate = normalizeDate(targetDateValue);
   const formattedTargetDate = formatTargetDate(targetDateValue);
   const goalTimeSeconds = parseGoalTimeText(goalTimeHours, goalTimeMinutes, goalTimeSecondsText);
+  const goalEditDate = normalizeDate(goalEditDateValue);
+  const formattedGoalEditDate = formatTargetDate(goalEditDateValue);
+  const goalEditTimeSeconds = parseGoalTimeText(
+    goalEditHours,
+    goalEditMinutes,
+    goalEditSecondsText,
+  );
   const createStepCount = 3;
 
   useEffect(() => {
@@ -313,6 +360,44 @@ export function PlanScreen({
     );
     setOverrideNote(weekAgenda?.week.availabilityOverride?.note ?? "");
   }, [route.screen, weekAgenda?.week._id, weekAgenda?.week.availabilityOverride]);
+
+  useEffect(() => {
+    if (!activePlan) {
+      setPlanPeakOverride("");
+      setGoalEditType("race");
+      setGoalEditLabel("");
+      setGoalEditDateValue(null);
+      setGoalEditHours("");
+      setGoalEditMinutes("");
+      setGoalEditSecondsText("");
+      setInterruptionType("life");
+      setInterruptionNote("");
+      return;
+    }
+
+    setPlanPeakOverride(String(activePlan.peakWeekVolume));
+    setGoalEditType(activePlan.goalType === "race" ? "race" : "nonRace");
+    setGoalEditLabel(activePlan.goalLabel ?? "");
+    setGoalEditDateValue(activePlan.targetDate ? new Date(activePlan.targetDate) : null);
+    const timeFields = splitGoalTimeFields(activePlan.goalTimeSeconds);
+    setGoalEditHours(timeFields.hours);
+    setGoalEditMinutes(timeFields.minutes);
+    setGoalEditSecondsText(timeFields.seconds);
+    setInterruptionType(
+      (currentPlanWeek?.interruptionType as (typeof PLAN_INTERRUPTION_TYPES)[number] | null) ??
+        "life",
+    );
+    setInterruptionNote(currentPlanWeek?.interruptionNote ?? "");
+  }, [
+    activePlan?._id,
+    activePlan?.goalLabel,
+    activePlan?.goalTimeSeconds,
+    activePlan?.goalType,
+    activePlan?.peakWeekVolume,
+    activePlan?.targetDate,
+    currentPlanWeek?.interruptionNote,
+    currentPlanWeek?.interruptionType,
+  ]);
 
   const currentGoalOptions = useMemo(
     () => (goalType === "race" ? [...RACE_GOALS] : [...NON_RACE_GOALS]),
@@ -684,6 +769,232 @@ export function PlanScreen({
         </SectionCard>
       )}
 
+      {activePlan ? (
+        <SectionCard
+          title="Adjust this plan"
+          description={
+            activePlan.status === "draft"
+              ? "Refine the draft before activation."
+              : "Keep the current block aligned when volume targets or goals change."
+          }
+        >
+          <FieldGroup
+            label="Peak week volume"
+            helperText={activePlan.volumeMode === "time" ? "Minutes" : "Meters"}
+          >
+            <TextInput
+              style={styles.input}
+              value={planPeakOverride}
+              onChangeText={setPlanPeakOverride}
+              keyboardType="decimal-pad"
+              placeholder={String(Math.round(activePlan.peakWeekVolume))}
+              placeholderTextColor="#7a848c"
+            />
+          </FieldGroup>
+          <PrimaryButton
+            label={
+              busyLabel === "save-plan-peak"
+                ? "Saving..."
+                : activePlan.status === "draft"
+                  ? "Save draft peak"
+                  : "Save peak volume"
+            }
+            disabled={busyLabel !== null}
+            onPress={() =>
+              void runWithStatus("save-plan-peak", async () => {
+                const normalizedValue = planPeakOverride.trim();
+                const peakWeekVolume = Number(normalizedValue);
+                if (!normalizedValue || !Number.isFinite(peakWeekVolume) || peakWeekVolume <= 0) {
+                  throw new Error("Peak week volume must be a positive number.");
+                }
+                if (activePlan.status === "draft") {
+                  await updateDraftPlanBasics({ planId: activePlan._id, peakWeekVolume });
+                  setMessage("Draft peak volume updated.");
+                  return;
+                }
+                await updatePlanPeakVolume({
+                  planId: activePlan._id,
+                  peakWeekVolume,
+                  reason: "Updated from mobile plan screen.",
+                });
+                setMessage("Peak volume saved.");
+              })
+            }
+          />
+
+          <FieldGroup label="Goal type">
+            <ChoiceRow
+              options={PLAN_GOAL_TYPES}
+              selected={goalEditType}
+              onChange={(value) => {
+                const nextValue = value as PlanGoalType;
+                setGoalEditType(nextValue);
+                if (nextValue !== "race") {
+                  setGoalEditHours("");
+                  setGoalEditMinutes("");
+                  setGoalEditSecondsText("");
+                }
+              }}
+            />
+          </FieldGroup>
+          <FieldGroup label="Goal label">
+            <TextInput
+              style={styles.input}
+              value={goalEditLabel}
+              onChangeText={setGoalEditLabel}
+              placeholder="Describe the goal"
+              placeholderTextColor="#7a848c"
+            />
+          </FieldGroup>
+          <FieldGroup
+            label="Target date"
+            helperText={
+              goalEditType === "race"
+                ? "Required for race goals."
+                : "Optional block end date for non-race goals."
+            }
+          >
+            <PickerField
+              value={formattedGoalEditDate}
+              placeholder={
+                goalEditType === "race" ? "Select target date" : "Optional end date"
+              }
+              onPress={() => {
+                setGoalEditDatePickerOpen(true);
+              }}
+            />
+            {goalEditDateValue ? (
+              <SecondaryButton
+                label="Clear date"
+                onPress={() => {
+                  setGoalEditDateValue(null);
+                }}
+              />
+            ) : null}
+          </FieldGroup>
+          {goalEditType === "race" ? (
+            <FieldGroup label="Goal time (optional)">
+              <View style={styles.timeInputRow}>
+                <View style={styles.timeInputBlock}>
+                  <Text style={styles.helperText}>Hours</Text>
+                  <TextInput
+                    style={styles.input}
+                    value={goalEditHours}
+                    onChangeText={setGoalEditHours}
+                    keyboardType="number-pad"
+                    placeholder="0"
+                    placeholderTextColor="#7a848c"
+                  />
+                </View>
+                <View style={styles.timeInputBlock}>
+                  <Text style={styles.helperText}>Minutes</Text>
+                  <TextInput
+                    style={styles.input}
+                    value={goalEditMinutes}
+                    onChangeText={setGoalEditMinutes}
+                    keyboardType="number-pad"
+                    placeholder="45"
+                    placeholderTextColor="#7a848c"
+                  />
+                </View>
+                <View style={styles.timeInputBlock}>
+                  <Text style={styles.helperText}>Seconds</Text>
+                  <TextInput
+                    style={styles.input}
+                    value={goalEditSecondsText}
+                    onChangeText={setGoalEditSecondsText}
+                    keyboardType="number-pad"
+                    placeholder="0"
+                    placeholderTextColor="#7a848c"
+                  />
+                </View>
+              </View>
+              {goalEditTimeSeconds ? (
+                <Text style={styles.helperText}>
+                  Goal time preview: {formatGoalTime(goalEditTimeSeconds)}
+                </Text>
+              ) : null}
+            </FieldGroup>
+          ) : null}
+          <PrimaryButton
+            label={busyLabel === "save-goal-change" ? "Saving..." : "Save goal change"}
+            disabled={busyLabel !== null}
+            onPress={() =>
+              void runWithStatus("save-goal-change", async () => {
+                const goalLabel = goalEditLabel.trim();
+                if (!goalLabel) {
+                  throw new Error("Goal label is required.");
+                }
+                if (goalEditType === "race" && goalEditDate === null) {
+                  throw new Error("Race goals need a target date.");
+                }
+                await changePlanGoal({
+                  planId: activePlan._id,
+                  goalType: goalEditType,
+                  goalLabel,
+                  targetDate: goalEditDate ?? undefined,
+                  goalTimeSeconds:
+                    goalEditType === "race" ? goalEditTimeSeconds ?? undefined : undefined,
+                  reason: "Updated from mobile plan screen.",
+                });
+                setMessage("Goal change recorded.");
+              })
+            }
+          />
+        </SectionCard>
+      ) : null}
+
+      {activePlan?.status === "active" ? (
+        <SectionCard
+          title="Pause this week"
+          description={
+            activePlan.currentWeekNumber
+              ? `Applies to week ${activePlan.currentWeekNumber}.`
+              : "Current week not available yet."
+          }
+        >
+          {currentPlanWeek?.interruptionType ? (
+            <Text style={styles.helperText}>
+              Current note: {formatInterruptionLabel(currentPlanWeek.interruptionType)}
+              {currentPlanWeek.interruptionNote ? ` - ${currentPlanWeek.interruptionNote}` : ""}
+            </Text>
+          ) : null}
+          <FieldGroup label="Reason">
+            <ChoiceRow
+              options={PLAN_INTERRUPTION_TYPES}
+              selected={interruptionType}
+              onChange={(value) =>
+                setInterruptionType(value as (typeof PLAN_INTERRUPTION_TYPES)[number])
+              }
+            />
+          </FieldGroup>
+          <FieldGroup label="Note">
+            <TextInput
+              style={[styles.input, styles.textArea]}
+              value={interruptionNote}
+              onChangeText={setInterruptionNote}
+              placeholder="Travel, fatigue, illness, or schedule change..."
+              placeholderTextColor="#7a848c"
+              multiline
+            />
+          </FieldGroup>
+          <PrimaryButton
+            label={busyLabel === "save-interruption" ? "Saving..." : "Save pause note"}
+            disabled={busyLabel !== null || activePlan.currentWeekNumber === null}
+            onPress={() =>
+              void runWithStatus("save-interruption", async () => {
+                await reportPlanInterruption({
+                  planId: activePlan._id,
+                  type: interruptionType,
+                  note: interruptionNote.trim() || "Marked from mobile plan screen.",
+                });
+                setMessage("Interruption recorded.");
+              })
+            }
+          />
+        </SectionCard>
+      ) : null}
+
       <SectionCard title="Latest proposal" description="The newest coach-generated structure, if one exists.">
         {planOverview?.proposal ? (
           <>
@@ -797,6 +1108,23 @@ export function PlanScreen({
           />
         </SectionCard>
       ) : null}
+
+      <CrossPlatformPickerSheet
+        visible={goalEditDatePickerOpen}
+        title="Goal target date"
+        mode="date"
+        value={goalEditDateValue ?? new Date()}
+        minimumDate={new Date()}
+        onCancel={() => {
+          setGoalEditDatePickerOpen(false);
+        }}
+        onConfirm={(nextDate) => {
+          const normalized = new Date(nextDate);
+          normalized.setHours(0, 0, 0, 0);
+          setGoalEditDateValue(normalized);
+          setGoalEditDatePickerOpen(false);
+        }}
+      />
     </ScrollView>
   );
 
