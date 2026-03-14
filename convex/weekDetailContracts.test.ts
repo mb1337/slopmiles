@@ -84,16 +84,19 @@ describe("week detail contracts", () => {
               ],
             },
             {
-              type: "recovery",
+              type: "runWalk",
               volumePercent: 0.08,
               scheduledDate: "2026-03-10",
               venue: "road",
               segments: [
                 {
-                  label: "Jog",
+                  label: "3 x (run 4 min / walk 1 min)",
                   paceZone: "E",
-                  targetValue: 900,
+                  targetValue: 240,
                   targetUnit: "seconds",
+                  repetitions: 3,
+                  restValue: 60,
+                  restUnit: "seconds",
                 },
               ],
             },
@@ -151,5 +154,47 @@ describe("week detail contracts", () => {
     );
 
     expect(validated.proposal.workouts[0]?.segments[0]?.paceZone).toBe("C");
+  });
+
+  it("accepts run/walk workouts with walk breaks encoded as rest intervals", () => {
+    const validated = validateWeekDetailResponse(
+      {
+        workouts: [
+          {
+            type: "runWalk",
+            volumePercent: 0.2,
+            scheduledDate: "2026-03-10",
+            venue: "road",
+            notes: "Count the full session time, including walk breaks.",
+            segments: [
+              {
+                label: "6 x (run 3 min / walk 1 min)",
+                paceZone: "E",
+                targetValue: 180,
+                targetUnit: "seconds",
+                repetitions: 6,
+                restValue: 60,
+                restUnit: "seconds",
+              },
+            ],
+          },
+        ],
+        coachNotes: "Use this to rebuild consistency without forcing continuous running.",
+      },
+      {
+        weekStartDateKey: "2026-03-09",
+        weekEndDateKey: "2026-03-15",
+        targetVolumePercent: 0.2,
+        preferredRunningDays: ["tuesday", "thursday", "sunday"],
+        trackAccess: true,
+      },
+    );
+
+    expect(validated.proposal.workouts[0]?.type).toBe("runWalk");
+    expect(validated.proposal.workouts[0]?.segments[0]).toMatchObject({
+      repetitions: 6,
+      restValue: 60,
+      restUnit: "seconds",
+    });
   });
 });

@@ -276,7 +276,7 @@ export function buildWeekDetailGenerationMessages(input: WeekDetailGenerationPro
     },
     responseRequirements: {
       jsonOnly: true,
-      allowedWorkoutTypes: ["easyRun", "longRun", "tempo", "intervals", "recovery"],
+      allowedWorkoutTypes: ["easyRun", "runWalk", "longRun", "tempo", "intervals"],
       allowedVenues: input.trackAccess ? ["track", "road", "any"] : ["road", "any"],
       paceZoneRule:
         'Use "E", "C", "M", "T", "I", "R", or a race pace label ending with "pace". Choose "E" or "C" explicitly for aerobic running segments.',
@@ -289,6 +289,8 @@ export function buildWeekDetailGenerationMessages(input: WeekDetailGenerationPro
         'Use segments with targetUnit of seconds or meters. Choose "E" or "C" explicitly for aerobic running segments. Optional repetitions, restValue, and restUnit are allowed.',
       raceRule:
         "Races stay separate from workouts. Use them to replace a hard effort or reduce surrounding load, but do not return races as running workouts.",
+      runWalkRule:
+        "Use runWalk only for beginners, injury return-to-run ramps, or very low-volume consistency work. Standard low-intensity days should be easyRun. For runWalk sessions, represent the walk breaks with segment labels and/or restValue/restUnit, and count the whole session volume including walk breaks.",
       coachNotesRule:
         "coachNotes should explain any deviation caused by overrides, interruptions, races, or locked workouts.",
       strengthRule:
@@ -298,7 +300,7 @@ export function buildWeekDetailGenerationMessages(input: WeekDetailGenerationPro
     expectedShape: {
       workouts: [
         {
-          type: "easyRun | longRun | tempo | intervals | recovery",
+          type: "easyRun | runWalk | longRun | tempo | intervals",
           volumePercent: "number",
           scheduledDate: "YYYY-MM-DD",
           venue: "track | road | any",

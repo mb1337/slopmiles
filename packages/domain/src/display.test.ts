@@ -61,6 +61,7 @@ describe("display helpers", () => {
 
   it("formats workout labels consistently", () => {
     expect(formatWorkoutTypeLabel("easyRun")).toBe("Easy Run");
+    expect(formatWorkoutTypeLabel("runWalk")).toBe("Run/Walk");
     expect(formatWorkoutTypeLabel("customType")).toBe("Custom Type");
   });
 });

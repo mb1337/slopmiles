@@ -66,14 +66,14 @@ function formatWorkoutType(type: Doc<"workouts">["type"]): string {
   switch (type) {
     case "easyRun":
       return "easy run";
+    case "runWalk":
+      return "run/walk session";
     case "longRun":
       return "long run";
     case "tempo":
       return "tempo workout";
     case "intervals":
       return "interval workout";
-    case "recovery":
-      return "recovery run";
     default:
       return type;
   }
@@ -173,7 +173,7 @@ function isEligibleCandidateType(
     return workout.type === "tempo" || workout.type === "intervals";
   }
 
-  return workout.type === "easyRun" || workout.type === "recovery" || workout.type === "longRun";
+  return workout.type === "easyRun" || workout.type === "runWalk" || workout.type === "longRun";
 }
 
 function resolveActualVolume(
@@ -212,7 +212,7 @@ function resolveStructureScore(
     return 1;
   }
 
-  return workout.type === "easyRun" ? 0.92 : 0.82;
+  return workout.type === "easyRun" || workout.type === "runWalk" ? 0.92 : 0.82;
 }
 
 function resolveDateScore(dateDelta: number): number {
@@ -678,7 +678,7 @@ async function generateFeedback(
   const elevatedHeartRate = typeof hrRatio === "number" && hrRatio >= 0.78;
   const workoutLabel = formatWorkoutType(plannedWorkout.type);
 
-  if (plannedWorkout.type === "easyRun" || plannedWorkout.type === "recovery") {
+  if (plannedWorkout.type === "easyRun" || plannedWorkout.type === "runWalk") {
     if (highRpe || elevatedHeartRate) {
       adjustments.push("Protect the next easy day. Keep it truly easy and cut it short if effort stays unusually high.");
       return {

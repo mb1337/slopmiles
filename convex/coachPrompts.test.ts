@@ -88,6 +88,14 @@ describe("coach prompts", () => {
     expect(userPayload.constraints.races).toHaveLength(1);
     expect(userPayload.constraints.lockedRunningWorkouts).toHaveLength(1);
     expect(userPayload.strength.includeStrength).toBe(true);
+    expect(userPayload.responseRequirements.allowedWorkoutTypes).toEqual([
+      "easyRun",
+      "runWalk",
+      "longRun",
+      "tempo",
+      "intervals",
+    ]);
+    expect(userPayload.responseRequirements.runWalkRule).toContain("Standard low-intensity days should be easyRun");
     expect(userPayload.responseRequirements.strengthRule).toContain("strengthWorkouts");
     expect(userPayload.responseRequirements.paceZoneRule).toContain('"C"');
     expect(userPayload.responseRequirements.segmentRule).toContain('Choose "E" or "C" explicitly');

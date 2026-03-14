@@ -228,14 +228,14 @@ export function formatWorkoutTypeLabel(type: WorkoutType | string): string {
   switch (type) {
     case "easyRun":
       return "Easy Run";
+    case "runWalk":
+      return "Run/Walk";
     case "longRun":
       return "Long Run";
     case "tempo":
       return "Tempo";
     case "intervals":
       return "Intervals";
-    case "recovery":
-      return "Recovery";
     default:
       return formatFriendlyLabel(type);
   }

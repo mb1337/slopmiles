@@ -216,7 +216,7 @@ The user specifies which days of the week they are available to run and how many
 - **Available days** (`RunningSchedule.preferredRunningDays`) — A set of weekdays the user can run (e.g., Mon, Tue, Thu, Sat, Sun). Defaults to all seven days if not configured.
 - **Preferred days per week** — The target number of running days (e.g., 5). Must be ≤ the number of available days. The coach uses this to decide how many sessions to schedule.
 - **Preferred long run day** (optional) — The day of the week the user prefers for their long run (e.g., Saturday). Must be one of the available days. If not set, the coach chooses based on the overall schedule.
-- **Preferred quality days** (optional) — A ranked list of days the user prefers for hard efforts like tempo, intervals, or repetitions (e.g., 1st: Tuesday, 2nd: Thursday, 3rd: Saturday). Must be a subset of the available days. The ranking matters: the week's most important quality session (e.g., the key workout for the training phase) is placed on the first-choice day, the second-most-important on the second-choice day, and so on. If not set, the coach places quality sessions where they fit best with adequate recovery spacing.
+- **Preferred quality days** (optional) — A ranked list of days the user prefers for hard efforts like tempo or intervals (e.g., 1st: Tuesday, 2nd: Thursday, 3rd: Saturday). Must be a subset of the available days. The ranking matters: the week's most important quality session (e.g., the key workout for the training phase) is placed on the first-choice day, the second-most-important on the second-choice day, and so on. If not set, the coach places quality sessions where they fit best with adequate recovery spacing.
 - **Availability windows** (optional) — For each available day, the user may specify one or more time windows when they can run (e.g., Mon: 6:00–7:30 AM, 7:00–9:00 PM). If no windows are set for a day, the user is assumed available any time that day. Multiple windows per day support runners whose schedules have gaps (e.g., before work and after kids' bedtime).
 
 Day preferences are soft constraints — the coach respects them by default but may deviate when necessary (e.g., moving a quality day to accommodate a mid-week race, or shifting the long run when an availability override removes the preferred day). When the coach deviates, it explains why in the week's coach notes.
@@ -269,7 +269,7 @@ A workout is a single training session.
 
 | Property | Description |
 |---|---|
-| Type | Easy Run, Long Run, Tempo, Intervals, Repetitions, Recovery |
+| Type | Easy Run, Run/Walk, Long Run, Tempo, Intervals |
 | Volume | Expressed as a percentage of peak week volume (e.g., if peak is 200 minutes and this workout is 8%, the workout is 16 minutes) |
 | Pace Zones | One or more pace targets using VDOT-based zones (see §1.12) |
 | Structure | Ordered list of segments (e.g., warmup → 4×800m @ Interval w/ 400m jog → cooldown) |
@@ -278,6 +278,8 @@ A workout is a single training session.
 | Notes | Optional coach notes for add-ons that are not modeled as segments — e.g., strides (4–6 × 20s strides after an easy run), drills (A-skips, high knees before a workout), or form cues. These are free-text instructions displayed alongside the workout. |
 
 **Strength workouts** — When the plan includes strength training (see §1.7), strength sessions are stored as separate `StrengthWorkout` entities (see §2.10) rather than as running `Workout` records. They appear in the weekly schedule alongside running workouts but have their own data model with exercises, sets, reps, and equipment requirements.
+
+**Run/walk workouts** — `Run/Walk` is a targeted aerobic workout type for beginners, runners returning from injury, and very low-volume consistency blocks. It is not a general substitute for standard easy running. These sessions are usually prescribed as time-based alternating blocks (for example, `6 × [run 3:00 / walk 1:00]`) at easy effort. Planned workout volume counts the full session, including the walking portions.
 
 **Track workouts** — Workouts with precise distance-based intervals (e.g., 800m repeats, 400m reps) are tagged as `.track` when the user has track access. Track workout distances are always displayed in meters regardless of the user's unit preference (e.g., 400m, 800m, 1600m — never 0.25 mi or 0.5 mi). If the user cannot get to a track (weather, travel, etc.), they can request conversion to a time-based equivalent (e.g., 4×800m w/ 90s rest → 4×3min w/ 90s rest). The coach converts using the user's current VDOT pace for the relevant zone. Users without track access get time-based workouts by default — no `.track` workouts are generated.
 
@@ -373,13 +375,13 @@ Completed workouts recorded in HealthKit are matched against planned workouts us
   - Order of key work segments must be preserved, but warmup/cooldown boundaries are tolerant.
   - Wiggle room for real-world watch usage is allowed:
     - One extra non-key segment (for example, an extra warmup/cooldown split) does not penalize to zero.
-    - One missed or merged rep is allowed for interval/repetition sessions (common when lap press is missed).
+    - One missed or merged rep is allowed for interval sessions (common when lap press is missed).
     - Rep count variance of +/-1 is acceptable when quality-volume variance remains within +/-15%.
   - Large segment structure mismatches (wrong rep pattern, reversed quality order, or missing most quality work) force `segmentScore <= 0.40`.
 
 **Segment-aware gating:**
 - Auto-match is not allowed when `segmentScore < 0.60`, even if overall `matchScore >= 0.80`.
-- For structured sessions (`.tempo`, `.intervals`, `.repetitions`), if inferred segment count differs from plan by >2, user confirmation is mandatory.
+- For structured sessions (`.tempo`, `.intervals`), if inferred segment count differs from plan by >2, user confirmation is mandatory.
 
 **Segment comparison artifact (for UI and feedback):**
 - For matched workouts, the matcher produces per-segment comparisons between planned and executed structure.
@@ -577,7 +579,7 @@ A runner training for a marathon may get injured and need to pivot to a half mar
 **Plan completion** — A plan transitions from `.active` to `.completed` when its final week ends. The final week is determined by the plan's `numberOfWeeks` duration, which includes any post-race recovery weeks the coach built into the plan.
 
 - The plan completes at the end of its final week regardless of whether all workouts have been completed.
-- **Race plans with no recorded result** — if the goal race date passes with no matched HealthKit workout and no recorded `actualTime`, the coach prompts the user: "Did you run the race?" The user can enter a result manually, confirm they skipped it, or defer the race (which triggers a goal change flow per §1.20). The plan continues through its remaining weeks either way — post-race recovery runs are still valuable.
+- **Race plans with no recorded result** — if the goal race date passes with no matched HealthKit workout and no recorded `actualTime`, the coach prompts the user: "Did you run the race?" The user can enter a result manually, confirm they skipped it, or defer the race (which triggers a goal change flow per §1.20). The plan continues through its remaining weeks either way — post-race easy runs and run/walk sessions are still valuable.
 - **Non-race plans** (base building, recovery, custom) — the plan runs for its full `numberOfWeeks` duration. If the plan has a target date, that determines the final week.
 - **Early completion** — the user can mark a plan as completed early from the Plan view. The coach generates a partial assessment covering completed weeks only.
 
@@ -816,7 +818,7 @@ Workout
   skipReason: SkipReason?         // set when user proactively skips (see §1.18); nil for missed or completed workouts
 ```
 
-`WorkoutType` is an enum: `.easyRun`, `.longRun`, `.tempo`, `.intervals`, `.repetitions`, `.recovery`.
+`WorkoutType` is an enum: `.easyRun`, `.runWalk`, `.longRun`, `.tempo`, `.intervals`.
 
 `SkipReason` is an enum: `.scheduleConflict`, `.fatigue`, `.soreness`, `.weather`, `.custom(String)`.
 
@@ -919,7 +921,7 @@ SegmentComparison
   actualVolumeUnit: .meters | .kilometers | .miles | .seconds
   adherenceScore: Double             // 0.0–1.0 segment-level adherence
   inferred: Bool                     // true when reps were reconstructed due to missed/extra lap boundaries
-  reps: [SegmentRepComparison]?      // present for repetition/interval-style segments
+  reps: [SegmentRepComparison]?      // present for interval-style or other repeating segments
 ```
 
 ```
@@ -1334,11 +1336,11 @@ Every AI call includes a base system prompt layered beneath the personality prom
 
 The base system prompt should instruct the coach to:
 
-- **Limit quality sessions** to 2–3 per week (tempo, intervals, repetitions) with adequate recovery between them (typically 48–72 hours). Back-to-back quality days should be rare and intentional.
+- **Limit quality sessions** to 2–3 per week (tempo, intervals) with adequate recovery between them (typically 48–72 hours). Back-to-back quality days should be rare and intentional.
 - **Cap the long run** at roughly 25–30% of the week's running volume. For time-based plans, long runs should generally not exceed ~2.5 hours regardless of volume percentage.
 - **Cap hard effort within quality workouts** — e.g., interval volume at the lesser of ~8% of weekly volume or ~10K; tempo volume at ~10% of weekly volume or ~60 minutes. Warmup and cooldown are separate from these caps.
 - **Increase volume conservatively** — weekly volume should generally not jump more than ~10% week-over-week, with a down week every 3–4 weeks.
-- **Polarize the training week** — easy days should be genuinely easy. Avoid stacking moderate efforts on recovery days. Quality work and strength training belong on hard days; easy days are for recovery.
+- **Polarize the training week** — easy days should be genuinely easy. Avoid stacking moderate efforts on aerobic recovery days. Quality work and strength training belong on hard days; easy days are for recovery. Use `runWalk` only when continuity matters more than continuous running.
 - **Respect the user's running schedule** — place workouts only on preferred running days and within availability windows when configured (see §1.8). If the schedule is too constrained for the goal, raise this in coach commentary rather than silently overriding it.
 - **Honor day preferences for workout placement** — place the long run on the user's preferred long run day and quality sessions on their preferred quality days in rank order (first-choice day gets the week's key quality session). These are soft constraints: deviate when necessary (e.g., a race occupies the first-choice quality day, or the preferred long run day is removed by a weekly override) and explain the deviation in coach notes.
 - **Use doubles judiciously** — schedule two runs in a day only when volume demands it and the runner's experience supports it (see §1.9). Only one of the two runs should be a hard effort; the other should be easy volume. Place the two runs in separate availability windows when the user has configured them.

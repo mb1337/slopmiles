@@ -73,7 +73,7 @@ export type PlanStatus = (typeof PLAN_STATUSES)[number];
 export const PLAN_INTERRUPTION_TYPES = ["injury", "illness", "life", "travel"] as const;
 export type PlanInterruptionType = (typeof PLAN_INTERRUPTION_TYPES)[number];
 
-export const WORKOUT_TYPES = ["easyRun", "longRun", "tempo", "intervals", "recovery"] as const;
+export const WORKOUT_TYPES = ["easyRun", "runWalk", "longRun", "tempo", "intervals"] as const;
 export type WorkoutType = (typeof WORKOUT_TYPES)[number];
 
 export const WORKOUT_VENUES = ["track", "road", "any"] as const;
