@@ -74,9 +74,19 @@ function formatWorkoutType(type: Doc<"workouts">["type"]): string {
       return "tempo workout";
     case "intervals":
       return "interval workout";
+    case "speed":
+      return "speed workout";
     default:
       return type;
   }
+}
+
+function isStructuredQualityWorkoutType(type: Doc<"workouts">["type"]): boolean {
+  return type === "tempo" || type === "intervals" || type === "speed";
+}
+
+function isDemandingWorkoutType(type: Doc<"workouts">["type"]): boolean {
+  return type === "longRun" || isStructuredQualityWorkoutType(type);
 }
 
 function formatModifier(modifier: Doc<"workoutExecutions">["modifiers"][number]): string {
@@ -170,7 +180,7 @@ function isEligibleCandidateType(
   structured: boolean,
 ): boolean {
   if (structured) {
-    return workout.type === "tempo" || workout.type === "intervals";
+    return isStructuredQualityWorkoutType(workout.type);
   }
 
   return workout.type === "easyRun" || workout.type === "runWalk" || workout.type === "longRun";
@@ -205,7 +215,7 @@ function resolveStructureScore(
   structured: boolean,
 ): number {
   if (structured) {
-    return workout.type === "intervals" ? 1 : 0.88;
+    return workout.type === "intervals" || workout.type === "speed" ? 1 : 0.88;
   }
 
   if (workout.type === "longRun") {
@@ -646,7 +656,7 @@ async function generateFeedback(
       const nextDemanding = upcoming.find(
         (workout) =>
           workout.scheduledDateKey > importedDateKey &&
-          (workout.type === "longRun" || workout.type === "tempo" || workout.type === "intervals"),
+          isDemandingWorkoutType(workout.type),
       );
 
       if (nextDemanding) {
@@ -737,7 +747,7 @@ async function generateFeedback(
     };
   }
 
-  if (plannedWorkout.type === "tempo" || plannedWorkout.type === "intervals") {
+  if (isStructuredQualityWorkoutType(plannedWorkout.type)) {
     if (structuredSummary && lowToModerateRpe && structuredSummary.averageAdherence >= 0.78) {
       return {
         commentary: [

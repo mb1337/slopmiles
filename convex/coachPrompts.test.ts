@@ -94,8 +94,10 @@ describe("coach prompts", () => {
       "longRun",
       "tempo",
       "intervals",
+      "speed",
     ]);
     expect(userPayload.responseRequirements.runWalkRule).toContain("Standard low-intensity days should be easyRun");
+    expect(userPayload.responseRequirements.speedRule).toContain('"R" pace');
     expect(userPayload.responseRequirements.strengthRule).toContain("strengthWorkouts");
     expect(userPayload.responseRequirements.paceZoneRule).toContain('"C"');
     expect(userPayload.responseRequirements.segmentRule).toContain('Choose "E" or "C" explicitly');

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { WORKOUT_TYPES } from "./index";
 import {
   formatDistanceForDisplay,
   formatDurationClock,
@@ -60,8 +61,10 @@ describe("display helpers", () => {
   });
 
   it("formats workout labels consistently", () => {
+    expect(WORKOUT_TYPES).toContain("speed");
     expect(formatWorkoutTypeLabel("easyRun")).toBe("Easy Run");
     expect(formatWorkoutTypeLabel("runWalk")).toBe("Run/Walk");
+    expect(formatWorkoutTypeLabel("speed")).toBe("Speed");
     expect(formatWorkoutTypeLabel("customType")).toBe("Custom Type");
   });
 });

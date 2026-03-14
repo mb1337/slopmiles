@@ -62,7 +62,18 @@ function escapeRegExp(value: string) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-function buildDetail(vdotAtGeneration?: number) {
+function buildDetail(options: {
+  vdotAtGeneration?: number;
+  workoutType?: string;
+  segments?: Array<{
+    label: string;
+    paceZone: string;
+    targetValue: number;
+    targetUnit: "seconds" | "meters";
+  }>;
+} = {}) {
+  const { vdotAtGeneration, workoutType = "tempo", segments } = options;
+
   return {
     plan: {
       _id: "plan-1",
@@ -80,39 +91,40 @@ function buildDetail(vdotAtGeneration?: number) {
     },
     workout: {
       _id: "workout-1",
-      type: "tempo",
+      type: workoutType,
       volumePercent: 0.2,
       absoluteVolume: 1800,
       scheduledDateKey: "2026-03-10",
       venue: "road",
       origin: "planned",
       status: "planned",
-      segments: [
-        {
-          label: "Warmup",
-          paceZone: "E",
-          targetValue: 900,
-          targetUnit: "seconds" as const,
-        },
-        {
-          label: "Main Set",
-          paceZone: "T",
-          targetValue: 1200,
-          targetUnit: "seconds" as const,
-        },
-        {
-          label: "Aerobic Finish",
-          paceZone: "C",
-          targetValue: 600,
-          targetUnit: "seconds" as const,
-        },
-        {
-          label: "Sharpening",
-          paceZone: "5K pace",
-          targetValue: 400,
-          targetUnit: "meters" as const,
-        },
-      ],
+      segments:
+        segments ?? [
+          {
+            label: "Warmup",
+            paceZone: "E",
+            targetValue: 900,
+            targetUnit: "seconds" as const,
+          },
+          {
+            label: "Main Set",
+            paceZone: "T",
+            targetValue: 1200,
+            targetUnit: "seconds" as const,
+          },
+          {
+            label: "Aerobic Finish",
+            paceZone: "C",
+            targetValue: 600,
+            targetUnit: "seconds" as const,
+          },
+          {
+            label: "Sharpening",
+            paceZone: "5K pace",
+            targetValue: 400,
+            targetUnit: "meters" as const,
+          },
+        ],
     },
     executionDetail: null,
     primaryAction: "reviewExecution" as const,
@@ -135,7 +147,7 @@ describe("WorkoutPage", () => {
   it("renders explicit pace targets from the week snapshot", () => {
     mockUseQuery.mockImplementation((token) => {
       if (token === getWorkoutDetailViewToken) {
-        return buildDetail(50);
+        return buildDetail({ vdotAtGeneration: 50 });
       }
       return undefined;
     });
@@ -178,5 +190,40 @@ describe("WorkoutPage", () => {
 
     expect(screen.getByText("Sharpening: 400m @ 5K pace")).toBeInTheDocument();
     expect(screen.queryByText(/5K pace \(/)).not.toBeInTheDocument();
+  });
+
+  it("renders speed workout labels and repetition-pace targets", () => {
+    mockUseQuery.mockImplementation((token) => {
+      if (token === getWorkoutDetailViewToken) {
+        return buildDetail({
+          vdotAtGeneration: 50,
+          workoutType: "speed",
+          segments: [
+            {
+              label: "Warmup",
+              paceZone: "E",
+              targetValue: 900,
+              targetUnit: "seconds",
+            },
+            {
+              label: "Fast Reps",
+              paceZone: "R",
+              targetValue: 200,
+              targetUnit: "meters",
+            },
+          ],
+        });
+      }
+      return undefined;
+    });
+
+    render(<WorkoutPage session={session} />);
+
+    expect(screen.getByRole("heading", { name: "Speed" })).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        new RegExp(`Fast Reps: 200m @ R \\(${escapeRegExp(formatResolvedPaceTargetForDisplay(50, "R", "imperial")!)}\\)`),
+      ),
+    ).toBeInTheDocument();
   });
 });

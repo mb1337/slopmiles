@@ -236,6 +236,8 @@ export function formatWorkoutTypeLabel(type: WorkoutType | string): string {
       return "Tempo";
     case "intervals":
       return "Intervals";
+    case "speed":
+      return "Speed";
     default:
       return formatFriendlyLabel(type);
   }

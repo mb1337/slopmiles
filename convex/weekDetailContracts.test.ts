@@ -197,4 +197,47 @@ describe("week detail contracts", () => {
       restUnit: "seconds",
     });
   });
+
+  it("accepts speed workouts with repetition-pace segments", () => {
+    const validated = validateWeekDetailResponse(
+      {
+        workouts: [
+          {
+            type: "speed",
+            volumePercent: 0.18,
+            scheduledDate: "2026-03-12",
+            venue: "track",
+            segments: [
+              {
+                label: "Warmup",
+                paceZone: "E",
+                targetValue: 900,
+                targetUnit: "seconds",
+              },
+              {
+                label: "8 x 200m",
+                paceZone: "R",
+                targetValue: 200,
+                targetUnit: "meters",
+                repetitions: 8,
+                restValue: 200,
+                restUnit: "meters",
+              },
+            ],
+          },
+        ],
+        coachNotes: "Keep the reps sharp and relaxed.",
+      },
+      {
+        weekStartDateKey: "2026-03-09",
+        weekEndDateKey: "2026-03-15",
+        targetVolumePercent: 0.2,
+        preferredRunningDays: ["tuesday", "thursday", "sunday"],
+        trackAccess: true,
+      },
+    );
+
+    expect(validated.proposal.workouts[0]?.type).toBe("speed");
+    expect(validated.proposal.workouts[0]?.segments[1]?.paceZone).toBe("R");
+  });
 });

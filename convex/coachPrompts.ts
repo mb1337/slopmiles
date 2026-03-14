@@ -276,7 +276,7 @@ export function buildWeekDetailGenerationMessages(input: WeekDetailGenerationPro
     },
     responseRequirements: {
       jsonOnly: true,
-      allowedWorkoutTypes: ["easyRun", "runWalk", "longRun", "tempo", "intervals"],
+      allowedWorkoutTypes: ["easyRun", "runWalk", "longRun", "tempo", "intervals", "speed"],
       allowedVenues: input.trackAccess ? ["track", "road", "any"] : ["road", "any"],
       paceZoneRule:
         'Use "E", "C", "M", "T", "I", "R", or a race pace label ending with "pace". Choose "E" or "C" explicitly for aerobic running segments.',
@@ -287,6 +287,8 @@ export function buildWeekDetailGenerationMessages(input: WeekDetailGenerationPro
           : "Generated running workout volumePercent values should stay at or below the remaining weekly target after locked workouts. Return decimals in [0,1].",
       segmentRule:
         'Use segments with targetUnit of seconds or meters. Choose "E" or "C" explicitly for aerobic running segments. Optional repetitions, restValue, and restUnit are allowed.',
+      speedRule:
+        'Use speed for repetition-focused workouts. The fast work in a speed session should target "R" pace; warmup, cooldown, and recovery segments may use other appropriate zones.',
       raceRule:
         "Races stay separate from workouts. Use them to replace a hard effort or reduce surrounding load, but do not return races as running workouts.",
       runWalkRule:
@@ -300,7 +302,7 @@ export function buildWeekDetailGenerationMessages(input: WeekDetailGenerationPro
     expectedShape: {
       workouts: [
         {
-          type: "easyRun | runWalk | longRun | tempo | intervals",
+          type: "easyRun | runWalk | longRun | tempo | intervals | speed",
           volumePercent: "number",
           scheduledDate: "YYYY-MM-DD",
           venue: "track | road | any",
