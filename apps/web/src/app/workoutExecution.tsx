@@ -1,11 +1,15 @@
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
 import {
-  formatDateKeyForDisplay as formatDateKey,
+  formatExecutionActualRepForDisplay,
+  formatExecutionPlannedTargetForDisplay,
   formatDistanceForDisplay as formatDistance,
   formatDurationClock as formatDuration,
   formatEffortModifierLabel,
   formatElevationForDisplay as formatElevation,
+  formatHeartRateForDisplay,
+  formatLinkedWorkoutSummaryForDisplay,
+  formatWorkoutMatchStatusLabel,
   formatPaceSecondsPerMeterForDisplay as formatPace,
   type EffortModifier,
   type UnitPreference,
@@ -17,25 +21,7 @@ import {
   Field,
   StatusMessage,
   effortModifierOptions,
-  formatWorkoutType,
 } from "./shared";
-
-function formatHeartRate(heartRate?: number) {
-  return typeof heartRate === "number" ? `${Math.round(heartRate)} bpm` : null;
-}
-
-function formatMatchStatus(status: "matched" | "unmatched" | "needsReview") {
-  switch (status) {
-    case "matched":
-      return "Matched";
-    case "needsReview":
-      return "Needs Review";
-    case "unmatched":
-      return "Unplanned";
-    default:
-      return status;
-  }
-}
 
 function matchStatusClass(status: "matched" | "unmatched" | "needsReview") {
   switch (status) {
@@ -48,46 +34,6 @@ function matchStatusClass(status: "matched" | "unmatched" | "needsReview") {
     default:
       return "execution-status-unmatched";
   }
-}
-
-function formatPlannedTarget(
-  rep: {
-    plannedSeconds: number | null;
-    plannedMeters: number | null;
-    plannedPaceSecondsPerMeter: number | null;
-  },
-  unitPreference: UnitPreference,
-) {
-  if (rep.plannedSeconds === null && rep.plannedMeters === null) {
-    return "Extra / unmatched rep";
-  }
-
-  const volume =
-    typeof rep.plannedSeconds === "number"
-      ? formatDuration(rep.plannedSeconds)
-      : formatDistance(rep.plannedMeters ?? undefined, unitPreference);
-  const pace = formatPace(rep.plannedPaceSecondsPerMeter ?? undefined, unitPreference);
-  return `${volume} @ ${pace}`;
-}
-
-function formatActualRep(
-  rep: {
-    actualSeconds: number | null;
-    actualMeters: number | null;
-    actualPaceSecondsPerMeter: number | null;
-    actualPaceSource: "gap" | "raw" | null;
-  },
-  unitPreference: UnitPreference,
-) {
-  const volume = [
-    typeof rep.actualSeconds === "number" ? formatDuration(rep.actualSeconds) : null,
-    typeof rep.actualMeters === "number" ? formatDistance(rep.actualMeters, unitPreference) : null,
-  ]
-    .filter(Boolean)
-    .join(" · ");
-  const pace = formatPace(rep.actualPaceSecondsPerMeter ?? undefined, unitPreference);
-  const paceLabel = rep.actualPaceSource === "gap" ? `GAP ${pace}` : pace;
-  return [volume, paceLabel].filter(Boolean).join(" · ");
 }
 
 export function WorkoutExecutionDetail({
@@ -147,7 +93,7 @@ export function WorkoutExecutionDetail({
       return null;
     }
 
-    return `${formatDateKey(detail.plannedWorkout.scheduledDateKey)} · ${formatWorkoutType(detail.plannedWorkout.type)}`;
+    return formatLinkedWorkoutSummaryForDisplay(detail.plannedWorkout);
   }, [detail?.plannedWorkout]);
 
   const toggleModifier = (modifier: EffortModifier) => {
@@ -227,7 +173,7 @@ export function WorkoutExecutionDetail({
   const gapPace = importedWorkout.gradeAdjustedPaceSecondsPerMeter
     ? formatPace(importedWorkout.gradeAdjustedPaceSecondsPerMeter, unitPreference)
     : null;
-  const averageHeartRate = formatHeartRate(importedWorkout.averageHeartRate);
+  const averageHeartRate = formatHeartRateForDisplay(importedWorkout.averageHeartRate);
   const elevationSummary =
     typeof importedWorkout.elevationAscentMeters === "number" ||
     typeof importedWorkout.elevationDescentMeters === "number"
@@ -242,7 +188,7 @@ export function WorkoutExecutionDetail({
       <div className="execution-header">
         <strong>Actual Run</strong>
         <span className={`pill execution-status ${matchStatusClass(execution.matchStatus)}`}>
-          {formatMatchStatus(execution.matchStatus)}
+          {formatWorkoutMatchStatusLabel(execution.matchStatus)}
         </span>
       </div>
 
@@ -308,8 +254,8 @@ export function WorkoutExecutionDetail({
                     >
                       <strong className="execution-rep-label">Rep {rep.repIndex}</strong>
                       <div className="execution-rep-copy">
-                        <div>Planned: {formatPlannedTarget(rep, unitPreference)}</div>
-                        <div>Actual: {formatActualRep(rep, unitPreference)}</div>
+                        <div>Planned: {formatExecutionPlannedTargetForDisplay(rep, unitPreference)}</div>
+                        <div>Actual: {formatExecutionActualRepForDisplay(rep, unitPreference)}</div>
                       </div>
                     </div>
                   ))}
@@ -417,7 +363,10 @@ export function WorkoutExecutionDetail({
               {candidates.map((candidate) => (
                 <div key={String(candidate.plannedWorkoutId)} className="candidate-card">
                   <strong>
-                    {formatDateKey(candidate.scheduledDateKey)} · {formatWorkoutType(candidate.type)}
+                    {formatLinkedWorkoutSummaryForDisplay({
+                      scheduledDateKey: candidate.scheduledDateKey,
+                      type: candidate.type,
+                    })}
                   </strong>
                   <p>
                     Confidence {Math.round(candidate.confidence * 100)}% · Week {candidate.weekNumber}

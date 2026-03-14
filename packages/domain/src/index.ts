@@ -96,6 +96,7 @@ export type WorkoutCheckInStatus = (typeof WORKOUT_CHECKIN_STATUSES)[number];
 
 export const WORKOUT_FEEDBACK_STATUSES = ["pending", "ready"] as const;
 export type WorkoutFeedbackStatus = (typeof WORKOUT_FEEDBACK_STATUSES)[number];
+export const WORKOUT_RPE_OPTIONS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10"] as const;
 
 export const STRENGTH_WORKOUT_STATUSES = ["planned", "completed"] as const;
 export type StrengthWorkoutStatus = (typeof STRENGTH_WORKOUT_STATUSES)[number];

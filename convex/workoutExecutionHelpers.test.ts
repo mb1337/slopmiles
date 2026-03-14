@@ -1,17 +1,20 @@
 import { describe, expect, it } from "vitest";
 
-import { listMatchCandidatesForImportedWorkout } from "./workoutExecutionHelpers";
+import { listMatchCandidatesForImportedWorkout, listPlanWorkoutsWithWeeks } from "./workoutExecutionHelpers";
 
 function buildReaderCtx(data: {
   trainingWeeks: unknown[];
   workouts: unknown[];
   workoutExecutions: unknown[];
 }) {
+  const indexCalls: Array<{ table: string; indexName: string }> = [];
+
   return {
     db: {
       query(table: "trainingWeeks" | "workouts" | "workoutExecutions") {
         return {
-          withIndex() {
+          withIndex(indexName: string) {
+            indexCalls.push({ table, indexName });
             return {
               collect: async () => data[table],
             };
@@ -19,20 +22,53 @@ function buildReaderCtx(data: {
         };
       },
     },
+    indexCalls,
   };
 }
 
 describe("workout execution helpers", () => {
-  it("treats run/walk workouts as aerobic match candidates for unstructured imports", async () => {
+  it("loads plan workouts through the plan-scoped workout index", async () => {
     const ctx = buildReaderCtx({
       trainingWeeks: [
         {
           _id: "week-1",
+          planId: "plan-1",
         },
       ],
       workouts: [
         {
           _id: "workout-1",
+          planId: "plan-1",
+          weekId: "week-1",
+          scheduledDateKey: "2026-03-10",
+        },
+      ],
+      workoutExecutions: [],
+    });
+
+    const entries = await listPlanWorkoutsWithWeeks(ctx as never, "plan-1" as never);
+
+    expect(entries).toHaveLength(1);
+    expect(entries[0]?.week._id).toBe("week-1");
+    expect(entries[0]?.workout._id).toBe("workout-1");
+    expect(ctx.indexCalls).toContainEqual({
+      table: "workouts",
+      indexName: "by_plan_id_scheduled_date_key",
+    });
+  });
+
+  it("treats run/walk workouts as aerobic match candidates for unstructured imports", async () => {
+    const ctx = buildReaderCtx({
+      trainingWeeks: [
+        {
+          _id: "week-1",
+          planId: "plan-1",
+        },
+      ],
+      workouts: [
+        {
+          _id: "workout-1",
+          planId: "plan-1",
           weekId: "week-1",
           type: "runWalk",
           scheduledDateKey: "2026-03-10",
@@ -67,11 +103,13 @@ describe("workout execution helpers", () => {
       trainingWeeks: [
         {
           _id: "week-1",
+          planId: "plan-1",
         },
       ],
       workouts: [
         {
           _id: "workout-1",
+          planId: "plan-1",
           weekId: "week-1",
           type: "runWalk",
           scheduledDateKey: "2026-03-10",
@@ -79,6 +117,7 @@ describe("workout execution helpers", () => {
         },
         {
           _id: "workout-2",
+          planId: "plan-1",
           weekId: "week-1",
           type: "tempo",
           scheduledDateKey: "2026-03-10",
@@ -120,11 +159,13 @@ describe("workout execution helpers", () => {
       trainingWeeks: [
         {
           _id: "week-1",
+          planId: "plan-1",
         },
       ],
       workouts: [
         {
           _id: "workout-1",
+          planId: "plan-1",
           weekId: "week-1",
           type: "speed",
           scheduledDateKey: "2026-03-10",

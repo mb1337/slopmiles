@@ -3,13 +3,17 @@ import { Text, TextInput, View } from "react-native";
 import { useMutation, useQuery } from "convex/react";
 import {
   EFFORT_MODIFIERS,
-  formatDateKeyForDisplay,
   formatDistanceForDisplay,
   formatDurationClock,
   formatElevationForDisplay,
+  formatExecutionActualRepForDisplay,
+  formatExecutionPlannedTargetForDisplay,
   formatEffortModifierLabel,
+  formatHeartRateForDisplay,
+  formatLinkedWorkoutSummaryForDisplay,
+  formatWorkoutMatchStatusLabel,
   formatPaceSecondsPerMeterForDisplay,
-  formatWorkoutTypeLabel,
+  WORKOUT_RPE_OPTIONS,
   type EffortModifier,
   type UnitPreference,
 } from "@slopmiles/domain";
@@ -17,25 +21,6 @@ import {
 import { api, type Id } from "../convex";
 import { ChoiceRow, PrimaryButton, SecondaryButton, TagGrid } from "./common";
 import { styles } from "../styles";
-
-const RPE_OPTIONS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10"] as const;
-
-function formatHeartRate(heartRate?: number): string {
-  return typeof heartRate === "number" ? `${Math.round(heartRate)} bpm` : "-";
-}
-
-function formatMatchStatus(status: "matched" | "unmatched" | "needsReview"): string {
-  switch (status) {
-    case "matched":
-      return "Matched";
-    case "needsReview":
-      return "Needs Review";
-    case "unmatched":
-      return "Unplanned";
-    default:
-      return status;
-  }
-}
 
 function matchBadgeStyle(status: "matched" | "unmatched" | "needsReview") {
   switch (status) {
@@ -48,46 +33,6 @@ function matchBadgeStyle(status: "matched" | "unmatched" | "needsReview") {
     default:
       return styles.statusBadgeUnmatched;
   }
-}
-
-function formatPlannedTarget(
-  segment: {
-    plannedSeconds: number | null;
-    plannedMeters: number | null;
-    plannedPaceSecondsPerMeter: number | null;
-  },
-  unitPreference: UnitPreference,
-): string {
-  if (segment.plannedSeconds === null && segment.plannedMeters === null) {
-    return "Extra / unmatched rep";
-  }
-
-  const volume =
-    typeof segment.plannedSeconds === "number"
-      ? formatDurationClock(segment.plannedSeconds)
-      : formatDistanceForDisplay(segment.plannedMeters ?? undefined, unitPreference);
-  const pace = formatPaceSecondsPerMeterForDisplay(segment.plannedPaceSecondsPerMeter ?? undefined, unitPreference);
-  return `${volume} @ ${pace}`;
-}
-
-function formatActualRep(
-  rep: {
-    actualSeconds: number | null;
-    actualMeters: number | null;
-    actualPaceSecondsPerMeter: number | null;
-    actualPaceSource: "gap" | "raw" | null;
-  },
-  unitPreference: UnitPreference,
-): string {
-  const volume = [
-    typeof rep.actualSeconds === "number" ? formatDurationClock(rep.actualSeconds) : null,
-    typeof rep.actualMeters === "number" ? formatDistanceForDisplay(rep.actualMeters, unitPreference) : null,
-  ]
-    .filter(Boolean)
-    .join(" · ");
-  const pace = formatPaceSecondsPerMeterForDisplay(rep.actualPaceSecondsPerMeter ?? undefined, unitPreference);
-  const paceLabel = rep.actualPaceSource === "gap" ? `GAP ${pace}` : pace;
-  return [volume, paceLabel].filter(Boolean).join(" · ");
 }
 
 export function WorkoutExecutionDetail({
@@ -147,7 +92,7 @@ export function WorkoutExecutionDetail({
       return null;
     }
 
-    return `${formatDateKeyForDisplay(detail.plannedWorkout.scheduledDateKey)} · ${formatWorkoutTypeLabel(detail.plannedWorkout.type)}`;
+    return formatLinkedWorkoutSummaryForDisplay(detail.plannedWorkout);
   }, [detail?.plannedWorkout]);
 
   const toggleModifier = (modifier: string) => {
@@ -239,7 +184,7 @@ export function WorkoutExecutionDetail({
       <View style={styles.statusRow}>
         <Text style={styles.executionHeading}>Actual Run</Text>
         <Text style={[styles.statusBadge, matchBadgeStyle(execution.matchStatus)]}>
-          {formatMatchStatus(execution.matchStatus)}
+          {formatWorkoutMatchStatusLabel(execution.matchStatus)}
         </Text>
       </View>
 
@@ -264,7 +209,7 @@ export function WorkoutExecutionDetail({
         ) : null}
         <View style={styles.metricCard}>
           <Text style={styles.metricLabel}>Avg HR</Text>
-          <Text style={styles.metricValue}>{formatHeartRate(importedWorkout.averageHeartRate)}</Text>
+          <Text style={styles.metricValue}>{formatHeartRateForDisplay(importedWorkout.averageHeartRate) ?? "-"}</Text>
         </View>
         {elevationSummary ? (
           <View style={styles.metricCard}>
@@ -300,8 +245,12 @@ export function WorkoutExecutionDetail({
                 >
                   <Text style={styles.historyIntervalLabel}>Rep {rep.repIndex}</Text>
                   <View style={{ flex: 1 }}>
-                    <Text style={styles.helperText}>Planned: {formatPlannedTarget(rep, unitPreference)}</Text>
-                    <Text style={styles.helperText}>Actual: {formatActualRep(rep, unitPreference)}</Text>
+                    <Text style={styles.helperText}>
+                      Planned: {formatExecutionPlannedTargetForDisplay(rep, unitPreference)}
+                    </Text>
+                    <Text style={styles.helperText}>
+                      Actual: {formatExecutionActualRepForDisplay(rep, unitPreference)}
+                    </Text>
                   </View>
                 </View>
               ))}
@@ -314,7 +263,7 @@ export function WorkoutExecutionDetail({
         <Text style={styles.executionSectionTitle}>Check-In</Text>
         <Text style={styles.label}>RPE (optional)</Text>
         <ChoiceRow
-          options={RPE_OPTIONS}
+          options={WORKOUT_RPE_OPTIONS}
           selected={rpe === null ? "" : String(rpe)}
           onChange={(value) => setRpe(Number(value))}
         />
@@ -397,7 +346,10 @@ export function WorkoutExecutionDetail({
               {candidates.map((candidate) => (
                 <View key={String(candidate.plannedWorkoutId)} style={styles.candidateCard}>
                   <Text style={styles.candidateTitle}>
-                    {formatDateKeyForDisplay(candidate.scheduledDateKey)} · {formatWorkoutTypeLabel(candidate.type)}
+                    {formatLinkedWorkoutSummaryForDisplay({
+                      scheduledDateKey: candidate.scheduledDateKey,
+                      type: candidate.type,
+                    })}
                   </Text>
                   <Text style={styles.helperText}>
                     Confidence {Math.round(candidate.confidence * 100)}% · Week {candidate.weekNumber}

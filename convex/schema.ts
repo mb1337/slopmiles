@@ -218,6 +218,7 @@ export default defineSchema({
     .index("by_plan_id_week_number", ["planId", "weekNumber"]),
 
   workouts: defineTable({
+    planId: v.id("trainingPlans"),
     weekId: v.id("trainingWeeks"),
     type: workoutTypeValidator,
     volumePercent: v.number(),
@@ -231,6 +232,7 @@ export default defineSchema({
     createdAt: v.number(),
     updatedAt: v.number(),
   })
+    .index("by_plan_id_scheduled_date_key", ["planId", "scheduledDateKey"])
     .index("by_week_id", ["weekId"])
     .index("by_week_id_scheduled_date_key", ["weekId", "scheduledDateKey"]),
 

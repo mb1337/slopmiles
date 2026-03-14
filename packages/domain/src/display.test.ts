@@ -2,12 +2,17 @@ import { describe, expect, it } from "vitest";
 
 import { WORKOUT_TYPES } from "./index";
 import {
+  formatExecutionActualRepForDisplay,
+  formatExecutionPlannedTargetForDisplay,
+  formatHeartRateForDisplay,
+  formatLinkedWorkoutSummaryForDisplay,
   formatDistanceForDisplay,
   formatDurationClock,
   formatPaceSecondsPerMeterForDisplay,
   formatPaceRangeSecondsPerMeterForDisplay,
   formatResolvedPaceTargetForDisplay,
   formatVolumeForDisplay,
+  formatWorkoutMatchStatusLabel,
   formatWorkoutTypeLabel,
   prefersImperialDistance,
 } from "./display";
@@ -66,5 +71,43 @@ describe("display helpers", () => {
     expect(formatWorkoutTypeLabel("runWalk")).toBe("Run/Walk");
     expect(formatWorkoutTypeLabel("speed")).toBe("Speed");
     expect(formatWorkoutTypeLabel("customType")).toBe("Custom Type");
+  });
+
+  it("formats execution presenter labels consistently", () => {
+    expect(formatWorkoutMatchStatusLabel("matched")).toBe("Matched");
+    expect(formatWorkoutMatchStatusLabel("needsReview")).toBe("Needs Review");
+    expect(formatWorkoutMatchStatusLabel("unmatched")).toBe("Unplanned");
+    expect(formatHeartRateForDisplay(154.6)).toBe("155 bpm");
+    expect(formatHeartRateForDisplay(undefined)).toBeNull();
+    expect(
+      formatLinkedWorkoutSummaryForDisplay({
+        scheduledDateKey: "2026-03-09",
+        type: "intervals",
+      }),
+    ).toBe("Mon, Mar 9 · Intervals");
+  });
+
+  it("formats planned and actual rep comparisons", () => {
+    expect(
+      formatExecutionPlannedTargetForDisplay(
+        {
+          plannedSeconds: null,
+          plannedMeters: 400,
+          plannedPaceSecondsPerMeter: 0.1875,
+        },
+        "metric",
+      ),
+    ).toBe("400 m @ 3:08 / km");
+    expect(
+      formatExecutionActualRepForDisplay(
+        {
+          actualSeconds: 76,
+          actualMeters: 400,
+          actualPaceSecondsPerMeter: 0.19,
+          actualPaceSource: "gap",
+        },
+        "metric",
+      ),
+    ).toBe("1:16 · 400 m · GAP 3:10 / km");
   });
 });

@@ -293,27 +293,32 @@ export async function listPlanWorkoutsWithWeeks(
   ctx: ReaderCtx,
   planId: Id<"trainingPlans">,
 ): Promise<Array<{ week: Doc<"trainingWeeks">; workout: Doc<"workouts"> }>> {
-  const weeks = await ctx.db
-    .query("trainingWeeks")
-    .withIndex("by_plan_id", (queryBuilder) => queryBuilder.eq("planId", planId))
-    .collect();
+  const [weeks, workouts] = await Promise.all([
+    ctx.db
+      .query("trainingWeeks")
+      .withIndex("by_plan_id", (queryBuilder) => queryBuilder.eq("planId", planId))
+      .collect(),
+    ctx.db
+      .query("workouts")
+      .withIndex("by_plan_id_scheduled_date_key", (queryBuilder) =>
+        queryBuilder.eq("planId", planId),
+      )
+      .collect(),
+  ]);
 
-  const workoutsByWeek = await Promise.all(
-    weeks.map(async (week) => ({
-      week,
-      workouts: await ctx.db
-        .query("workouts")
-        .withIndex("by_week_id", (queryBuilder) => queryBuilder.eq("weekId", week._id))
-        .collect(),
-    })),
-  );
+  const weekById = new Map(weeks.map((week) => [String(week._id), week] as const));
 
-  return workoutsByWeek.flatMap(({ week, workouts }) =>
-    workouts.map((workout) => ({
+  return workouts.map((workout) => {
+    const week = weekById.get(String(workout.weekId));
+    if (!week) {
+      throw new Error(`Training week not found for workout ${String(workout._id)}.`);
+    }
+
+    return {
       week,
       workout,
-    })),
-  );
+    };
+  });
 }
 
 export async function getActivePlan(

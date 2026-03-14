@@ -1490,7 +1490,12 @@ export const getPlanAssessmentContext = internalQuery({
           .query("trainingWeeks")
           .withIndex("by_plan_id", (queryBuilder) => queryBuilder.eq("planId", plan._id))
           .collect(),
-        ctx.db.query("workouts").collect(),
+        ctx.db
+          .query("workouts")
+          .withIndex("by_plan_id_scheduled_date_key", (queryBuilder) =>
+            queryBuilder.eq("planId", plan._id),
+          )
+          .collect(),
         ctx.db
           .query("workoutExecutions")
           .withIndex("by_plan_id", (queryBuilder) => queryBuilder.eq("planId", plan._id))
@@ -1882,6 +1887,7 @@ export const finalizeWeekDetailGenerationSuccess = internalMutation({
     const now = Date.now();
     for (const workout of validated.proposal.workouts) {
       await ctx.db.insert("workouts", {
+        planId: plan._id,
         weekId: week._id,
         type: workout.type,
         volumePercent: workout.volumePercent,

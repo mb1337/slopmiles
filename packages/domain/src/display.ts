@@ -243,6 +243,89 @@ export function formatWorkoutTypeLabel(type: WorkoutType | string): string {
   }
 }
 
+export function formatWorkoutMatchStatusLabel(
+  status: "matched" | "unmatched" | "needsReview",
+): string {
+  switch (status) {
+    case "matched":
+      return "Matched";
+    case "needsReview":
+      return "Needs Review";
+    case "unmatched":
+      return "Unplanned";
+    default:
+      return status;
+  }
+}
+
+export function formatHeartRateForDisplay(heartRate?: number): string | null {
+  return typeof heartRate === "number" ? `${Math.round(heartRate)} bpm` : null;
+}
+
+export function formatExecutionPlannedTargetForDisplay(
+  rep: {
+    plannedSeconds: number | null;
+    plannedMeters: number | null;
+    plannedPaceSecondsPerMeter: number | null;
+  },
+  unitPreference: UnitPreference,
+  locale?: string,
+): string {
+  if (rep.plannedSeconds === null && rep.plannedMeters === null) {
+    return "Extra / unmatched rep";
+  }
+
+  const volume =
+    typeof rep.plannedSeconds === "number"
+      ? formatDurationClock(rep.plannedSeconds)
+      : formatDistanceForDisplay(rep.plannedMeters ?? undefined, unitPreference, locale);
+  const pace = formatPaceSecondsPerMeterForDisplay(
+    rep.plannedPaceSecondsPerMeter ?? undefined,
+    unitPreference,
+    locale,
+  );
+  return `${volume} @ ${pace}`;
+}
+
+export function formatExecutionActualRepForDisplay(
+  rep: {
+    actualSeconds: number | null;
+    actualMeters: number | null;
+    actualPaceSecondsPerMeter: number | null;
+    actualPaceSource: "gap" | "raw" | null;
+  },
+  unitPreference: UnitPreference,
+  locale?: string,
+): string {
+  const volume = [
+    typeof rep.actualSeconds === "number" ? formatDurationClock(rep.actualSeconds) : null,
+    typeof rep.actualMeters === "number"
+      ? formatDistanceForDisplay(rep.actualMeters, unitPreference, locale)
+      : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  const pace = formatPaceSecondsPerMeterForDisplay(
+    rep.actualPaceSecondsPerMeter ?? undefined,
+    unitPreference,
+    locale,
+  );
+  const paceLabel = rep.actualPaceSource === "gap" ? `GAP ${pace}` : pace;
+  return [volume, paceLabel].filter(Boolean).join(" · ");
+}
+
+export function formatLinkedWorkoutSummaryForDisplay(
+  workout: {
+    scheduledDateKey: string;
+    type: WorkoutType | string;
+  },
+  locale?: string,
+): string {
+  return `${formatDateKeyForDisplay(workout.scheduledDateKey, locale)} · ${formatWorkoutTypeLabel(
+    workout.type,
+  )}`;
+}
+
 export function formatEffortModifierLabel(modifier: EffortModifier | string): string {
   switch (modifier) {
     case "pushedStroller":
