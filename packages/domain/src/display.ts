@@ -1,8 +1,5 @@
 import type { EffortModifier, UnitPreference, VolumeMode, WorkoutType } from "./index";
-import {
-  resolveDisplayedPaceRangeSecondsPerMeterFromVdot,
-  resolveRepresentativePaceSecondsPerMeterFromVdot,
-} from "./vdot";
+import { resolveRepresentativePaceSecondsPerMeterFromVdot } from "./vdot";
 
 const IMPERIAL_REGION_CODES = new Set(["US", "LR", "MM"]);
 
@@ -158,12 +155,6 @@ export function formatResolvedPaceTargetForDisplay(
   unitPreference: UnitPreference,
   locale?: string,
 ): string | null {
-  const displayedRange = resolveDisplayedPaceRangeSecondsPerMeterFromVdot(vdot, paceZone);
-  if (displayedRange) {
-    const formattedRange = formatPaceRangeSecondsPerMeterForDisplay(displayedRange, unitPreference, locale);
-    return formattedRange === "-" ? null : formattedRange;
-  }
-
   const representativePace = resolveRepresentativePaceSecondsPerMeterFromVdot(vdot, paceZone);
   if (representativePace === null) {
     return null;

@@ -309,10 +309,10 @@ Race paces and training zones serve different purposes: training zones target sp
 
 A VDOT service (see §3.8) handles all VDOT-related calculations:
 - **Race → VDOT** — given a race distance and finish time, returns the corresponding VDOT value.
-- **VDOT → Paces** — given a VDOT, returns concrete pace ranges for each zone (E, M, T, I, R) in the user's preferred unit.
+- **VDOT → Paces** — given a VDOT, returns concrete training paces for each zone (E, C, M, T, I, R) in the user's preferred unit. `E` and `C` are derived from the legacy Daniels easy band: `E` is the slower endpoint and `C` is the faster endpoint.
 - **VDOT → Race Predictions** — given a VDOT and race distance, returns a predicted finish time for that distance (including standard presets and supported custom distances).
 
-The coach and UI reference zones generically; the app resolves zones to concrete paces via the VDOT service for display in the user's resolved unit (e.g., "Easy: 5:30–6:00 /km" or "Easy: 8:51–9:39 /mi"). Race predictions are shown alongside the user's current VDOT on the Dashboard and History screens.
+The coach and UI reference zones generically; the app resolves zones to concrete paces via the VDOT service for display in the user's resolved unit (e.g., "E: 6:00 /km" or "C: 5:30 /km"). Race predictions are shown alongside the user's current VDOT on the Dashboard and History screens.
 
 **Initial VDOT estimation** uses a best-available approach:
 1. **Race result** (highest confidence) — during onboarding, ask the user to enter a recent race result. The VDOT service calculates VDOT directly.
@@ -804,7 +804,7 @@ Workout
   weekId: UUID
   type: WorkoutType
   volumePercent: Double         // % of peak week volume
-  segments: [WorkoutSegment]      // optional (empty = entire workout at easy pace)
+  segments: [WorkoutSegment]      // optional for legacy workouts; newly generated aerobic runs should include explicit E or C segments rather than relying on an implied easy pace
   scheduledDate: Date
   notes: String?                  // free-text add-ons: strides, drills, form cues (see §1.11)
   matchedHealthKitId: UUID?
@@ -826,7 +826,7 @@ Workout
 WorkoutSegment
   order: Int
   label: String                 // e.g., "Warmup", "4×800m", "Cooldown"
-  paceZone: PaceZone            // .easy | .marathon | .tempo | .interval | .repeat | .racePace(distance: Double, label: String)
+  paceZone: PaceZone            // .easy | .cruise | .marathon | .tempo | .interval | .repeat | .racePace(distance: Double, label: String)
   targetVolume: Double          // distance or time for this segment
   volumeUnit: .meters | .kilometers | .miles | .seconds
   courseId: UUID?                // references Course.id; when set, segment displays using the course's name and distance unit (see §1.17)
@@ -1177,8 +1177,8 @@ A VDOT calculator service provides all VDOT-related computations. The service is
 
 **Endpoints:**
 - **Race → VDOT** — accepts a race distance and finish time, returns a VDOT value.
-- **Pace → VDOT** — accepts a pace value and training zone (E, M, T, I, or R), returns the VDOT that corresponds to that pace in that zone. Used for HealthKit-based VDOT estimation (§1.12) — e.g., given an Easy pace of 5:30/km, returns the VDOT where 5:30/km falls within the Easy range.
-- **VDOT → Paces** — accepts a VDOT value, returns pace ranges for each training zone (E, M, T, I, R).
+- **Pace → VDOT** — accepts a pace value and training zone (E, C, M, T, I, or R), returns the VDOT that corresponds to that pace in that zone. Used for HealthKit-based VDOT estimation (§1.12) — e.g., given an aerobic pace of 5:30/km, returns the VDOT where that pace falls at the specified training intensity.
+- **VDOT → Paces** — accepts a VDOT value, returns concrete paces for each training zone (E, C, M, T, I, R). `E` and `C` are single paces derived from the slower and faster endpoints of the legacy easy band.
 - **VDOT → Race Predictions** — accepts a VDOT value and race distance, returns predicted finish time.
 
 **Usage within the app:**
@@ -1186,7 +1186,7 @@ A VDOT calculator service provides all VDOT-related computations. The service is
 - Called whenever the user's VDOT changes to refresh displayed pace zones and race predictions.
 - Called by the UI to resolve generic pace zones (e.g., "Tempo") to concrete paces (e.g., "4:45 /km") for display on workout cards, segment details, and the Dashboard.
 - Called to resolve race pace targets (e.g., "10K pace") to concrete paces — the race prediction endpoint provides finish time for the distance, and the app derives pace from finish time ÷ distance.
-- The coach AI does not call this service directly — the app resolves paces before display. The AI references zones generically (E, M, T, I, R) and race paces by distance label (e.g., "10K pace") in its outputs.
+- The coach AI does not call this service directly — the app resolves paces before display. The AI references zones generically (E, C, M, T, I, R) and race paces by distance label (e.g., "10K pace") in its outputs.
 
 ### 3.9 Convex Consistency and Conflict Handling
 
@@ -1493,7 +1493,7 @@ For race goals, `numberOfWeeks` is computed deterministically by the app from th
 **Expected output (structured JSON):**
 - Array of running workouts, each with:
   - `type`, `volumePercent`, `scheduledDate`
-  - `segments[]`: `{ label, paceZone, targetVolume, rest? }` (paceZone is a training zone like "T" or a race pace like "10K pace")
+  - `segments[]`: `{ label, paceZone, targetVolume, rest? }` (paceZone is a training zone like "E", "C", or "T" or a race pace like "10K pace"; aerobic runs should choose `E` or `C` explicitly)
   - `notes`: String? (strides, drills, form cues, weather advisories)
 - Array of strength workouts (if enabled), each with:
   - `title`, `scheduledDate`, `estimatedDuration`

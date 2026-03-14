@@ -43,7 +43,8 @@ describe("display helpers", () => {
   });
 
   it("formats resolved VDOT pace targets for supported labels", () => {
-    expect(formatResolvedPaceTargetForDisplay(50, "E", "imperial")).toMatch(/^\d+:\d{2}-\d+:\d{2} \/ mi$/);
+    expect(formatResolvedPaceTargetForDisplay(50, "E", "imperial")).toMatch(/^\d+:\d{2} \/ mi$/);
+    expect(formatResolvedPaceTargetForDisplay(50, "C", "imperial")).toMatch(/^\d+:\d{2} \/ mi$/);
     expect(formatResolvedPaceTargetForDisplay(50, "T", "imperial")).toMatch(/^\d+:\d{2} \/ mi$/);
     expect(formatResolvedPaceTargetForDisplay(50, "5K pace", "metric")).toMatch(/^\d+:\d{2} \/ km$/);
   });

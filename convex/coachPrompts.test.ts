@@ -89,6 +89,8 @@ describe("coach prompts", () => {
     expect(userPayload.constraints.lockedRunningWorkouts).toHaveLength(1);
     expect(userPayload.strength.includeStrength).toBe(true);
     expect(userPayload.responseRequirements.strengthRule).toContain("strengthWorkouts");
+    expect(userPayload.responseRequirements.paceZoneRule).toContain('"C"');
+    expect(userPayload.responseRequirements.segmentRule).toContain('Choose "E" or "C" explicitly');
   });
 
   it("includes assessment inputs and required response keys", () => {

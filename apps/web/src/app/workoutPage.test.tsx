@@ -101,6 +101,12 @@ function buildDetail(vdotAtGeneration?: number) {
           targetUnit: "seconds" as const,
         },
         {
+          label: "Aerobic Finish",
+          paceZone: "C",
+          targetValue: 600,
+          targetUnit: "seconds" as const,
+        },
+        {
           label: "Sharpening",
           paceZone: "5K pace",
           targetValue: 400,
@@ -146,6 +152,11 @@ describe("WorkoutPage", () => {
     expect(
       screen.getByText(
         new RegExp(`Main Set: 20:00 @ T \\(${escapeRegExp(formatResolvedPaceTargetForDisplay(50, "T", "imperial")!)}\\)`),
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        new RegExp(`Aerobic Finish: 10:00 @ C \\(${escapeRegExp(formatResolvedPaceTargetForDisplay(50, "C", "imperial")!)}\\)`),
       ),
     ).toBeInTheDocument();
     expect(

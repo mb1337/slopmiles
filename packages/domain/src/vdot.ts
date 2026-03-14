@@ -3,7 +3,7 @@
  * by Jack Daniels and Jimmy Gilbert.
  */
 
-export const TRAINING_ZONES = ["E", "M", "T", "I", "R"] as const;
+export const TRAINING_ZONES = ["E", "C", "M", "T", "I", "R"] as const;
 export type TrainingZone = (typeof TRAINING_ZONES)[number];
 export const SUPPORTED_RACE_PACE_LABELS = [
   "5K pace",
@@ -19,30 +19,22 @@ const constants = {
   velocity: { a: -0.007546, b: 5.000663, c: 29.54 },
 } as const;
 
-const zoneIntensityRanges: Record<TrainingZone, readonly [number, number]> = {
-  E: [0.62, 0.7],
-  M: [0.82, 0.82],
-  T: [0.88, 0.88],
-  I: [0.97, 0.97],
-  R: [1.06, 1.06],
-};
-
 const zoneRepresentativeIntensity: Record<TrainingZone, number> = {
-  E: 0.66,
+  E: 0.62,
+  C: 0.7,
   M: 0.82,
   T: 0.88,
   I: 0.97,
   R: 1.06,
 };
 
-export type PaceRange = [number, number];
-
-export type VdotPaceRanges = {
-  E: PaceRange;
-  M: PaceRange;
-  T: PaceRange;
-  I: PaceRange;
-  R: PaceRange;
+export type VdotPaces = {
+  E: number;
+  C: number;
+  M: number;
+  T: number;
+  I: number;
+  R: number;
 };
 
 /**
@@ -67,38 +59,43 @@ export function calculateVdotFromPace(paceSecondsPerMeter: number, zone: Trainin
 }
 
 /**
- * Returns pace ranges in seconds per meter.
+ * Returns paces in seconds per meter.
  */
-export function calculatePacesFromVdot(vdot: number): VdotPaceRanges {
+export function calculatePacesFromVdot(vdot: number): VdotPaces {
   assertPositiveFinite(vdot, "vdot");
 
   return {
-    E: toPaceRange(vdot, zoneIntensityRanges.E),
-    M: toPaceRange(vdot, zoneIntensityRanges.M),
-    T: toPaceRange(vdot, zoneIntensityRanges.T),
-    I: toPaceRange(vdot, zoneIntensityRanges.I),
-    R: toPaceRange(vdot, zoneIntensityRanges.R),
+    E: toPace(vdot, zoneRepresentativeIntensity.E),
+    C: toPace(vdot, zoneRepresentativeIntensity.C),
+    M: toPace(vdot, zoneRepresentativeIntensity.M),
+    T: toPace(vdot, zoneRepresentativeIntensity.T),
+    I: toPace(vdot, zoneRepresentativeIntensity.I),
+    R: toPace(vdot, zoneRepresentativeIntensity.R),
   };
 }
 
-export function vdotEasyPace(vdot: number): [number, number] {
+export function vdotEasyPace(vdot: number): number {
   return calculatePacesFromVdot(vdot).E;
 }
 
+export function vdotCruisePace(vdot: number): number {
+  return calculatePacesFromVdot(vdot).C;
+}
+
 export function vdotMarathonPace(vdot: number): number {
-  return calculatePacesFromVdot(vdot).M[0];
+  return calculatePacesFromVdot(vdot).M;
 }
 
 export function vdotThresholdPace(vdot: number): number {
-  return calculatePacesFromVdot(vdot).T[0];
+  return calculatePacesFromVdot(vdot).T;
 }
 
 export function vdotIntervalPace(vdot: number): number {
-  return calculatePacesFromVdot(vdot).I[0];
+  return calculatePacesFromVdot(vdot).I;
 }
 
 export function vdotRepetitionPace(vdot: number): number {
-  return calculatePacesFromVdot(vdot).R[0];
+  return calculatePacesFromVdot(vdot).R;
 }
 
 /**
@@ -109,22 +106,6 @@ export function projectedRaceTime(vdot: number, distanceMeters: number): number 
   assertPositiveFinite(distanceMeters, "distanceMeters");
 
   return calculateTime(vdot, distanceMeters) * 60;
-}
-
-export function resolveDisplayedPaceRangeSecondsPerMeterFromVdot(
-  vdot: number | null | undefined,
-  paceZone: string,
-): PaceRange | null {
-  if (typeof vdot !== "number" || !Number.isFinite(vdot) || vdot <= 0) {
-    return null;
-  }
-
-  const normalized = paceZone.trim();
-  if (normalized !== "E") {
-    return null;
-  }
-
-  return calculatePacesFromVdot(vdot).E;
 }
 
 export function resolveRepresentativePaceSecondsPerMeterFromVdot(
@@ -140,15 +121,17 @@ export function resolveRepresentativePaceSecondsPerMeterFromVdot(
     const paces = calculatePacesFromVdot(vdot);
     switch (normalized as TrainingZone) {
       case "E":
-        return averagePaceRange(paces.E);
+        return paces.E;
+      case "C":
+        return paces.C;
       case "M":
-        return paces.M[0];
+        return paces.M;
       case "T":
-        return paces.T[0];
+        return paces.T;
       case "I":
-        return paces.I[0];
+        return paces.I;
       case "R":
-        return paces.R[0];
+        return paces.R;
       default:
         return null;
     }
@@ -164,13 +147,12 @@ function assertPositiveFinite(value: number, label: string): void {
   }
 }
 
-function toPaceRange(vdot: number, intensityRange: readonly [number, number]): PaceRange {
-  const [lowIntensity, highIntensity] = intensityRange;
-  return [60 / trainingVelocity(vdot, lowIntensity), 60 / trainingVelocity(vdot, highIntensity)];
-}
-
 function trainingVelocity(vdot: number, intensity: number): number {
   return calculateVelocity(vdot, intensity);
+}
+
+function toPace(vdot: number, intensity: number): number {
+  return 60 / trainingVelocity(vdot, intensity);
 }
 
 function calculateVo2Cost(distance: number, time: number): number {
@@ -237,10 +219,6 @@ function calculateTime(vdot: number, distance: number): number {
 
 function calculateVdot(distance: number, time: number): number {
   return calculateVo2Cost(distance, time) / calculateIntensity(time);
-}
-
-function averagePaceRange(range: readonly [number, number]): number {
-  return (range[0] + range[1]) / 2;
 }
 
 function racePaceDistanceMeters(paceZone: string): number | null {

@@ -278,14 +278,15 @@ export function buildWeekDetailGenerationMessages(input: WeekDetailGenerationPro
       jsonOnly: true,
       allowedWorkoutTypes: ["easyRun", "longRun", "tempo", "intervals", "recovery"],
       allowedVenues: input.trackAccess ? ["track", "road", "any"] : ["road", "any"],
-      paceZoneRule: 'Use "E", "M", "T", "I", "R", or a race pace label ending with "pace".',
+      paceZoneRule:
+        'Use "E", "C", "M", "T", "I", "R", or a race pace label ending with "pace". Choose "E" or "C" explicitly for aerobic running segments.',
       dateRule: "scheduledDate must be a YYYY-MM-DD date inside the target week.",
       volumeRule:
         input.volumeTargetMode === "exact"
           ? "Generated running workout volumePercent values should fill the remaining weekly target after locked workouts. Return decimals in [0,1]."
           : "Generated running workout volumePercent values should stay at or below the remaining weekly target after locked workouts. Return decimals in [0,1].",
       segmentRule:
-        "Use segments with targetUnit of seconds or meters. Optional repetitions, restValue, and restUnit are allowed.",
+        'Use segments with targetUnit of seconds or meters. Choose "E" or "C" explicitly for aerobic running segments. Optional repetitions, restValue, and restUnit are allowed.',
       raceRule:
         "Races stay separate from workouts. Use them to replace a hard effort or reduce surrounding load, but do not return races as running workouts.",
       coachNotesRule:
@@ -305,7 +306,7 @@ export function buildWeekDetailGenerationMessages(input: WeekDetailGenerationPro
           segments: [
             {
               label: "string",
-              paceZone: "E | M | T | I | R | '<race> pace'",
+              paceZone: "E | C | M | T | I | R | '<race> pace'",
               targetValue: "number",
               targetUnit: "seconds | meters",
               repetitions: "number (optional)",

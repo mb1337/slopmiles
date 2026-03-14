@@ -77,7 +77,7 @@ function roundToThousandth(value: number): number {
 
 function isRecognizedPaceZone(value: string): boolean {
   const normalized = value.trim();
-  return ["E", "M", "T", "I", "R"].includes(normalized) || /pace$/i.test(normalized);
+  return ["E", "C", "M", "T", "I", "R"].includes(normalized) || /pace$/i.test(normalized);
 }
 
 function normalizeDateKey(value: unknown, label: string): DateKey {

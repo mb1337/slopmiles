@@ -119,4 +119,37 @@ describe("week detail contracts", () => {
       ),
     ).toThrow("More than two workouts were scheduled on 2026-03-10.");
   });
+
+  it("accepts the cruise pace zone in workout segments", () => {
+    const validated = validateWeekDetailResponse(
+      {
+        workouts: [
+          {
+            type: "longRun",
+            volumePercent: 0.35,
+            scheduledDate: "2026-03-15",
+            venue: "road",
+            segments: [
+              {
+                label: "Steady aerobic",
+                paceZone: "C",
+                targetValue: 3600,
+                targetUnit: "seconds",
+              },
+            ],
+          },
+        ],
+        coachNotes: "Use the higher end of the aerobic range.",
+      },
+      {
+        weekStartDateKey: "2026-03-09",
+        weekEndDateKey: "2026-03-15",
+        targetVolumePercent: 0.4,
+        preferredRunningDays: ["tuesday", "thursday", "sunday"],
+        trackAccess: true,
+      },
+    );
+
+    expect(validated.proposal.workouts[0]?.segments[0]?.paceZone).toBe("C");
+  });
 });
