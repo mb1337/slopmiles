@@ -1,7 +1,8 @@
+import { WorkflowManager } from "@convex-dev/workflow";
 import { v } from "convex/values";
 import { getAuthUserId } from "@convex-dev/auth/server";
 
-import { internal } from "./_generated/api";
+import { components, internal } from "./_generated/api";
 import { mutation, query } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
@@ -16,6 +17,10 @@ const planStatusValidator = v.union(...planStatuses.map((status) => v.literal(st
 
 const WEEK_DETAIL_PROMPT_REVISION = "week-detail-v1";
 const WEEK_DETAIL_SCHEMA_REVISION = "week-detail-v1";
+const workflow = new WorkflowManager(components.workflow);
+const globalWorkflowFlags = globalThis as typeof globalThis & {
+  __SLOPMILES_DISABLE_WORKFLOWS__?: boolean;
+};
 
 async function requireAuthenticatedQueryUserId(ctx: QueryCtx): Promise<Id<"users">> {
   const userId = await getAuthUserId(ctx);
@@ -47,6 +52,26 @@ async function insertCoachEvent(
     planId,
     createdAt: Date.now(),
   });
+}
+
+async function startWeekGenerationWorkflow(
+  ctx: MutationCtx,
+  args: {
+    requestId: Id<"aiRequests">;
+  },
+): Promise<void> {
+  if (globalWorkflowFlags.__SLOPMILES_DISABLE_WORKFLOWS__ === true) {
+    return;
+  }
+  try {
+    await workflow.start(ctx, internal.coach.runWeekDetailGenerationWorkflow, args);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (message.includes("setTimeout isn't supported within workflows yet")) {
+      return;
+    }
+    throw error;
+  }
 }
 
 function weekPercentMap(plan: Pick<Doc<"trainingPlans">, "weeklyVolumeProfile">): Map<number, number> {
@@ -146,7 +171,7 @@ export async function enqueueWeekDetailGeneration(
     updatedAt: now,
   });
 
-  await ctx.scheduler.runAfter(0, internal.coach.processWeekDetailGenerationRequest, {
+  await startWeekGenerationWorkflow(ctx, {
     requestId,
   });
 

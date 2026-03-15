@@ -4,6 +4,7 @@ import { v } from "convex/values";
 import { components, internal } from "./_generated/api";
 import { internalAction, internalMutation, internalQuery } from "./_generated/server";
 import { planDraftSchema, weekDraftSchema } from "./agentSchemas";
+import { describeAiError, parseJsonPayloadFromModel } from "./aiHelpers";
 import {
   buildPlanBuilderInstructions,
   buildWeekBuilderInstructions,
@@ -13,7 +14,6 @@ import {
 import { validatePlanGenerationResponse } from "./coachContracts";
 import { buildPlanGenerationMessages, buildWeekDetailGenerationMessages } from "./coachPrompts";
 import {
-  errorMessage,
   type PlanDraftContext,
   type WeekDraftContext,
   buildPlanConversationSupportMessage,
@@ -27,24 +27,6 @@ import { dateKeyFromEpochMs, type DateKey } from "../packages/domain/src/calenda
 import { listExecutionSummariesByPlannedWorkoutId } from "./workoutExecutionHelpers";
 
 const workflow = new WorkflowManager(components.workflow);
-
-function parseJsonPayloadFromModel(content: string): unknown {
-  const trimmed = content.trim();
-  if (!trimmed) {
-    throw new Error("AI returned an empty response.");
-  }
-
-  try {
-    return JSON.parse(trimmed);
-  } catch {
-    const start = trimmed.indexOf("{");
-    const end = trimmed.lastIndexOf("}");
-    if (start >= 0 && end > start) {
-      return JSON.parse(trimmed.slice(start, end + 1));
-    }
-    throw new Error("AI response was not valid JSON.");
-  }
-}
 
 export const getPlanDraftGenerationContext = internalQuery({
   args: {
@@ -313,7 +295,7 @@ export const generatePlanDraftArtifacts = internalAction({
       );
       object = parseJsonPayloadFromModel(objectResult.text);
     } catch (error) {
-      objectError = errorMessage(error);
+      objectError = describeAiError(error);
       console.error("Plan draft structured generation failed", {
         draftId: args.draftId,
         promptMessageId: args.promptMessageId,
@@ -394,7 +376,7 @@ export const persistPlanDraftArtifacts = internalMutation({
       await ctx.db.patch(draft._id, {
         latestPreviewText: args.assistantText,
         validationStatus: "invalid",
-        latestError: errorMessage(error),
+        latestError: describeAiError(error),
         latestAssistantMessageId: args.assistantMessageId,
         latestPromptMessageId: args.promptMessageId,
         version: draft.version + 1,
@@ -453,7 +435,7 @@ export const generateWeekDraftArtifacts = internalAction({
       );
       object = parseJsonPayloadFromModel(objectResult.text);
     } catch (error) {
-      objectError = errorMessage(error);
+      objectError = describeAiError(error);
       console.error("Week draft structured generation failed", {
         weekDraftId: args.weekDraftId,
         promptMessageId: args.promptMessageId,
@@ -583,7 +565,7 @@ export const persistWeekDraftArtifacts = internalMutation({
       await ctx.db.patch(draft._id, {
         latestPreviewText: args.assistantText,
         validationStatus: "invalid",
-        latestError: errorMessage(error),
+        latestError: describeAiError(error),
         latestAssistantMessageId: args.assistantMessageId,
         latestPromptMessageId: args.promptMessageId,
         version: draft.version + 1,
@@ -601,7 +583,9 @@ export const runPlanDraftUpdateWorkflow = workflow.define({
     promptMessageId: v.string(),
   },
   handler: async (step, args) => {
-    const generated = await step.runAction(internal.planningInternal.generatePlanDraftArtifacts, args);
+    const generated = await step.runAction(internal.planningInternal.generatePlanDraftArtifacts, args, {
+      retry: true,
+    });
     await step.runMutation(internal.planningInternal.persistPlanDraftArtifacts, {
       draftId: args.draftId,
       assistantText: generated.assistantText,
@@ -620,7 +604,9 @@ export const runWeekDraftUpdateWorkflow = workflow.define({
     promptMessageId: v.string(),
   },
   handler: async (step, args) => {
-    const generated = await step.runAction(internal.planningInternal.generateWeekDraftArtifacts, args);
+    const generated = await step.runAction(internal.planningInternal.generateWeekDraftArtifacts, args, {
+      retry: true,
+    });
     await step.runMutation(internal.planningInternal.persistWeekDraftArtifacts, {
       weekDraftId: args.weekDraftId,
       assistantText: generated.assistantText,

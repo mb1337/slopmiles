@@ -2,15 +2,13 @@ import { Agent } from "@convex-dev/agent";
 import { openrouter as openrouterProvider, createOpenRouter } from "@openrouter/ai-sdk-provider";
 
 import { components } from "./_generated/api";
+import { DEFAULT_EMBEDDING_MODEL, DEFAULT_OPENROUTER_MODEL } from "./aiHelpers";
 
 declare const process:
   | {
       env?: Record<string, string | undefined>;
     }
   | undefined;
-
-const DEFAULT_OPENROUTER_MODEL = "openai/gpt-5-mini";
-const DEFAULT_EMBEDDING_MODEL = "openai/text-embedding-3-small";
 
 function getOpenRouterApiKey(): string | undefined {
   return process?.env?.OPENROUTER_API_KEY?.trim();

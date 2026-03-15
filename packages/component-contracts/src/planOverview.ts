@@ -67,27 +67,6 @@ export type PlanOverviewView = {
     createdAt: number;
     assessment: PlanAssessmentStateView;
   }>;
-  latestProposal: {
-    _id: string;
-    status: string;
-    errorMessage?: string;
-    consumedByPlanId?: string | null;
-    createdAt: number;
-    input: unknown;
-    result?: {
-      numberOfWeeks: number;
-      peakWeekVolume: number;
-      weeklyVolumeProfile: Array<{
-        weekNumber: number;
-        percentOfPeak: number;
-      }>;
-      weeklyEmphasis: Array<{
-        weekNumber: number;
-        emphasis: string;
-      }>;
-      rationale: string;
-    };
-  } | null;
 };
 
 export type UpdatePlanPeakVolumeInput = {

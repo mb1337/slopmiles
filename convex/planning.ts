@@ -50,45 +50,6 @@ export type WeekDraftContext = {
   currentDraftObject: unknown;
 };
 
-export function errorMessage(error: unknown): string {
-  if (error && typeof error === "object") {
-    const candidate = error as {
-      message?: unknown;
-      statusCode?: unknown;
-      responseBody?: unknown;
-      data?: unknown;
-      url?: unknown;
-    };
-    const message =
-      typeof candidate.message === "string" && candidate.message.trim().length > 0
-        ? candidate.message.trim()
-        : String(error);
-    const details: string[] = [];
-
-    if (typeof candidate.statusCode === "number") {
-      details.push(`status ${candidate.statusCode}`);
-    }
-    if (typeof candidate.url === "string" && candidate.url.trim().length > 0) {
-      details.push(candidate.url.trim());
-    }
-    if (typeof candidate.responseBody === "string" && candidate.responseBody.trim().length > 0) {
-      details.push(candidate.responseBody.trim().slice(0, 400));
-    } else if (typeof candidate.data !== "undefined") {
-      try {
-        details.push(JSON.stringify(candidate.data).slice(0, 400));
-      } catch {
-        details.push(String(candidate.data));
-      }
-    }
-
-    return details.length > 0 ? `${message} (${details.join(" | ")})` : message;
-  }
-  if (error instanceof Error) {
-    return error.message;
-  }
-  return String(error);
-}
-
 function trimNonEmpty(value: string, label = "value"): string {
   const trimmed = value.trim();
   if (!trimmed) {

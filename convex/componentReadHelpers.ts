@@ -89,21 +89,6 @@ export async function listPlanSummaries(
   return summaries.filter((entry): entry is NonNullable<typeof entry> => entry !== null);
 }
 
-export async function getLatestPlanGenerationRequest(
-  ctx: QueryCtx,
-  userId: Id<"users">,
-) {
-  const requests = await ctx.db
-    .query("aiRequests")
-    .withIndex("by_user_id_call_type_created_at", (queryBuilder) =>
-      queryBuilder.eq("userId", userId).eq("callType", "planGeneration"),
-    )
-    .order("desc")
-    .take(1);
-
-  return requests[0] ?? null;
-}
-
 export async function getLatestCoachMessage(ctx: QueryCtx, userId: Id<"users">) {
   const messages = await ctx.db
     .query("coachMessages")

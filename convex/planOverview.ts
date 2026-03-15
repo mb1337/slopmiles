@@ -8,24 +8,6 @@ import { goalTypes, planInterruptionTypes } from "./constants";
 import { loadPlanAssessmentStateMaps, resolvePlanAssessmentState } from "./planAssessmentHelpers";
 export { deleteRace, upsertRace } from "./settings";
 
-type PlanProposal = {
-  numberOfWeeks: number;
-  peakWeekVolume: number;
-  weeklyVolumeProfile: Array<{
-    weekNumber: number;
-    percentOfPeak: number;
-  }>;
-  weeklyEmphasis: Array<{
-    weekNumber: number;
-    emphasis: string;
-  }>;
-  rationale: string;
-  metadata?: {
-    model?: string;
-  };
-  corrections?: string[];
-};
-
 const goalTypeValidator = v.union(...goalTypes.map((goalType) => v.literal(goalType)));
 const planInterruptionTypeValidator = v.union(...planInterruptionTypes.map((item) => v.literal(item)));
 
@@ -78,65 +60,11 @@ async function loadPlanWeek(
     .unique();
 }
 
-function parsePlanProposal(value: unknown): PlanProposal | null {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return null;
-  }
-
-  const candidate = value as {
-    numberOfWeeks?: unknown;
-    peakWeekVolume?: unknown;
-    weeklyVolumeProfile?: unknown;
-    weeklyEmphasis?: unknown;
-    rationale?: unknown;
-    metadata?: {
-      model?: unknown;
-    };
-    corrections?: unknown;
-  };
-
-  if (
-    typeof candidate.numberOfWeeks !== "number" ||
-    typeof candidate.peakWeekVolume !== "number" ||
-    !Array.isArray(candidate.weeklyVolumeProfile) ||
-    !Array.isArray(candidate.weeklyEmphasis) ||
-    typeof candidate.rationale !== "string"
-  ) {
-    return null;
-  }
-
-  return {
-    numberOfWeeks: candidate.numberOfWeeks,
-    peakWeekVolume: candidate.peakWeekVolume,
-    weeklyVolumeProfile: candidate.weeklyVolumeProfile as PlanProposal["weeklyVolumeProfile"],
-    weeklyEmphasis: candidate.weeklyEmphasis as PlanProposal["weeklyEmphasis"],
-    rationale: candidate.rationale,
-    ...(typeof candidate.metadata?.model === "string" ? { metadata: { model: candidate.metadata.model } } : {}),
-    ...(Array.isArray(candidate.corrections)
-      ? {
-          corrections: candidate.corrections.filter((entry): entry is string => typeof entry === "string"),
-        }
-      : {}),
-  };
-}
-
 async function loadGoal(
   ctx: QueryCtx,
   goalId: Id<"goals">,
 ): Promise<Doc<"goals"> | null> {
   return await ctx.db.get(goalId);
-}
-
-async function getLatestPlanGenerationRequest(ctx: QueryCtx, userId: Id<"users">) {
-  const requests = await ctx.db
-    .query("aiRequests")
-    .withIndex("by_user_id_call_type_created_at", (queryBuilder) =>
-      queryBuilder.eq("userId", userId).eq("callType", "planGeneration"),
-    )
-    .order("desc")
-    .take(1);
-
-  return requests[0] ?? null;
 }
 
 export const getPlanOverviewView = query({
@@ -145,13 +73,10 @@ export const getPlanOverviewView = query({
   },
   handler: async (ctx, args) => {
     const userId = await requireAuthenticatedUserId(ctx);
-    const [plans, latestRequest] = await Promise.all([
-      ctx.db
-        .query("trainingPlans")
-        .withIndex("by_user_id", (queryBuilder) => queryBuilder.eq("userId", userId))
-        .collect(),
-      getLatestPlanGenerationRequest(ctx, userId),
-    ]);
+    const plans = await ctx.db
+      .query("trainingPlans")
+      .withIndex("by_user_id", (queryBuilder) => queryBuilder.eq("userId", userId))
+      .collect();
     const assessmentMaps = await loadPlanAssessmentStateMaps(ctx, userId);
 
     const sortedPlans = [...plans].sort((left, right) => right.createdAt - left.createdAt);
@@ -216,18 +141,6 @@ export const getPlanOverviewView = query({
       }));
     const currentWeekNumber =
       targetPlan?.startDateKey ? deriveCurrentWeekNumber(targetPlan, args.nowBucketMs) : null;
-    const parsedProposal = latestRequest ? parsePlanProposal(latestRequest.result) : null;
-    const latestProposal = latestRequest
-      ? {
-          _id: latestRequest._id,
-          status: latestRequest.status,
-          errorMessage: latestRequest.errorMessage,
-          consumedByPlanId: latestRequest.consumedByPlanId ?? null,
-          createdAt: latestRequest.createdAt,
-          input: latestRequest.input,
-          result: parsedProposal,
-        }
-      : null;
 
     return {
       activePlan: targetPlan
@@ -292,8 +205,6 @@ export const getPlanOverviewView = query({
           requestByPlanId: assessmentMaps.requestByPlanId,
         }),
       })),
-      latestProposal,
-      proposal: latestProposal,
     };
   },
 });

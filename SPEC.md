@@ -965,6 +965,69 @@ ChatMessage
 
 **Retention policy:** All conversations and messages are persisted in Convex and synced in real time to signed-in clients. Messages are small text records and are retained indefinitely — no pruning or archival. The UI scopes conversations by plan (via `Conversation.planId`), so only the relevant plan's conversations are loaded into memory at a time. What gets sent to the AI as context is a separate concern managed by the context windowing strategy (see §5.0.1); the underlying message data is always preserved.
 
+### 2.15.1 Agent Threads and Draft Records
+
+Coach chat, plan builder, week builder, and assessment flows are backed by **Convex Agents** threads. The component-owned thread log stores the raw conversational exchange; app-owned records map those threads to product concepts and persist structured drafts separately from assistant prose.
+
+```
+AgentThreadRegistry
+  id: UUID
+  userId: UUID
+  kind: .coach | .planBuilder | .weekBuilder | .assessment
+  threadId: String
+  title: String?
+  draftId: UUID?                 // references AgentPlanDraft.id when kind == .planBuilder
+  weekDraftId: UUID?             // references AgentWeekDraft.id when kind == .weekBuilder
+  planId: UUID?                  // set for plan/week/assessment threads when applicable
+  weekNumber: Int?               // set for week-builder threads
+  createdAt: Date
+  updatedAt: Date
+```
+
+```
+AgentPlanDraft
+  id: UUID
+  userId: UUID
+  threadId: String
+  goalType: Goal.type
+  goalLabel: String
+  targetDate: Date?
+  goalTime: TimeInterval?
+  volumeMode: .time | .distance
+  requestedNumberOfWeeks: Int?
+  authoritativeNumberOfWeeks: Int?
+  includesStrength: Bool
+  strengthEquipment: [Equipment]
+  latestStructuredDraft: JSON?   // latest validated plan proposal object
+  latestPreviewText: String?     // conversational summary shown in UI
+  validationStatus: .pending | .valid | .invalid
+  latestError: String?
+  version: Int
+  consumedByPlanId: UUID?        // set once the live draft is materialized into a TrainingPlan
+  createdAt: Date
+  updatedAt: Date
+```
+
+```
+AgentWeekDraft
+  id: UUID
+  userId: UUID
+  threadId: String
+  planId: UUID
+  weekId: UUID
+  weekNumber: Int
+  latestStructuredDraft: JSON?   // latest validated week proposal object
+  latestPreviewText: String?
+  validationStatus: .pending | .valid | .invalid
+  latestError: String?
+  version: Int
+  appliedAt: Date?
+  createdAt: Date
+  updatedAt: Date
+```
+
+The thread text and the structured draft are intentionally stored separately: the conversational response can evolve freely, while only schema-validated draft objects are eligible to become persisted plan or week data.
+
 ### 2.16 Plan Assessment
 
 ```
@@ -1022,9 +1085,11 @@ SlopMiles stores primary user data in Convex. iOS and web clients may keep local
 | `Conversation`, `ChatMessage` | Retained until reset | Deleted by Reset App | Yes |
 | `vdotHistory` (manual, race-derived, HealthKit-estimated entries) | Retained until reset | Deleted by Reset App | Yes |
 | User-managed `Course` records | Retained until reset | Deleted by Reset App | Yes |
-| Pending AI request queue + validator diagnostics | Operational data retained up to 30 days, then pruned | Deleted immediately by Reset App | No (internal operational records) |
+| AI request status records + validator diagnostics | Operational data retained up to 30 days, then pruned | Deleted immediately by Reset App | No (internal operational records) |
 
 **Data minimization:**
+
+Agent-backed thread registry and draft records follow the same retention policy as the user-visible conversations and plans they support. Internal component metadata that only exists to route workflows is excluded from export.
 
 - Raw AI response JSON is not persisted (§5.0.2).
 - HealthKit remains the source of truth for raw workout samples; SlopMiles stores only app-level records needed for coaching, matching, and history views.
@@ -1056,7 +1121,7 @@ SlopMiles stores primary user data in Convex. iOS and web clients may keep local
 │  Web Companion: React + Vite (no workout import)            │
 ├─────────────────────────────────────────────────────────────┤
 │                    Convex Backend Layer                     │
-│  Queries/Mutations, AI Actions, Job Queue, Auth, Realtime   │
+│  Queries/Mutations, Convex Agents, Workflows, Auth, Realtime │
 ├─────────────────────────────────────────────────────────────┤
 │                    Domain / Coach Layer                     │
 │  Plan Generator, Feedback Engine, Validators, Matching      │
@@ -1068,12 +1133,23 @@ SlopMiles stores primary user data in Convex. iOS and web clients may keep local
 
 ### 3.2 Coach Engine
 
-The coach engine wraps AI interactions. All AI calls go through a single backend service (implemented as Convex actions) that:
+The coach engine is a **hybrid Convex AI layer**:
+- **Convex Agents** powers the persistent conversational surfaces: coach chat, plan builder, week builder, and assessment threads.
+- **Convex workflows/actions** orchestrate structured draft generation, retries, and background jobs.
+- **OpenRouter** is the shared model provider. The default language model is `openai/gpt-5-mini`; the default embedding model is `openai/text-embedding-3-small`.
+
+Across those surfaces, the backend:
 - Constructs prompts from the competitiveness level, personality, user profile, plan context, and recent data.
-- Sends structured requests to the AI backend.
-- Parses structured responses (JSON) for plan generation, feedback, and assessments.
-- Runs deterministic validation and correction before mutating persisted models (see §5.0.3).
+- Persists conversational turns to agent threads when the user is in a live coach/planning flow.
+- Generates structured JSON artifacts for plan drafts, week drafts, feedback, and assessments.
+- Parses structured responses, validates them deterministically, and only then mutates persisted models (see §5.0.3).
 - Falls back gracefully on network failure, following the failure UX rules below.
+
+For conversational planning specifically, each user turn produces two coordinated outputs:
+- A human-readable assistant reply stored in the agent thread.
+- A structured draft object stored separately on `AgentPlanDraft` or `AgentWeekDraft`.
+
+This split allows the coaching conversation to remain natural while keeping all plan-changing writes gated behind schema validation and deterministic business rules.
 
 **AI Failure UX:**
 
@@ -1082,9 +1158,9 @@ Every AI call can fail (network error, timeout, malformed response). The app han
 | AI Call | On Failure | User Sees | Recovery |
 |---|---|---|---|
 | **Plan generation** (§5.1) | User's inputs are preserved; no proposal is created. | Error banner in the Review step: "Couldn't reach your coach — check your connection." Retry button below the banner. | User taps Retry. They can also go back and edit inputs without losing them. |
-| **Weekly detail generation** (§5.2) | Week stays `generated: false`. | Week card shows volume target and emphasis from the plan outline, but no individual workouts. Inline retry button: "Generate workouts." | User taps Retry, or the app auto-retries on next foreground launch if connectivity is available. |
+| **Weekly detail generation** (§5.2) | Week stays `generated: false`. | Week card shows volume target and emphasis from the plan outline, but no individual workouts. Inline retry button: "Generate workouts." | User taps Retry. |
 | **Workout feedback** (§5.3) | Workout is still matched; check-in data is persisted in Convex immediately (with local optimistic state). | Feedback section on Workout Detail shows "Coach feedback pending." | Auto-retries in background. No user action needed — feedback appears when available. |
-| **End-of-plan assessment** (§5.4) | Plan still transitions to `.completed`. | Assessment card on Dashboard and Coach tab shows "Assessment pending" with a Retry button. | User taps Retry, or the app auto-retries on next launch. |
+| **End-of-plan assessment** (§5.4) | Plan still transitions to `.completed`. | Assessment card on Dashboard and Coach tab shows "Assessment pending" while the backend workflow is still retrying, then a Retry button if the workflow ultimately fails. | Workflow retries server-side; user can also tap Retry after a surfaced failure. |
 | **Skip response** (§5.5) | Skip is persisted in Convex immediately (status → `.skipped`, reason saved) with local optimistic confirmation. Remaining workouts are unchanged. | Coach commentary area shows "Coach response pending." The skip itself is confirmed immediately. | Auto-retries. Week adjustments apply when the response arrives. |
 | **Injury/illness** (§5.6) | User's activation intent is noted but the plan is **not** modified without AI confirmation. | Coach chat shows a connectivity error message with Retry. The plan continues as-is until the coach responds. | User retries from the Coach tab. |
 | **Goal change** (§5.7) | No plan changes are made. | Coach chat shows a connectivity error with Retry. Current goal remains active. | User retries from the Coach tab. |
@@ -1092,22 +1168,19 @@ Every AI call can fail (network error, timeout, malformed response). The app han
 
 **General principles:**
 - Local state changes (skip recording, workout matching, check-in saving, plan completion) are never blocked by AI failures. The AI enriches these events but is not a prerequisite for them.
-- Calls that don't require user review (feedback, skip response, assessment) auto-retry on connectivity restoration or next app foreground — up to 3 attempts with exponential backoff, then surface a manual Retry.
+- Structured generation retries are owned by Convex workflows/actions on the backend rather than by app-launch polling.
 - Calls that produce plan-altering proposals (plan generation, weekly detail, injury, goal change) require explicit user-initiated Retry — the app does not silently modify the plan in the background.
-- All pending AI requests are persisted in Convex so they survive app termination and multi-device usage.
+- AI request status records are persisted in Convex so pending/failed states survive app termination and multi-device usage.
 
 **AI Call Rate Limiting & Cost Management:**
 
-The app manages AI call volume through debouncing, batching, and prioritization:
+The backend manages AI call volume through deduplication, workflow orchestration, and retry budgets:
 
 - **Batched workout feedback** — When multiple HealthKit workouts are matched during a single background processing cycle (e.g., the user was offline for several days), the app sends a single batched feedback call covering all newly matched workouts rather than one call per workout. The response contains per-workout commentary.
 - **Debounced feedback regeneration** — When the user edits a check-in (RPE, modifiers, or notes) after feedback has already been generated, the app waits 30 seconds after the last edit before triggering regeneration. This prevents rapid successive AI calls during iterative edits.
-- **Deduplication** — If an AI call is already in-flight or queued for a given entity (e.g., feedback for workout X), a duplicate request for the same entity is dropped. The pending call's result serves both triggers.
-- **Priority queue** — AI calls are processed through a serial queue with priority levels:
-  1. **User-blocking** (highest) — Plan generation, weekly detail generation, goal change evaluation, injury/illness management. These block user workflows and are processed immediately.
-  2. **Interactive** — Ad-hoc coach chat messages. Processed in order, one at a time.
-  3. **Background** (lowest) — Workout feedback, skip responses, assessment generation. Processed when no higher-priority calls are pending.
-- **Retry budget** — Auto-retried calls (see failure UX above) consume a maximum of 3 retry attempts per call. After 3 failures, the call requires manual user retry. This prevents infinite retry loops from consuming budget during extended outages.
+- **Deduplication** — If an AI call is already in-flight for a given entity (for example, a week-generation or assessment status record already exists in a queued/in-progress state), a duplicate request for the same entity is dropped.
+- **Workflow-backed retries** — Structured generation paths use Convex workflows/actions so retries happen server-side with persisted state rather than through a client-managed queue.
+- **Retry budget** — Auto-retried calls that opt into workflow retries use a bounded retry budget. After the retry budget is exhausted, the failure is surfaced and the user can manually retry.
 
 ### 3.3 HealthKit Integration
 
@@ -1277,6 +1350,7 @@ The iOS app is the primary experience and uses tab-based navigation. The web com
 - Tap a workout to see full segment breakdown and (if completed) feedback.
 - **Remove race** — upcoming non-primary races show a remove action. Removing a race triggers the coach to re-evaluate the week's workouts (see §1.6). Completed races and the goal race do not show this action.
 - **Availability override** — edit available days and time windows for this specific week (see §1.8). Displays the override note if set. Overrides on future weeks trigger a coach re-evaluation when the week's workouts are generated.
+- **Week builder** — open a conversational draft for the selected week, revise it with the coach, and apply it only after the structured draft validates.
 
 #### Workout Detail
 - Segment timeline visualization.
@@ -1299,9 +1373,10 @@ The iOS app is the primary experience and uses tab-based navigation. The web com
 1. **Set Goal** — pick a preset goal or enter a custom one (see §1.4). For race presets, optionally set a goal time and target date.
 2. **Strength Training** — toggle whether to include strength/core workouts. If enabled, select available equipment (multi-select from §1.7 equipment options). Defaults to the user's saved equipment from their profile; can be changed per plan.
 3. **Import History** — iOS shows summary of recent HealthKit data being used for context. If HealthKit is not authorized, this step shows an informational message explaining that the coach will build the plan without training history and offers a link to authorize HealthKit in Settings. The user can proceed without it. On web, this step is informational only: imports are managed on iOS, and web uses already-synced data.
-4. **Review Coach Proposal** — the coach presents: duration, peak volume, weekly volume profile, and rationale. If strength is enabled, the proposal includes a note on how strength sessions will be distributed.
-5. **Adjust Peak Volume** — user can override the coach's suggested peak volume.
-6. **Confirm** — if no active plan exists, the plan moves directly to `.active` and the first week detail is generated. If an active plan already exists (see §6 rule 9), the plan is saved as `.draft` — the user is informed that it can be activated after the current plan is completed or abandoned.
+4. **Planning Conversation** — the user enters a live plan-builder thread with the coach. The coach responds conversationally and continuously refreshes a structured draft behind the scenes.
+5. **Review Live Draft** — once validation succeeds, the app shows the latest duration, peak volume, weekly volume profile, rationale, and strength approach from the structured draft.
+6. **Adjust Peak Volume** — user can override the coach's suggested peak volume before materializing the draft into a plan.
+7. **Confirm** — if no active plan exists, the validated live draft is materialized directly into an `.active` plan and the first week detail is generated. If an active plan already exists (see §6 rule 9), the validated draft remains a saved `.draft` candidate until the current plan is completed or abandoned.
 
 #### Competitiveness Picker
 - Three-option segmented control or card selector with name and short description (Conservative, Balanced, Aggressive).
@@ -1384,6 +1459,8 @@ As plans grow, the full history of weeks, workouts, feedback, and check-ins can 
 
 The structured JSON contracts in §5.1–5.7 define expected AI output formats. These schemas are embedded in the prompts the app constructs — the AI does not maintain its own notion of schema version. The prompt builder and parser/validator are versioned together in the backend codebase so they always agree on the active format.
 
+For agent-backed planning flows, the conversational thread and the structured JSON draft are versioned independently: thread messages remain as-is for continuity, while the latest accepted draft object is replaced each turn after validation. A thread message alone never changes persisted plan/week state.
+
 **Response parsing** is defensive: required fields are validated, unknown fields are ignored, and missing optional fields fall back to sensible defaults. This tolerates minor AI response variations without hard failures.
 
 **Pending requests across app/backend updates:** AI requests are persisted in the backend queue for retry (see §3.2). When prompt/schema revisions change, not-yet-sent requests are discarded and re-queued with current prompts — input data (plan context, user profile) is re-gathered fresh. In-flight requests (sent, awaiting response) are accepted if they parse successfully under the current parser; if parsing fails, the request is re-queued.
@@ -1442,9 +1519,9 @@ If a correction would change training intent (for example: moving workouts acros
 
 **Failure behavior when rejection occurs:**
 
-- First failure: auto-retry once with a validator error summary injected into the retry prompt ("fix and return full JSON only").
-- Second failure: surface user-visible retry UI and keep a safe no-op state. No partial plan mutation is applied.
-- Persist rejection diagnostics locally (call type, validator codes, timestamp, request id) for debugging/telemetry.
+- The failed draft/request is marked invalid or failed and no partial plan mutation is applied.
+- User-visible retry UI is surfaced for flows that require manual recovery.
+- Persist rejection diagnostics (call type, validator codes, timestamp, request id) for debugging/telemetry.
 
 **Safe no-op behavior by call type:**
 
@@ -1669,7 +1746,7 @@ For race goals, `numberOfWeeks` is computed deterministically by the app from th
 | **Watch Scheduling** | WorkoutKit (optional, post-MVP) |
 | **Calendar** | EventKit (iCloud calendar read/write, iOS) |
 | **Weather** | Open-Meteo (weekly forecast: temperature, humidity) via Convex weather action + device location permission |
-| **AI Backend** | Convex actions + external LLM API provider |
+| **AI Backend** | Convex Agents + Convex actions/workflows on OpenRouter (default: `openai/gpt-5-mini`; embeddings: `openai/text-embedding-3-small`) |
 | **VDOT Service** | Shared library (abstracted interface) — race→VDOT, pace→VDOT, VDOT→paces, VDOT→race predictions |
 | **Units** | Support km and mi; defaults to the device's Measurement System (`Locale.measurementSystem`), overridable per user in Settings. Distance-mode planning uses canonical meter storage for deterministic calculations; track workouts always display meters; course segments preserve course-native units. |
 | **Offline** | iOS supports local cached viewing/logging with deferred sync; web is online-first; AI features require connectivity |

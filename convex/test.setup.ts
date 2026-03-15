@@ -1,14 +1,38 @@
 import { convexTest } from "convex-test";
+import type { GenericSchema, SchemaDefinition } from "convex/server";
 
 import schema from "./schema";
 import type { Doc, Id } from "./_generated/dataModel";
 
 type ConvexModuleLoader = () => Promise<unknown>;
 type ImportMetaWithGlob = ImportMeta & {
-  glob: (pattern: string) => Record<string, ConvexModuleLoader>;
+  glob: <T = unknown>(
+    pattern: string,
+    options?: {
+      eager?: boolean;
+    },
+  ) => Record<string, T | ConvexModuleLoader>;
 };
 
-const allModules = (import.meta as ImportMetaWithGlob).glob("./**/*.ts");
+const allModules = (import.meta as ImportMetaWithGlob).glob<ConvexModuleLoader>("./**/*.ts");
+const workflowModules = (import.meta as ImportMetaWithGlob).glob<ConvexModuleLoader>(
+  "../node_modules/@convex-dev/workflow/dist/component/**/*.js",
+);
+const workflowSchemaModule = Object.values(
+  (import.meta as ImportMetaWithGlob).glob<{ default: SchemaDefinition<GenericSchema, boolean> }>(
+    "../node_modules/@convex-dev/workflow/dist/component/schema.js",
+    { eager: true },
+  ),
+)[0] as { default: SchemaDefinition<GenericSchema, boolean> } | undefined;
+const workpoolModules = (import.meta as ImportMetaWithGlob).glob<ConvexModuleLoader>(
+  "../node_modules/.pnpm/@convex-dev+workpool@*/node_modules/@convex-dev/workpool/dist/component/**/*.js",
+);
+const workpoolSchemaModule = Object.values(
+  (import.meta as ImportMetaWithGlob).glob<{ default: SchemaDefinition<GenericSchema, boolean> }>(
+    "../node_modules/.pnpm/@convex-dev+workpool@*/node_modules/@convex-dev/workpool/dist/component/schema.js",
+    { eager: true },
+  ),
+)[0] as { default: SchemaDefinition<GenericSchema, boolean> } | undefined;
 const modules: Record<string, ConvexModuleLoader> = Object.fromEntries(
   Object.entries(allModules).filter(([path]) => {
     return (
@@ -21,11 +45,21 @@ const modules: Record<string, ConvexModuleLoader> = Object.fromEntries(
 
 type InsertableUser = Omit<Doc<"users">, "_id" | "_creationTime">;
 type SlopMilesTestConvex = ReturnType<typeof createConvexTest>;
+const globalWorkflowFlags = globalThis as typeof globalThis & {
+  __SLOPMILES_DISABLE_WORKFLOWS__?: boolean;
+};
 
 let nextUserNumber = 1;
+globalWorkflowFlags.__SLOPMILES_DISABLE_WORKFLOWS__ = true;
 
 export function createConvexTest() {
-  return convexTest(schema, modules);
+  const t = convexTest(schema, modules);
+  if (!workflowSchemaModule?.default || !workpoolSchemaModule?.default) {
+    throw new Error("Workflow test components could not be loaded.");
+  }
+  t.registerComponent("workflow", workflowSchemaModule.default, workflowModules);
+  t.registerComponent("workflow/workpool", workpoolSchemaModule.default, workpoolModules);
+  return t;
 }
 
 export async function createTestUser(
