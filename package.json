@@ -15,7 +15,7 @@
   },
   "devDependencies": {
     "@edge-runtime/vm": "^5.0.0",
-    "@types/react": "^18.3.28",
+    "@types/react": "^19.2.14",
     "convex": "^1.32.0",
     "convex-test": "^0.0.41",
     "turbo": "^2.8.17",
