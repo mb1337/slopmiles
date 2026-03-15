@@ -52,6 +52,8 @@ export const aiCallTypes = ["planGeneration", "weekDetailGeneration", "planAsses
 export const aiRequestStatuses = ["queued", "inProgress", "succeeded", "failed"] as const;
 export const aiRequestPriorities = ["userBlocking", "interactive", "background"] as const;
 export const healthKitSyncSources = ["manual", "background"] as const;
+export const agentThreadKinds = ["coach", "planBuilder", "weekBuilder", "assessment"] as const;
+export const agentDraftStatuses = ["pending", "valid", "invalid"] as const;
 
 export type Weekday = (typeof weekdays)[number];
 export type OnboardingStep = (typeof onboardingSteps)[number];
@@ -63,6 +65,8 @@ export type AiCallType = (typeof aiCallTypes)[number];
 export type AiRequestStatus = (typeof aiRequestStatuses)[number];
 export type AiRequestPriority = (typeof aiRequestPriorities)[number];
 export type HealthKitSyncSource = (typeof healthKitSyncSources)[number];
+export type AgentThreadKind = (typeof agentThreadKinds)[number];
+export type AgentDraftStatus = (typeof agentDraftStatuses)[number];
 export type WorkoutType = (typeof workoutTypes)[number];
 export type WorkoutVenue = (typeof workoutVenues)[number];
 export type WorkoutOrigin = (typeof workoutOrigins)[number];

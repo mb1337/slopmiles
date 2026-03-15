@@ -236,6 +236,16 @@ export function PlanScreen({
         }
       : "skip",
   );
+  const planBuilderView = useQuery(api.planning.getPlanBuilderView, {});
+  const weekBuilderView = useQuery(
+    api.planning.getWeekBuilderView,
+    planOverview?.activePlan && route.screen === "week"
+      ? {
+          planId: planOverview.activePlan._id,
+          weekNumber: route.weekNumber,
+        }
+      : "skip",
+  );
   const workoutDetail = useQuery(
     api.workoutDetail.getWorkoutDetailView,
     route.screen === "workout"
@@ -253,18 +263,19 @@ export function PlanScreen({
       : "skip",
   );
 
-  const requestPlanGeneration = useMutation(api.coach.requestPlanGeneration);
-  const retryPlanGeneration = useMutation(api.coach.retryPlanGeneration);
+  const startPlanBuilderSession = useMutation(api.planning.startPlanBuilderSession);
+  const sendPlanBuilderMessage = useMutation(api.planning.sendPlanBuilderMessage);
+  const materializePlanDraft = useMutation(api.planning.materializePlanDraft);
   const retryPlanAssessment = useMutation(api.coach.retryPlanAssessment);
-  const createPlanFromGeneration = useMutation(api.coach.createPlanFromGeneration);
   const activateDraftPlan = useMutation(api.plans.activateDraftPlan);
   const updateDraftPlanBasics = useMutation(api.plans.updateDraftPlanBasics);
   const updatePlanStatus = useMutation(api.plans.updatePlanStatus);
   const updatePlanPeakVolume = useMutation(api.planOverview.updatePlanPeakVolume);
   const changePlanGoal = useMutation(api.planOverview.changePlanGoal);
   const reportPlanInterruption = useMutation(api.planOverview.reportPlanInterruption);
-  const requestWeekDetailGeneration = useMutation(api.coach.requestWeekDetailGeneration);
-  const retryWeekDetailGeneration = useMutation(api.coach.retryWeekDetailGeneration);
+  const startWeekBuilderSession = useMutation(api.planning.startWeekBuilderSession);
+  const sendWeekBuilderMessage = useMutation(api.planning.sendWeekBuilderMessage);
+  const applyWeekDraft = useMutation(api.planning.applyWeekDraft);
   const skipWorkout = useMutation(api.workoutDetail.skipWorkout);
   const rescheduleWorkout = useMutation(api.workoutDetail.rescheduleWorkout);
   const saveWeekAvailabilityOverride = useMutation(api.weekDetail.saveWeekAvailabilityOverride);
@@ -283,6 +294,7 @@ export function PlanScreen({
   const [volumeMode, setVolumeMode] = useState<VolumeMode>(defaultVolumeMode);
   const [raceDatePickerOpen, setRaceDatePickerOpen] = useState(false);
   const [proposalPeakOverride, setProposalPeakOverride] = useState("");
+  const [planBuilderMessage, setPlanBuilderMessage] = useState("");
   const [draftPeakInputs, setDraftPeakInputs] = useState<Record<string, string>>({});
   const [planPeakOverride, setPlanPeakOverride] = useState("");
   const [goalEditType, setGoalEditType] = useState<PlanGoalType>("race");
@@ -298,6 +310,7 @@ export function PlanScreen({
   const [selectedRescheduleDate, setSelectedRescheduleDate] = useState<string>("");
   const [overrideDays, setOverrideDays] = useState<Array<(typeof WEEKDAYS)[number]>>([]);
   const [overrideNote, setOverrideNote] = useState("");
+  const [weekBuilderMessage, setWeekBuilderMessage] = useState("");
   const [busyLabel, setBusyLabel] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -317,7 +330,15 @@ export function PlanScreen({
     activePlan?.currentWeekNumber && activePlan.trainingWeeks
       ? activePlan.trainingWeeks.find((week) => week.weekNumber === activePlan.currentWeekNumber) ?? null
       : null;
-  const proposal = planOverview?.latestProposal?.result ?? planOverview?.proposal?.result ?? null;
+  const proposal = (planBuilderView?.draft?.latestObject as
+    | {
+        peakWeekVolume: number;
+        numberOfWeeks: number;
+        rationale: string;
+        weeklyVolumeProfile: Array<{ weekNumber: number; percentOfPeak: number }>;
+        weeklyEmphasis: Array<{ weekNumber: number; emphasis: string }>;
+      }
+    | null) ?? null;
   const selectedGoalLabel = goalPreset === "Custom" ? customGoalLabel.trim() : goalPreset;
   const targetDate = normalizeDate(targetDateValue);
   const formattedTargetDate = formatTargetDate(targetDateValue);
@@ -332,7 +353,7 @@ export function PlanScreen({
   const createStepCount = 3;
 
   useEffect(() => {
-    if (!proposal) {
+    if (!proposal?.peakWeekVolume) {
       return;
     }
 
@@ -596,11 +617,11 @@ export function PlanScreen({
           />
         ) : (
           <PrimaryButton
-            label={busyLabel === "request-plan" ? "Requesting coach plan..." : "Request coach proposal"}
+            label={busyLabel === "request-plan" ? "Starting planning chat..." : "Start planning chat"}
             disabled={!canSubmitCreate || busyLabel !== null}
             onPress={() =>
               void runWithStatus("request-plan", async () => {
-                await requestPlanGeneration({
+                await startPlanBuilderSession({
                   goalType,
                   goalLabel: selectedGoalLabel,
                   targetDate: targetDate ?? undefined,
@@ -608,7 +629,7 @@ export function PlanScreen({
                   volumeMode,
                   requestedNumberOfWeeks: goalType === "race" ? undefined : Number(numberOfWeeks),
                 });
-                setMessage("Plan generation requested. The latest proposal will appear in Proposal Review.");
+                setMessage("Planning conversation started. The live draft will appear in Proposal Review.");
                 onRouteChange({ screen: "proposal" });
               })
             }
@@ -639,8 +660,8 @@ export function PlanScreen({
     <ScrollView contentContainerStyle={styles.container}>
       <ScreenHeader
         eyebrow="Plan"
-        title="Proposal review"
-        subtitle="Review the latest coach-generated structure before you create or activate a draft."
+        title="Planning thread"
+        subtitle="Work with coach conversationally, then create a stored draft when the structure looks right."
         actionLabel="Overview"
         onAction={() => onRouteChange({ screen: "overview" })}
       />
@@ -648,73 +669,107 @@ export function PlanScreen({
       {error ? <StatusBanner tone="error" message={error} /> : null}
       {message ? <StatusBanner tone="success" message={message} /> : null}
 
-      {!planOverview?.proposal ? (
+      {!planBuilderView?.draft ? (
         <EmptyStateCard
-          title="No proposal yet"
-          body="Start the guided create flow, then come back here once the coach finishes building the structure."
+          title="No planning thread yet"
+          body="Start the guided create flow, then come back here once the coach opens a live draft."
           actionLabel="Create plan"
           onAction={() => onRouteChange({ screen: "create" })}
         />
       ) : (
         <>
-          <SectionCard title="Generation status" description={`Requested ${new Date(planOverview.proposal.createdAt).toLocaleString()}`}>
-            <Text style={styles.bodyText}>Status: {planOverview.proposal.status}</Text>
-            {planOverview.proposal.errorMessage ? <Text style={styles.errorText}>{planOverview.proposal.errorMessage}</Text> : null}
-            {planOverview.proposal.status === "failed" ? (
-              <PrimaryButton
-                label={busyLabel === "retry-proposal" ? "Retrying..." : "Retry generation"}
-                disabled={busyLabel !== null}
-                onPress={() =>
-                  void runWithStatus("retry-proposal", async () => {
-                    await retryPlanGeneration({ requestId: planOverview.proposal!._id });
-                    setMessage("Retry queued.");
-                  })
-                }
-              />
+          <SectionCard
+            title="Live draft status"
+            description={`Version ${planBuilderView.draft.version} · ${planBuilderView.draft.validationStatus}`}
+          >
+            {planBuilderView.draft.latestPreviewText ? (
+              <Text style={styles.bodyText}>{planBuilderView.draft.latestPreviewText}</Text>
+            ) : (
+              <Text style={styles.bodyText}>Coach is still shaping the first draft.</Text>
+            )}
+            {planBuilderView.draft.latestError ? (
+              <Text style={styles.errorText}>{planBuilderView.draft.latestError}</Text>
             ) : null}
           </SectionCard>
 
+          {planBuilderView.messages.map((entry) => (
+            <SectionCard
+              key={entry._id}
+              title={entry.author === "assistant" ? "Coach" : "You"}
+              description={new Date(entry.createdAt).toLocaleString()}
+            >
+              <Text style={styles.bodyText}>{entry.body}</Text>
+            </SectionCard>
+          ))}
+
           {proposal ? (
-            <>
-              <SectionCard title="Coach proposal" description={proposal.rationale}>
-                <MetricGrid>
-                  <MetricStat label="Peak week" value={`${Math.round(proposal.peakWeekVolume)} ${volumeMode === "time" ? "min" : "m"}`} />
-                  <MetricStat label="Weeks" value={String(proposal.numberOfWeeks)} />
-                </MetricGrid>
-                <FieldGroup label="Peak week override" helperText="Adjust the ceiling before you create the draft.">
-                  <TextInput
-                    style={styles.input}
-                    value={proposalPeakOverride}
-                    onChangeText={setProposalPeakOverride}
-                    keyboardType="decimal-pad"
-                    placeholder={String(Math.round(proposal.peakWeekVolume))}
-                    placeholderTextColor="#7a848c"
-                  />
-                </FieldGroup>
-                <WeekStructure
-                  numberOfWeeks={proposal.numberOfWeeks}
-                  weeklyVolumeProfile={proposal.weeklyVolumeProfile}
-                  weeklyEmphasis={proposal.weeklyEmphasis}
+            <SectionCard title="Current structured draft" description={proposal.rationale}>
+              <MetricGrid>
+                <MetricStat label="Peak week" value={`${Math.round(proposal.peakWeekVolume)} ${volumeMode === "time" ? "min" : "m"}`} />
+                <MetricStat label="Weeks" value={String(proposal.numberOfWeeks)} />
+              </MetricGrid>
+              <FieldGroup label="Peak week override" helperText="Adjust the ceiling before you create the draft.">
+                <TextInput
+                  style={styles.input}
+                  value={proposalPeakOverride}
+                  onChangeText={setProposalPeakOverride}
+                  keyboardType="decimal-pad"
+                  placeholder={String(Math.round(proposal.peakWeekVolume))}
+                  placeholderTextColor="#7a848c"
                 />
-                <PrimaryButton
-                  label={busyLabel === "create-draft" ? "Creating draft..." : "Create draft from proposal"}
-                  disabled={busyLabel !== null || planOverview.proposal.consumedByPlanId !== null || planOverview.proposal.status !== "succeeded"}
-                  onPress={() =>
-                    void runWithStatus("create-draft", async () => {
-                      await createPlanFromGeneration({
-                        requestId: planOverview.proposal!._id,
-                        peakWeekVolumeOverride:
-                          proposalPeakOverride.trim().length > 0 && Number.isFinite(Number(proposalPeakOverride))
-                            ? Number(proposalPeakOverride)
-                            : undefined,
-                      });
-                      setMessage("Draft created from proposal.");
-                      onRouteChange({ screen: "overview" });
-                    })
-                  }
+              </FieldGroup>
+              <WeekStructure
+                numberOfWeeks={proposal.numberOfWeeks}
+                weeklyVolumeProfile={proposal.weeklyVolumeProfile}
+                weeklyEmphasis={proposal.weeklyEmphasis}
+              />
+              <FieldGroup label="Ask coach for an adjustment">
+                <TextInput
+                  style={[styles.input, styles.textArea]}
+                  value={planBuilderMessage}
+                  onChangeText={setPlanBuilderMessage}
+                  placeholder="Push the peak later, make the build safer, add more strength detail..."
+                  placeholderTextColor="#7a848c"
+                  multiline
                 />
-              </SectionCard>
-            </>
+              </FieldGroup>
+              <PrimaryButton
+                label={busyLabel === "send-plan-adjustment" ? "Sending..." : "Send adjustment"}
+                disabled={busyLabel !== null || !planBuilderMessage.trim()}
+                onPress={() =>
+                  void runWithStatus("send-plan-adjustment", async () => {
+                    await sendPlanBuilderMessage({
+                      draftId: planBuilderView.draft!._id as Id<"agentPlanDrafts">,
+                      body: planBuilderMessage,
+                    });
+                    setPlanBuilderMessage("");
+                    setMessage("Coach is revising the draft.");
+                  })
+                }
+              />
+              <PrimaryButton
+                label={busyLabel === "create-draft" ? "Starting plan..." : "Start this plan"}
+                disabled={
+                  busyLabel !== null ||
+                  planBuilderView.draft.consumedByPlanId !== null ||
+                  planBuilderView.draft.validationStatus !== "valid"
+                }
+                onPress={() =>
+                  void runWithStatus("create-draft", async () => {
+                    await materializePlanDraft({
+                      draftId: planBuilderView.draft!._id as Id<"agentPlanDrafts">,
+                      peakWeekVolumeOverride:
+                        proposalPeakOverride.trim().length > 0 && Number.isFinite(Number(proposalPeakOverride))
+                          ? Number(proposalPeakOverride)
+                          : undefined,
+                      canonicalTimeZoneId: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
+                    });
+                    setMessage("Plan activated from the live draft.");
+                    onRouteChange({ screen: "overview" });
+                  })
+                }
+              />
+            </SectionCard>
           ) : null}
         </>
       )}
@@ -995,18 +1050,18 @@ export function PlanScreen({
         </SectionCard>
       ) : null}
 
-      <SectionCard title="Latest proposal" description="The newest coach-generated structure, if one exists.">
-        {planOverview?.proposal ? (
+      <SectionCard title="Planning thread" description="The live conversational draft, if one exists.">
+        {planBuilderView?.draft ? (
           <>
-            <Text style={styles.bodyText}>Status: {planOverview.proposal.status}</Text>
-            <SecondaryButton label="Open proposal review" onPress={() => onRouteChange({ screen: "proposal" })} />
+            <Text style={styles.bodyText}>Status: {planBuilderView.draft.validationStatus}</Text>
+            <SecondaryButton label="Open planning thread" onPress={() => onRouteChange({ screen: "proposal" })} />
           </>
         ) : (
-          <Text style={styles.bodyText}>No proposal in progress yet.</Text>
+          <Text style={styles.bodyText}>No live planning thread yet.</Text>
         )}
       </SectionCard>
 
-      <SectionCard title="Draft plans" description="Drafts stay separate from the active plan until you activate them.">
+      <SectionCard title="Legacy saved drafts" description="Older saved drafts still work, but the live draft is now the primary path.">
         {planOverview?.draftPlans.length ? (
           planOverview.draftPlans.map((draft) => (
             <View key={String(draft._id)} style={styles.subtleBlock}>
@@ -1220,35 +1275,84 @@ export function PlanScreen({
                 {weekAgenda.week.interruptionNote ? ` - ${weekAgenda.week.interruptionNote}` : ""}
               </Text>
             ) : null}
-            {!weekAgenda.week.generated ? (
-              <PrimaryButton
-                label={
-                  weekAgenda.latestRequest?.status === "failed"
-                    ? busyLabel === "retry-week"
-                      ? "Retrying..."
-                      : "Retry generation"
-                    : busyLabel === "generate-week"
-                      ? "Generating..."
-                      : "Generate workouts"
-                }
-                disabled={busyLabel !== null || !weekAgenda.canGenerate}
-                onPress={() =>
-                  void runWithStatus(
-                    weekAgenda.latestRequest?.status === "failed" ? "retry-week" : "generate-week",
-                    async () => {
-                      if (weekAgenda.latestRequest?.status === "failed" && weekAgenda.latestRequest?._id) {
-                        await retryWeekDetailGeneration({ requestId: weekAgenda.latestRequest._id });
-                      } else if (activePlan) {
-                        await requestWeekDetailGeneration({
-                          planId: activePlan._id,
-                          weekNumber: weekAgenda.week.weekNumber,
-                        });
-                      }
-                      setMessage(`Week ${weekAgenda.week.weekNumber} generation queued.`);
-                    },
-                  )
-                }
+            <PrimaryButton
+              label={busyLabel === "start-week-builder" ? "Opening..." : "Open week builder"}
+              disabled={busyLabel !== null || !activePlan}
+              onPress={() =>
+                void runWithStatus("start-week-builder", async () => {
+                  await startWeekBuilderSession({
+                    planId: activePlan!._id,
+                    weekNumber: weekAgenda.week.weekNumber,
+                    note: overrideNote.trim() || undefined,
+                  });
+                  setMessage(`Week ${weekAgenda.week.weekNumber} builder ready.`);
+                })
+              }
+            />
+          </SectionCard>
+
+          <SectionCard title="Week builder" description="Generate and revise this week conversationally before you apply it.">
+            {weekBuilderView?.draft?.latestPreviewText ? (
+              <Text style={styles.bodyText}>{weekBuilderView.draft.latestPreviewText}</Text>
+            ) : (
+              <Text style={styles.bodyText}>Open the week builder to create a live draft for this week.</Text>
+            )}
+            {weekBuilderView?.messages?.map((entry) => (
+              <View key={entry._id} style={styles.subtleBlock}>
+                <Text style={styles.sectionCardTitle}>{entry.author === "assistant" ? "Coach" : "You"}</Text>
+                <Text style={styles.bodyText}>{entry.body}</Text>
+              </View>
+            ))}
+            <FieldGroup label="Ask coach for a change">
+              <TextInput
+                style={[styles.input, styles.textArea]}
+                value={weekBuilderMessage}
+                onChangeText={setWeekBuilderMessage}
+                placeholder="Move the long run, account for travel, reduce intensity..."
+                placeholderTextColor="#7a848c"
+                multiline
               />
+            </FieldGroup>
+            <PrimaryButton
+              label={busyLabel === "send-week-adjustment" ? "Sending..." : "Send adjustment"}
+              disabled={busyLabel !== null || !weekBuilderView?.draft || !weekBuilderMessage.trim()}
+              onPress={() =>
+                void runWithStatus("send-week-adjustment", async () => {
+                  const draft = weekBuilderView?.draft;
+                  if (!draft) {
+                    return;
+                  }
+                  await sendWeekBuilderMessage({
+                    weekDraftId: draft._id as Id<"agentWeekDrafts">,
+                    body: weekBuilderMessage,
+                  });
+                  setWeekBuilderMessage("");
+                  setMessage(`Coach is revising week ${weekAgenda.week.weekNumber}.`);
+                })
+              }
+            />
+            <PrimaryButton
+              label={busyLabel === "apply-week-draft" ? "Applying..." : "Apply week draft"}
+              disabled={
+                busyLabel !== null ||
+                !weekBuilderView?.draft ||
+                weekBuilderView.draft.validationStatus !== "valid"
+              }
+              onPress={() =>
+                void runWithStatus("apply-week-draft", async () => {
+                  const draft = weekBuilderView?.draft;
+                  if (!draft) {
+                    return;
+                  }
+                  await applyWeekDraft({
+                    weekDraftId: draft._id as Id<"agentWeekDrafts">,
+                  });
+                  setMessage(`Week ${weekAgenda.week.weekNumber} applied.`);
+                })
+              }
+            />
+            {weekBuilderView?.draft?.latestError ? (
+              <Text style={styles.errorText}>{weekBuilderView.draft.latestError}</Text>
             ) : null}
           </SectionCard>
 

@@ -6,6 +6,12 @@ import { action, internalAction, internalMutation, internalQuery, mutation, quer
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { validatePlanAssessmentResponse, type PlanAssessmentProposal } from "./assessmentContracts";
+import {
+  assessmentAgent,
+  buildAssessmentInstructions,
+  coachAgent,
+  buildCoachInstructions,
+} from "./agentRuntime";
 import { validatePlanGenerationResponse, type PlanGenerationProposal } from "./coachContracts";
 import { buildPlanAssessmentMessages, buildPlanGenerationMessages, buildWeekDetailGenerationMessages } from "./coachPrompts";
 import { validateWeekDetailResponse, type WeekDetailWorkoutProposal } from "./weekDetailContracts";
@@ -65,8 +71,7 @@ function formatVolumeSummary(volumeMode: (typeof volumeModes)[number], peakWeekV
   return `${Math.round(peakWeekVolume)} ${volumeMode === "time" ? "min" : "m"}`;
 }
 
-function buildCoachReply(args: {
-  message: string;
+function buildCoachSupportMessage(args: {
   personalityDescription: string;
   competitiveness: string;
   activePlan:
@@ -86,48 +91,19 @@ function buildCoachReply(args: {
     | null;
   currentVDOT?: number;
 }): string {
-  const lower = args.message.toLowerCase();
-  const styleLead = args.personalityDescription.toLowerCase().includes("data")
-    ? `Current fitness marker: VDOT ${typeof args.currentVDOT === "number" ? args.currentVDOT.toFixed(1) : "not set yet"}. `
-    : args.personalityDescription.toLowerCase().includes("calm")
-      ? "Take the next decision one block at a time. "
-      : args.personalityDescription.toLowerCase().includes("celebratory")
-        ? "You've got momentum to work with. "
-        : "";
-
-  const competitivenessNote =
-    args.competitiveness === "aggressive"
-      ? "Because you chose aggressive coaching, I'd only push through if the underlying issue is clearly schedule noise and not fatigue."
-      : args.competitiveness === "conservative"
-        ? "Because you chose conservative coaching, protecting recovery is the default call."
-        : "Balanced mode means we can adapt without overreacting.";
-
-  const planLine = args.activePlan
-    ? `Active plan: ${args.activePlan.goalLabel}, ${args.activePlan.numberOfWeeks} weeks, peak ${formatVolumeSummary(args.activePlan.volumeMode, args.activePlan.peakWeekVolume)}. `
-    : "You do not have an active plan yet. ";
-
-  if (lower.includes("skip") || lower.includes("miss") || lower.includes("can't run") || lower.includes("cannot run")) {
-    const scheduleLine = args.runningSchedule
-      ? `Your current schedule is ${args.runningSchedule.runningDaysPerWeek} days across ${args.runningSchedule.preferredRunningDays.join(", ")}. `
-      : "";
-    return `${styleLead}${planLine}${scheduleLine}If a workout needs to go, protect the long run and the most important quality day, then drop secondary volume first. ${competitivenessNote}`;
-  }
-
-  if (lower.includes("injur") || lower.includes("pain") || lower.includes("sick") || lower.includes("ill")) {
-    return `${styleLead}${planLine}Treat this as a recovery problem before a motivation problem. Reduce intensity immediately, and if symptoms are not clearly resolving, pause the plan and rebuild from there. ${competitivenessNote}`;
-  }
-
-  if (lower.includes("goal") || lower.includes("race") || lower.includes("plan")) {
-    return `${styleLead}${planLine}If the goal has changed, create a fresh draft around the new target and compare peak volume, timeline, and emphasis before activating it. ${competitivenessNote}`;
-  }
-
-  if (lower.includes("schedule") || lower.includes("day") || lower.includes("long run") || lower.includes("quality")) {
-    const longRunLine =
-      args.runningSchedule?.preferredLongRunDay ? ` Long run preference is ${args.runningSchedule.preferredLongRunDay}.` : "";
-    return `${styleLead}${planLine}Use Settings to keep preferred days honest to real life; the coach should adapt to constraints, not pretend they do not exist.${longRunLine}`;
-  }
-
-  return `${styleLead}${planLine}Ask for changes in concrete terms: target race, target date, peak volume, or schedule constraint. I can help you pressure-test the tradeoffs before you commit.`;
+  return [
+    "Runner context:",
+    `Personality: ${args.personalityDescription}.`,
+    `Competitiveness: ${args.competitiveness}.`,
+    `Current VDOT: ${typeof args.currentVDOT === "number" ? args.currentVDOT.toFixed(1) : "unknown"}.`,
+    args.activePlan
+      ? `Active plan: ${args.activePlan.goalLabel}, ${args.activePlan.numberOfWeeks} weeks, peak ${formatVolumeSummary(args.activePlan.volumeMode, args.activePlan.peakWeekVolume)}.`
+      : "Active plan: none.",
+    args.runningSchedule
+      ? `Running schedule: ${args.runningSchedule.runningDaysPerWeek} days per week across ${args.runningSchedule.preferredRunningDays.join(", ")}${args.runningSchedule.preferredLongRunDay ? `, long run preference ${args.runningSchedule.preferredLongRunDay}` : ""}.`
+      : "Running schedule: not configured.",
+    "Use this context to answer the user's latest message practically and conversationally.",
+  ].join("\n");
 }
 
 function computeRaceWeeks(targetDate: number): number {
@@ -949,27 +925,21 @@ export const sendCoachMessage = mutation({
   handler: async (ctx, args) => {
     const userId = await requireAuthenticatedMutationUserId(ctx);
     const body = trimNonEmpty(args.body);
-    const [user, runningSchedule, competitiveness, personality, plans] = await Promise.all([
-      ctx.db.get(userId),
-      ctx.db
-        .query("runningSchedules")
-        .withIndex("by_user_id", (queryBuilder) => queryBuilder.eq("userId", userId))
-        .unique(),
-      ctx.db
-        .query("competitiveness")
-        .withIndex("by_user_id", (queryBuilder) => queryBuilder.eq("userId", userId))
-        .unique(),
-      ctx.db
-        .query("personalities")
-        .withIndex("by_user_id", (queryBuilder) => queryBuilder.eq("userId", userId))
-        .unique(),
-      ctx.db
-        .query("trainingPlans")
-        .withIndex("by_user_id", (queryBuilder) => queryBuilder.eq("userId", userId))
-        .collect(),
-    ]);
+    const plans = await ctx.db
+      .query("trainingPlans")
+      .withIndex("by_user_id", (queryBuilder) => queryBuilder.eq("userId", userId))
+      .collect();
 
     const activePlan = plans.find((plan) => plan.status === "active") ?? null;
+    const existingThread =
+      (
+        await ctx.db
+          .query("agentThreadRegistry")
+          .withIndex("by_user_id_kind", (queryBuilder) =>
+            queryBuilder.eq("userId", userId).eq("kind", "coach"),
+          )
+          .take(1)
+      )[0] ?? null;
 
     await ctx.db.insert("coachMessages", {
       userId,
@@ -980,40 +950,161 @@ export const sendCoachMessage = mutation({
       createdAt: Date.now(),
     });
 
-    const reply = buildCoachReply({
-      message: body,
-      personalityDescription: personality?.description ?? "Brief, direct, no fluff.",
-      competitiveness: competitiveness?.level ?? "balanced",
-      activePlan: activePlan
-        ? {
-            goalLabel: (await ctx.db.get(activePlan.goalId))?.label ?? "current plan",
-            numberOfWeeks: activePlan.numberOfWeeks,
-            volumeMode: activePlan.volumeMode,
-            peakWeekVolume: activePlan.peakWeekVolume,
-          }
-        : null,
-      runningSchedule: runningSchedule
-        ? {
-            preferredRunningDays: runningSchedule.preferredRunningDays,
-            runningDaysPerWeek: runningSchedule.runningDaysPerWeek,
-            preferredLongRunDay: runningSchedule.preferredLongRunDay,
-          }
-        : null,
-      currentVDOT: user?.currentVDOT ?? undefined,
+    const threadId =
+      existingThread?.threadId ??
+      (
+        await coachAgent.createThread(ctx, {
+          userId: String(userId),
+          title: "Coach",
+        })
+      ).threadId;
+
+    if (!existingThread) {
+      await ctx.db.insert("agentThreadRegistry", {
+        userId,
+        kind: "coach",
+        threadId,
+        title: "Coach",
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+    }
+
+    const saved = await coachAgent.saveMessage(ctx, {
+      threadId,
+      userId: String(userId),
+      prompt: body,
+      skipEmbeddings: true,
     });
 
-    await ctx.db.insert("coachMessages", {
+    await ctx.scheduler.runAfter(0, internal.coach.processCoachAgentReply, {
       userId,
-      author: "coach",
-      kind: "message",
-      body: reply,
-      planId: activePlan?._id,
-      createdAt: Date.now(),
+      threadId,
+      promptMessageId: saved.messageId,
     });
 
     return {
       ok: true,
     };
+  },
+});
+
+export const getCoachAgentContext = internalQuery({
+  args: {
+    userId: v.id("users"),
+  },
+  handler: async (ctx, args) => {
+    const [user, runningSchedule, competitiveness, personality, activePlan] = await Promise.all([
+      ctx.db.get(args.userId),
+      ctx.db
+        .query("runningSchedules")
+        .withIndex("by_user_id", (queryBuilder) => queryBuilder.eq("userId", args.userId))
+        .unique(),
+      ctx.db
+        .query("competitiveness")
+        .withIndex("by_user_id", (queryBuilder) => queryBuilder.eq("userId", args.userId))
+        .unique(),
+      ctx.db
+        .query("personalities")
+        .withIndex("by_user_id", (queryBuilder) => queryBuilder.eq("userId", args.userId))
+        .unique(),
+      ctx.db
+        .query("trainingPlans")
+        .withIndex("by_user_id_status", (queryBuilder) =>
+          queryBuilder.eq("userId", args.userId).eq("status", "active"),
+        )
+        .unique(),
+    ]);
+    const activeGoal = activePlan ? await ctx.db.get(activePlan.goalId) : null;
+
+    return {
+      planId: activePlan?._id,
+      personalityDescription: personality?.description ?? "Brief, direct, no fluff.",
+      competitiveness: competitiveness?.level ?? "balanced",
+      supportMessage: buildCoachSupportMessage({
+        personalityDescription: personality?.description ?? "Brief, direct, no fluff.",
+        competitiveness: competitiveness?.level ?? "balanced",
+        activePlan: activePlan
+          ? {
+              goalLabel: activeGoal?.label ?? "current plan",
+              numberOfWeeks: activePlan.numberOfWeeks,
+              volumeMode: activePlan.volumeMode,
+              peakWeekVolume: activePlan.peakWeekVolume,
+            }
+          : null,
+        runningSchedule: runningSchedule
+          ? {
+              preferredRunningDays: runningSchedule.preferredRunningDays,
+              runningDaysPerWeek: runningSchedule.runningDaysPerWeek,
+              preferredLongRunDay: runningSchedule.preferredLongRunDay,
+            }
+          : null,
+        currentVDOT: user?.currentVDOT ?? undefined,
+      }),
+    };
+  },
+});
+
+export const persistCoachAgentReply = internalMutation({
+  args: {
+    userId: v.id("users"),
+    threadId: v.string(),
+    body: v.string(),
+    planId: v.optional(v.id("trainingPlans")),
+  },
+  handler: async (ctx, args) => {
+    const registry = await ctx.db
+      .query("agentThreadRegistry")
+      .withIndex("by_thread_id", (queryBuilder) => queryBuilder.eq("threadId", args.threadId))
+      .unique();
+
+    await ctx.db.insert("coachMessages", {
+      userId: args.userId,
+      author: "coach",
+      kind: "message",
+      body: args.body,
+      planId: args.planId,
+      createdAt: Date.now(),
+    });
+
+    if (registry) {
+      await ctx.db.patch(registry._id, {
+        updatedAt: Date.now(),
+      });
+    }
+  },
+});
+
+export const processCoachAgentReply = internalAction({
+  args: {
+    userId: v.id("users"),
+    threadId: v.string(),
+    promptMessageId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const context = await ctx.runQuery(internal.coach.getCoachAgentContext, {
+      userId: args.userId,
+    });
+    if (!context) {
+      return;
+    }
+
+    const { thread } = await coachAgent.continueThread(ctx, {
+      threadId: args.threadId,
+      userId: String(args.userId),
+    });
+    const result = await thread.generateText({
+      promptMessageId: args.promptMessageId,
+      system: `${buildCoachInstructions()} Personality voice guidance: ${context.personalityDescription}. Competitiveness: ${context.competitiveness}.`,
+      messages: [{ role: "user", content: context.supportMessage }],
+    });
+
+    await ctx.runMutation(internal.coach.persistCoachAgentReply, {
+      userId: args.userId,
+      threadId: args.threadId,
+      body: result.text,
+      planId: context.planId ?? undefined,
+    });
   },
 });
 
@@ -2275,15 +2366,33 @@ export const processPlanAssessmentRequest = internalAction({
       }
 
       const messages = buildPlanAssessmentMessages(context.promptInput);
-      const providerResponse = await callOpenRouter(messages);
-      const parsed = parseJsonPayloadFromModel(providerResponse.content);
+      const [systemMessage, ...conversationMessages] = messages;
+      const { thread } = await assessmentAgent.createThread(ctx, {
+        userId: String(context.request.userId),
+        title: `Assessment: ${context.promptInput.goalLabel}`,
+      });
+      const result = await thread.generateText(
+        {
+          system: `${buildAssessmentInstructions()} ${String(systemMessage?.content ?? "")}`,
+          messages: conversationMessages.map((message) => ({
+            role: message.role,
+            content: String(message.content),
+          })),
+        },
+        {
+          storageOptions: {
+            saveMessages: "promptAndOutput",
+          },
+        },
+      );
+      const parsed = parseJsonPayloadFromModel(result.text);
 
       const finalized = await ctx.runMutation(internal.coach.finalizePlanAssessmentSuccess, {
         requestId: args.requestId,
         proposal: parsed,
         metadata: {
-          model: providerResponse.model,
-          providerRequestId: providerResponse.requestId,
+          agent: "assessmentAgent",
+          messageId: result.messageId,
         },
       });
 

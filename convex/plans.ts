@@ -57,7 +57,7 @@ function weekEmphasisMap(plan: Pick<Doc<"trainingPlans">, "weeklyEmphasis">): Ma
   return new Map((plan.weeklyEmphasis ?? []).map((entry) => [entry.weekNumber, entry.emphasis]));
 }
 
-async function seedTrainingWeeks(ctx: MutationCtx, plan: Doc<"trainingPlans">): Promise<void> {
+export async function seedTrainingWeeks(ctx: MutationCtx, plan: Doc<"trainingPlans">): Promise<void> {
   if (!plan.startDateKey) {
     throw new Error("Plan startDateKey is required before seeding weeks.");
   }
@@ -99,7 +99,7 @@ async function seedTrainingWeeks(ctx: MutationCtx, plan: Doc<"trainingPlans">): 
   }
 }
 
-async function enqueueWeekDetailGeneration(
+export async function enqueueWeekDetailGeneration(
   ctx: MutationCtx,
   args: {
     userId: Id<"users">;

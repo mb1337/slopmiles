@@ -29,6 +29,8 @@ import {
   workoutVenues,
   effortModifiers,
   healthKitSyncSources,
+  agentThreadKinds,
+  agentDraftStatuses,
 } from "./constants";
 
 const weekdayValidator = v.union(...weekdays.map((day) => v.literal(day)));
@@ -59,6 +61,8 @@ const strengthWorkoutStatusValidator = v.union(...strengthWorkoutStatuses.map((s
 const planInterruptionTypeValidator = v.union(...planInterruptionTypes.map((type) => v.literal(type)));
 const effortModifierValidator = v.union(...effortModifiers.map((modifier) => v.literal(modifier)));
 const healthKitSyncSourceValidator = v.union(...healthKitSyncSources.map((source) => v.literal(source)));
+const agentThreadKindValidator = v.union(...agentThreadKinds.map((kind) => v.literal(kind)));
+const agentDraftStatusValidator = v.union(...agentDraftStatuses.map((status) => v.literal(status)));
 const historyWorkoutStatusValidator = v.union(
   v.literal("matched"),
   v.literal("needsReview"),
@@ -293,6 +297,74 @@ export default defineSchema({
     .index("by_user_id", ["userId"])
     .index("by_user_id_created_at", ["userId", "createdAt"])
     .index("by_user_id_author_created_at", ["userId", "author", "createdAt"]),
+
+  agentThreadRegistry: defineTable({
+    userId: v.id("users"),
+    kind: agentThreadKindValidator,
+    threadId: v.string(),
+    title: v.optional(v.string()),
+    draftId: v.optional(v.id("agentPlanDrafts")),
+    weekDraftId: v.optional(v.id("agentWeekDrafts")),
+    planId: v.optional(v.id("trainingPlans")),
+    weekNumber: v.optional(v.number()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_user_id_kind", ["userId", "kind"])
+    .index("by_thread_id", ["threadId"])
+    .index("by_draft_id", ["draftId"])
+    .index("by_week_draft_id", ["weekDraftId"])
+    .index("by_plan_id_week_number", ["planId", "weekNumber"]),
+
+  agentPlanDrafts: defineTable({
+    userId: v.id("users"),
+    threadId: v.string(),
+    goalType: goalTypeValidator,
+    goalLabel: v.string(),
+    targetDate: v.optional(v.number()),
+    goalTimeSeconds: v.optional(v.number()),
+    volumeMode: volumeModeValidator,
+    requestedNumberOfWeeks: v.optional(v.number()),
+    authoritativeNumberOfWeeks: v.optional(v.number()),
+    includeStrength: v.boolean(),
+    strengthEquipment: v.array(strengthEquipmentValidator),
+    latestObject: v.optional(v.any()),
+    latestPreviewText: v.optional(v.string()),
+    validationStatus: agentDraftStatusValidator,
+    latestError: v.optional(v.string()),
+    latestAssistantMessageId: v.optional(v.string()),
+    latestPromptMessageId: v.optional(v.string()),
+    version: v.number(),
+    consumedByPlanId: v.optional(v.id("trainingPlans")),
+    metadata: v.optional(v.any()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_user_id", ["userId"])
+    .index("by_thread_id", ["threadId"])
+    .index("by_user_id_updated_at", ["userId", "updatedAt"]),
+
+  agentWeekDrafts: defineTable({
+    userId: v.id("users"),
+    threadId: v.string(),
+    planId: v.id("trainingPlans"),
+    weekId: v.id("trainingWeeks"),
+    weekNumber: v.number(),
+    latestObject: v.optional(v.any()),
+    latestPreviewText: v.optional(v.string()),
+    validationStatus: agentDraftStatusValidator,
+    latestError: v.optional(v.string()),
+    latestAssistantMessageId: v.optional(v.string()),
+    latestPromptMessageId: v.optional(v.string()),
+    version: v.number(),
+    appliedAt: v.optional(v.number()),
+    metadata: v.optional(v.any()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_user_id", ["userId"])
+    .index("by_thread_id", ["threadId"])
+    .index("by_plan_id_week_number", ["planId", "weekNumber"]),
 
   healthKitWorkouts: defineTable({
     userId: v.id("users"),
