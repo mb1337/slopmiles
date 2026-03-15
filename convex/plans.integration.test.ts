@@ -404,4 +404,100 @@ describe("plans integration", () => {
     expect(result.currentWeekNumber).toBe(1);
     expect(result.canGenerate).toBe(true);
   });
+
+  it("finds the matching week-detail request even when it is older than the newest 50", async () => {
+    vi.useFakeTimers();
+    const now = new Date("2026-03-18T15:30:00.000Z");
+    vi.setSystemTime(now);
+
+    const t = createConvexTest();
+    const user = await createTestUser(t);
+    const authed = asAuthenticatedUser(t, user._id);
+
+    const { planId } = await t.run(async (ctx) => {
+      const goalId = await ctx.db.insert("goals", {
+        userId: user._id,
+        type: "race",
+        label: "Older request plan",
+        createdAt: now.valueOf(),
+      });
+      const planId = await ctx.db.insert("trainingPlans", {
+        userId: user._id,
+        goalId,
+        numberOfWeeks: 4,
+        volumeMode: "time",
+        peakWeekVolume: 300,
+        status: "active",
+        startDateKey: "2026-03-16",
+        canonicalTimeZoneId: "America/Chicago",
+        activatedAt: now.valueOf(),
+        createdAt: now.valueOf(),
+        updatedAt: now.valueOf(),
+      });
+      await ctx.db.insert("trainingWeeks", {
+        planId,
+        weekNumber: 1,
+        weekStartDateKey: "2026-03-16",
+        weekEndDateKey: "2026-03-22",
+        targetVolumePercent: 0.75,
+        targetVolumeAbsolute: 225,
+        emphasis: "Week one",
+        generated: false,
+        createdAt: now.valueOf(),
+        updatedAt: now.valueOf(),
+      });
+
+      await ctx.db.insert("aiRequests", {
+        userId: user._id,
+        callType: "weekDetailGeneration",
+        status: "failed",
+        priority: "userBlocking",
+        dedupeKey: "target",
+        input: {
+          planId,
+          weekNumber: 1,
+        },
+        attemptCount: 1,
+        maxAttempts: 1,
+        promptRevision: "week-detail-v1",
+        schemaRevision: "week-detail-v1",
+        errorMessage: "Older matching request",
+        createdAt: now.valueOf() - 10_000,
+        updatedAt: now.valueOf() - 10_000,
+      });
+
+      for (let index = 0; index < 55; index += 1) {
+        await ctx.db.insert("aiRequests", {
+          userId: user._id,
+          callType: "weekDetailGeneration",
+          status: "queued",
+          priority: "userBlocking",
+          dedupeKey: `noise-${index}`,
+          input: {
+            planId,
+            weekNumber: index + 2,
+          },
+          attemptCount: 0,
+          maxAttempts: 1,
+          promptRevision: "week-detail-v1",
+          schemaRevision: "week-detail-v1",
+          createdAt: now.valueOf() - index,
+          updatedAt: now.valueOf() - index,
+        });
+      }
+
+      return { planId };
+    });
+
+    const result = await authed.query(api.weekDetail.getWeekDetailView, {
+      planId,
+      weekNumber: 1,
+      nowBucketMs: now.valueOf(),
+    });
+
+    expect(result.latestRequest).toMatchObject({
+      status: "failed",
+      errorMessage: "Older matching request",
+    });
+  });
 });

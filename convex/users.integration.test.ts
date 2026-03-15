@@ -7,9 +7,11 @@ import {
   asAuthenticatedUser,
   createConvexTest,
   createTestUser,
+  getAiRequestsForUser,
   getCompetitivenessForUser,
   getOnboardingStateForUser,
   getPersonalityForUser,
+  getPlansForUser,
   getRunningScheduleForUser,
 } from "./test.setup";
 
@@ -147,6 +149,122 @@ describe("session bootstrap integration", () => {
     expect(result?.strengthPreference).toEqual({
       enabled: true,
       equipment: ["bands", "dumbbells"],
+    });
+  });
+
+  it("removes dependent plan rows during app-data reset", async () => {
+    const t = createConvexTest();
+    const user = await createTestUser(t);
+    const authed = asAuthenticatedUser(t, user._id);
+
+    await t.run(async (ctx) => {
+      const now = Date.now();
+      const goalId = await ctx.db.insert("goals", {
+        userId: user._id,
+        type: "race",
+        label: "Reset target",
+        createdAt: now,
+      });
+      const planId = await ctx.db.insert("trainingPlans", {
+        userId: user._id,
+        goalId,
+        numberOfWeeks: 4,
+        volumeMode: "time",
+        peakWeekVolume: 300,
+        status: "active",
+        createdAt: now,
+        updatedAt: now,
+      });
+      const weekId = await ctx.db.insert("trainingWeeks", {
+        planId,
+        weekNumber: 1,
+        weekStartDateKey: "2026-03-16",
+        weekEndDateKey: "2026-03-22",
+        targetVolumePercent: 0.75,
+        targetVolumeAbsolute: 225,
+        emphasis: "Reset test",
+        generated: true,
+        createdAt: now,
+        updatedAt: now,
+      });
+      const workoutId = await ctx.db.insert("workouts", {
+        planId,
+        weekId,
+        type: "easyRun",
+        volumePercent: 0.2,
+        absoluteVolume: 45,
+        scheduledDateKey: "2026-03-17",
+        venue: "road",
+        origin: "planned",
+        status: "planned",
+        segments: [],
+        createdAt: now,
+        updatedAt: now,
+      });
+      const healthKitWorkoutId = await ctx.db.insert("healthKitWorkouts", {
+        userId: user._id,
+        externalWorkoutId: "hk-reset",
+        startedAt: Date.UTC(2026, 2, 17, 12, 0, 0),
+        endedAt: Date.UTC(2026, 2, 17, 12, 30, 0),
+        durationSeconds: 1_800,
+        distanceMeters: 5_000,
+        historyStatus: "matched",
+        importedAt: now,
+        createdAt: now,
+        updatedAt: now,
+      });
+      await ctx.db.insert("workoutExecutions", {
+        userId: user._id,
+        healthKitWorkoutId,
+        planId,
+        weekId,
+        plannedWorkoutId: workoutId,
+        matchStatus: "matched",
+        matchMethod: "manual",
+        checkInStatus: "pending",
+        modifiers: [],
+        feedbackStatus: "pending",
+        feedbackAdjustments: [],
+        createdAt: now,
+        updatedAt: now,
+      });
+    });
+
+    await authed.mutation(api.settings.resetAppData, {});
+
+    const [plans, aiRequests, leftovers] = await Promise.all([
+      getPlansForUser(t, user._id),
+      getAiRequestsForUser(t, user._id),
+      t.run(async (ctx) => {
+        const [workouts, weeks, executions, healthKitWorkouts, summary] = await Promise.all([
+          ctx.db.query("workouts").collect(),
+          ctx.db.query("trainingWeeks").collect(),
+          ctx.db.query("workoutExecutions").withIndex("by_user_id", (query) => query.eq("userId", user._id)).collect(),
+          ctx.db.query("healthKitWorkouts").withIndex("by_user_id", (query) => query.eq("userId", user._id)).collect(),
+          ctx.db.query("historySummaries").withIndex("by_user_id", (query) => query.eq("userId", user._id)).unique(),
+        ]);
+
+        return {
+          workouts,
+          weeks,
+          executions,
+          healthKitWorkouts,
+          summary,
+        };
+      }),
+    ]);
+
+    expect(plans).toHaveLength(0);
+    expect(aiRequests).toHaveLength(0);
+    expect(leftovers.workouts).toHaveLength(0);
+    expect(leftovers.weeks).toHaveLength(0);
+    expect(leftovers.executions).toHaveLength(0);
+    expect(leftovers.healthKitWorkouts).toHaveLength(0);
+    expect(leftovers.summary).toMatchObject({
+      matchedCount: 0,
+      needsReviewCount: 0,
+      unplannedCount: 0,
+      totalCount: 0,
     });
   });
 });

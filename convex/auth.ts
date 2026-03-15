@@ -4,6 +4,8 @@ import { ConvexCredentials } from "@convex-dev/auth/providers/ConvexCredentials"
 import { Email } from "@convex-dev/auth/providers/Email";
 import Apple from "@auth/core/providers/apple";
 import { internal } from "./_generated/api";
+import type { Id } from "./_generated/dataModel";
+import type { MutationCtx } from "./_generated/server";
 
 declare const process:
   | {
@@ -63,18 +65,20 @@ function fallbackNameFromEmail(email: string): string {
   return normalized.length > 0 ? firstToken(normalized) : "Runner";
 }
 
-async function upsertAppleUser(ctx: any, args: {
+async function upsertAppleUser(ctx: MutationCtx, args: {
   appleSubject: string;
   name?: string;
   email?: string;
   emailVerified?: boolean;
-  existingUserId?: string | null;
+  existingUserId?: Id<"users"> | null;
 }) {
   const now = Date.now();
   const normalizedName = args.name ? firstToken(args.name) : undefined;
   const existingBySubject = await ctx.db
     .query("users")
-    .withIndex("by_apple_subject", (queryBuilder: any) => queryBuilder.eq("appleSubject", args.appleSubject))
+    .withIndex("by_apple_subject", (queryBuilder) =>
+      queryBuilder.eq("appleSubject", args.appleSubject),
+    )
     .unique();
 
   const targetUserId = args.existingUserId ?? existingBySubject?._id ?? null;
@@ -116,15 +120,15 @@ async function upsertAppleUser(ctx: any, args: {
   });
 }
 
-async function upsertEmailUser(ctx: any, args: {
+async function upsertEmailUser(ctx: MutationCtx, args: {
   email: string;
-  existingUserId?: string | null;
+  existingUserId?: Id<"users"> | null;
 }) {
   const now = Date.now();
   const normalizedEmail = args.email.trim().toLowerCase();
   const existingByEmail = await ctx.db
     .query("users")
-    .withIndex("email", (queryBuilder: any) => queryBuilder.eq("email", normalizedEmail))
+    .withIndex("by_email", (queryBuilder) => queryBuilder.eq("email", normalizedEmail))
     .unique();
 
   const targetUserId = args.existingUserId ?? existingByEmail?._id ?? null;
@@ -311,7 +315,7 @@ export const { auth, signIn, signOut, store, isAuthenticated } = convexAuth({
 
         return await upsertEmailUser(ctx, {
           email,
-          existingUserId: args.existingUserId ? String(args.existingUserId) : null,
+          existingUserId: args.existingUserId,
         });
       }
 
@@ -332,7 +336,7 @@ export const { auth, signIn, signOut, store, isAuthenticated } = convexAuth({
         name: preferredAppleName(args.profile),
         email: stringOrUndefined(args.profile.email),
         emailVerified: args.profile.emailVerified === true,
-        existingUserId: args.existingUserId ? String(args.existingUserId) : null,
+        existingUserId: args.existingUserId,
       });
     },
     async redirect({ redirectTo }) {

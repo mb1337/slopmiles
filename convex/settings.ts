@@ -103,8 +103,6 @@ export const exportData = query({
       personality,
       plans,
       goals,
-      weeks,
-      workouts,
       executions,
       healthKitWorkouts,
       races,
@@ -117,8 +115,6 @@ export const exportData = query({
       ctx.db.query("personalities").withIndex("by_user_id", (queryBuilder) => queryBuilder.eq("userId", userId)).unique(),
       ctx.db.query("trainingPlans").withIndex("by_user_id", (queryBuilder) => queryBuilder.eq("userId", userId)).collect(),
       ctx.db.query("goals").withIndex("by_user_id", (queryBuilder) => queryBuilder.eq("userId", userId)).collect(),
-      ctx.db.query("trainingWeeks").collect(),
-      ctx.db.query("workouts").collect(),
       ctx.db.query("workoutExecutions").withIndex("by_user_id", (queryBuilder) => queryBuilder.eq("userId", userId)).collect(),
       ctx.db.query("healthKitWorkouts").withIndex("by_user_id", (queryBuilder) => queryBuilder.eq("userId", userId)).collect(),
       ctx.db.query("races").withIndex("by_user_id", (queryBuilder) => queryBuilder.eq("userId", userId)).collect(),
@@ -126,8 +122,24 @@ export const exportData = query({
       ctx.db.query("planAssessments").withIndex("by_user_id", (queryBuilder) => queryBuilder.eq("userId", userId)).collect(),
     ]);
 
-    const planIds = new Set(plans.map((plan) => String(plan._id)));
-    const weekIds = new Set(weeks.filter((week) => planIds.has(String(week.planId))).map((week) => String(week._id)));
+    const weekGroups = await Promise.all(
+      plans.map((plan) =>
+        ctx.db
+          .query("trainingWeeks")
+          .withIndex("by_plan_id", (queryBuilder) => queryBuilder.eq("planId", plan._id))
+          .collect(),
+      ),
+    );
+    const weeks = weekGroups.flat();
+    const workoutGroups = await Promise.all(
+      weeks.map((week) =>
+        ctx.db
+          .query("workouts")
+          .withIndex("by_week_id", (queryBuilder) => queryBuilder.eq("weekId", week._id))
+          .collect(),
+      ),
+    );
+    const workouts = workoutGroups.flat();
 
     return {
       exportedAt: Date.now(),
@@ -141,8 +153,8 @@ export const exportData = query({
       },
       goals,
       plans,
-      weeks: weeks.filter((week) => planIds.has(String(week.planId))),
-      workouts: workouts.filter((workout) => weekIds.has(String(workout.weekId))),
+      weeks,
+      workouts,
       executions,
       healthKitWorkouts,
       races,

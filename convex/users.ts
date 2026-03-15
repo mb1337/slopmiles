@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import { getAuthUserId } from "@convex-dev/auth/server";
 import type { Id } from "./_generated/dataModel";
 import { internalMutation, mutation, type MutationCtx } from "./_generated/server";
+import { resetHistorySummary } from "./historySummary";
 
 import {
   competitivenessLevels,
@@ -277,6 +278,30 @@ export const resetAppData = mutation({
       .query("trainingPlans")
       .withIndex("by_user_id", (query) => query.eq("userId", userId))
       .collect();
+    const workoutExecutions = await ctx.db
+      .query("workoutExecutions")
+      .withIndex("by_user_id", (query) => query.eq("userId", userId))
+      .collect();
+    for (const execution of workoutExecutions) {
+      await ctx.db.delete(execution._id);
+    }
+    for (const plan of plans) {
+      const workouts = await ctx.db
+        .query("workouts")
+        .withIndex("by_plan_id_scheduled_date_key", (query) => query.eq("planId", plan._id))
+        .collect();
+      for (const workout of workouts) {
+        await ctx.db.delete(workout._id);
+      }
+
+      const weeks = await ctx.db
+        .query("trainingWeeks")
+        .withIndex("by_plan_id", (query) => query.eq("planId", plan._id))
+        .collect();
+      for (const week of weeks) {
+        await ctx.db.delete(week._id);
+      }
+    }
     for (const plan of plans) {
       await ctx.db.delete(plan._id);
     }
@@ -328,6 +353,7 @@ export const resetAppData = mutation({
     for (const workout of healthKitWorkouts) {
       await ctx.db.delete(workout._id);
     }
+    await resetHistorySummary(ctx, userId);
 
     const aiRequests = await ctx.db
       .query("aiRequests")

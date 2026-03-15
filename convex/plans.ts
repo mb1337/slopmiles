@@ -182,20 +182,20 @@ export const getWeekDetail = query({
       .collect();
     const executionSummaryByPlannedWorkoutId = await listExecutionSummariesByPlannedWorkoutId(ctx, userId);
 
-    const requests = await ctx.db
+    const requests = ctx.db
       .query("aiRequests")
-      .withIndex("by_user_id", (queryBuilder) => queryBuilder.eq("userId", userId))
-      .collect();
-
-    const latestRequest = requests
-      .filter((request) => {
-        if (request.callType !== "weekDetailGeneration") {
-          return false;
-        }
-        const input = request.input as { planId?: Id<"trainingPlans">; weekNumber?: number } | undefined;
-        return input?.planId === plan._id && input?.weekNumber === week.weekNumber;
-      })
-      .sort((left, right) => right.createdAt - left.createdAt)[0];
+      .withIndex("by_user_id_call_type_created_at", (queryBuilder) =>
+        queryBuilder.eq("userId", userId).eq("callType", "weekDetailGeneration"),
+      )
+      .order("desc");
+    let latestRequest: Doc<"aiRequests"> | undefined;
+    for await (const request of requests) {
+      const input = request.input as { planId?: Id<"trainingPlans">; weekNumber?: number } | undefined;
+      if (input?.planId === plan._id && input?.weekNumber === week.weekNumber) {
+        latestRequest = request;
+        break;
+      }
+    }
 
     return {
       plan: {

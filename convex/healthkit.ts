@@ -5,6 +5,7 @@ import { internal } from "./_generated/api";
 import { internalAction, internalMutation, mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
 import { healthKitSyncSources } from "./constants";
+import { getHistorySummarySnapshot, syncHistorySummaryAfterWorkoutMutation } from "./historySummary";
 import { normalizeImportedWorkoutIntervals } from "./healthkitIntervals";
 import { buildHealthKitImportUserPatch, buildHealthKitSyncStatusPatch } from "./healthkitSyncState";
 import { historyWorkoutStatusFromExecution, reconcileImportedWorkoutExecution } from "./workoutExecutionHelpers";
@@ -127,12 +128,31 @@ export const seedImportWorkouts = mutation({
 
       if (existing) {
         await ctx.db.patch(existing._id, payload);
+        await syncHistorySummaryAfterWorkoutMutation(ctx, {
+          userId,
+          previousWorkout: {
+            historyStatus: existing.historyStatus,
+            importedAt: existing.importedAt,
+          },
+          nextWorkout: {
+            historyStatus: payload.historyStatus,
+            importedAt: payload.importedAt,
+          },
+        });
         importedWorkoutIds.push(existing._id);
         updatedCount += 1;
       } else {
         const insertedWorkoutId = await ctx.db.insert("healthKitWorkouts", {
           ...payload,
           createdAt: now,
+        });
+        await syncHistorySummaryAfterWorkoutMutation(ctx, {
+          userId,
+          previousWorkout: null,
+          nextWorkout: {
+            historyStatus: payload.historyStatus,
+            importedAt: payload.importedAt,
+          },
         });
         importedWorkoutIds.push(insertedWorkoutId);
         insertedCount += 1;
@@ -231,11 +251,17 @@ export const setSyncStatus = mutation({
 });
 
 export const backfillHistoryStatuses = internalMutation({
-  args: {},
-  handler: async (ctx) => {
-    const workouts = await ctx.db.query("healthKitWorkouts").collect();
+  args: {
+    cursor: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const page = await ctx.db.query("healthKitWorkouts").paginate({
+      numItems: 32,
+      cursor: args.cursor ?? null,
+    });
+    let updatedCount = 0;
 
-    for (const workout of workouts) {
+    for (const workout of page.page) {
       const execution = await ctx.db
         .query("workoutExecutions")
         .withIndex("by_healthkit_workout_id", (queryBuilder) =>
@@ -246,11 +272,31 @@ export const backfillHistoryStatuses = internalMutation({
       const historyStatus = historyWorkoutStatusFromExecution(execution);
       if (workout.historyStatus !== historyStatus) {
         await ctx.db.patch(workout._id, { historyStatus });
+        await syncHistorySummaryAfterWorkoutMutation(ctx, {
+          userId: workout.userId,
+          previousWorkout: {
+            historyStatus: workout.historyStatus,
+            importedAt: workout.importedAt,
+          },
+          nextWorkout: {
+            historyStatus,
+            importedAt: workout.importedAt,
+          },
+        });
+        updatedCount += 1;
       }
     }
 
+    if (!page.isDone) {
+      await ctx.scheduler.runAfter(0, internal.healthkit.backfillHistoryStatuses, {
+        cursor: page.continueCursor,
+      });
+    }
+
     return {
-      workoutCount: workouts.length,
+      scheduledNextBatch: !page.isDone,
+      updatedCount,
+      workoutCount: page.page.length,
     };
   },
 });
@@ -259,23 +305,12 @@ export const getImportSummary = query({
   args: {},
   handler: async (ctx) => {
     const userId = await requireAuthenticatedQueryUserId(ctx);
-    const workouts = await ctx.db
-      .query("healthKitWorkouts")
-      .withIndex("by_user_id", (q) => q.eq("userId", userId))
-      .collect();
-
-    let lastImportedAt: number | null = null;
-    for (const workout of workouts) {
-      if (lastImportedAt === null || workout.importedAt > lastImportedAt) {
-        lastImportedAt = workout.importedAt;
-      }
-    }
-
+    const summary = await getHistorySummarySnapshot(ctx, userId);
     const user = await ctx.db.get(userId);
 
     return {
-      workoutCount: workouts.length,
-      lastImportedAt,
+      workoutCount: summary.total,
+      lastImportedAt: summary.lastImportedAt,
       lastSyncAt: user?.healthKitLastSyncAt ?? null,
       lastSyncSource: user?.healthKitLastSyncSource ?? null,
       lastSyncError: user?.healthKitLastSyncError ?? null,

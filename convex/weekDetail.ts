@@ -52,20 +52,19 @@ async function getLatestWeekDetailGenerationRequest(args: {
   planId: Id<"trainingPlans">;
   weekNumber: number;
 }) {
-  const requests = await args.ctx.db
+  for await (const request of args.ctx.db
     .query("aiRequests")
     .withIndex("by_user_id_call_type_created_at", (queryBuilder) =>
       queryBuilder.eq("userId", args.userId).eq("callType", "weekDetailGeneration"),
     )
-    .order("desc")
-    .take(50);
+    .order("desc")) {
+    const input = request.input as { planId?: Id<"trainingPlans">; weekNumber?: number } | undefined;
+    if (input?.planId === args.planId && input?.weekNumber === args.weekNumber) {
+      return request;
+    }
+  }
 
-  return (
-    requests.find((request) => {
-      const input = request.input as { planId?: Id<"trainingPlans">; weekNumber?: number } | undefined;
-      return input?.planId === args.planId && input?.weekNumber === args.weekNumber;
-    }) ?? null
-  );
+  return null;
 }
 
 function normalizeAvailabilityOverride(

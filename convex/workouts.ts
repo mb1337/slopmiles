@@ -53,12 +53,12 @@ export const getMatchCandidates = query({
       .withIndex("by_healthkit_workout_id", (queryBuilder) =>
         queryBuilder.eq("healthKitWorkoutId", args.healthKitWorkoutId),
       )
-      .collect();
+      .unique();
 
     return getMatchCandidateRecords(ctx, {
       userId,
       healthKitWorkoutId: args.healthKitWorkoutId,
-      excludeExecutionId: execution[0]?._id,
+      excludeExecutionId: execution?._id,
     });
   },
 });

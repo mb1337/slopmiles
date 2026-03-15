@@ -1,6 +1,7 @@
 import { addDays, dateKeyFromEpochMs, diffDays, type DateKey } from "../packages/domain/src/calendar";
 import type { DatabaseReader, DatabaseWriter, MutationCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
+import { syncHistorySummaryAfterWorkoutMutation } from "./historySummary";
 import {
   buildStructuredSegmentComparisons,
   resolveActualPaceMetrics,
@@ -252,12 +253,29 @@ export function historyWorkoutStatusFromExecution(
 }
 
 async function syncImportedWorkoutHistoryStatus(
-  ctx: WriterCtx,
+  ctx: MutationCtx,
   healthKitWorkoutId: Id<"healthKitWorkouts">,
   execution: Pick<Doc<"workoutExecutions">, "matchStatus"> | null,
 ): Promise<void> {
+  const workout = await ctx.db.get(healthKitWorkoutId);
+  if (!workout) {
+    throw new Error("Imported workout not found.");
+  }
+
+  const nextHistoryStatus = historyWorkoutStatusFromExecution(execution);
   await ctx.db.patch(healthKitWorkoutId, {
-    historyStatus: historyWorkoutStatusFromExecution(execution),
+    historyStatus: nextHistoryStatus,
+  });
+  await syncHistorySummaryAfterWorkoutMutation(ctx, {
+    userId: workout.userId,
+    previousWorkout: {
+      historyStatus: workout.historyStatus,
+      importedAt: workout.importedAt,
+    },
+    nextWorkout: {
+      historyStatus: nextHistoryStatus,
+      importedAt: workout.importedAt,
+    },
   });
 }
 
@@ -265,28 +283,24 @@ async function getExecutionByHealthKitWorkoutId(
   ctx: ReaderCtx,
   healthKitWorkoutId: Id<"healthKitWorkouts">,
 ): Promise<Doc<"workoutExecutions"> | null> {
-  const executions = await ctx.db
+  return await ctx.db
     .query("workoutExecutions")
     .withIndex("by_healthkit_workout_id", (queryBuilder) =>
       queryBuilder.eq("healthKitWorkoutId", healthKitWorkoutId),
     )
-    .collect();
-
-  return executions[0] ?? null;
+    .unique();
 }
 
 async function getExecutionByPlannedWorkoutId(
   ctx: ReaderCtx,
   plannedWorkoutId: Id<"workouts">,
 ): Promise<Doc<"workoutExecutions"> | null> {
-  const executions = await ctx.db
+  return await ctx.db
     .query("workoutExecutions")
     .withIndex("by_planned_workout_id", (queryBuilder) =>
       queryBuilder.eq("plannedWorkoutId", plannedWorkoutId),
     )
-    .collect();
-
-  return executions[0] ?? null;
+    .unique();
 }
 
 export async function listPlanWorkoutsWithWeeks(

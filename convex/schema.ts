@@ -115,8 +115,8 @@ export default defineSchema({
     createdAt: v.number(),
     updatedAt: v.number(),
   })
-    .index("email", ["email"])
-    .index("phone", ["phone"])
+    .index("by_email", ["email"])
+    .index("by_phone", ["phone"])
     .index("by_apple_subject", ["appleSubject"]),
 
   runningSchedules: defineTable({
@@ -320,6 +320,16 @@ export default defineSchema({
     .index("by_user_id_started_at", ["userId", "startedAt"])
     .index("by_user_id_history_status_started_at", ["userId", "historyStatus", "startedAt"])
     .index("by_user_id_external_workout_id", ["userId", "externalWorkoutId"]),
+
+  historySummaries: defineTable({
+    userId: v.id("users"),
+    matchedCount: v.number(),
+    needsReviewCount: v.number(),
+    unplannedCount: v.number(),
+    totalCount: v.number(),
+    lastImportedAt: v.optional(v.number()),
+    updatedAt: v.number(),
+  }).index("by_user_id", ["userId"]),
 
   workoutExecutions: defineTable({
     userId: v.id("users"),

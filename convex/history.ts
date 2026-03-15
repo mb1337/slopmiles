@@ -4,6 +4,7 @@ import { v } from "convex/values";
 
 import type { Id } from "./_generated/dataModel";
 import { query, type QueryCtx } from "./_generated/server";
+import { getHistorySummarySnapshot } from "./historySummary";
 import { historyWorkoutStatusFromExecution } from "./workoutExecutionHelpers";
 
 async function requireAuthenticatedUserId(ctx: QueryCtx): Promise<Id<"users">> {
@@ -19,31 +20,12 @@ export const getFeedCounts = query({
   args: {},
   handler: async (ctx) => {
     const userId = await requireAuthenticatedUserId(ctx);
-    const [matched, needsReview, unplanned] = await Promise.all([
-      ctx.db
-        .query("healthKitWorkouts")
-        .withIndex("by_user_id_history_status_started_at", (queryBuilder) =>
-          queryBuilder.eq("userId", userId).eq("historyStatus", "matched"),
-        )
-        .collect(),
-      ctx.db
-        .query("healthKitWorkouts")
-        .withIndex("by_user_id_history_status_started_at", (queryBuilder) =>
-          queryBuilder.eq("userId", userId).eq("historyStatus", "needsReview"),
-        )
-        .collect(),
-      ctx.db
-        .query("healthKitWorkouts")
-        .withIndex("by_user_id_history_status_started_at", (queryBuilder) =>
-          queryBuilder.eq("userId", userId).eq("historyStatus", "unplanned"),
-        )
-        .collect(),
-    ]);
+    const summary = await getHistorySummarySnapshot(ctx, userId);
 
     return {
-      matched: matched.length,
-      needsReview: needsReview.length,
-      unplanned: unplanned.length,
+      matched: summary.matched,
+      needsReview: summary.needsReview,
+      unplanned: summary.unplanned,
     };
   },
 });
