@@ -155,4 +155,253 @@ describe("plans integration", () => {
       },
     });
   });
+
+  it("returns a week detail view with sorted workouts, matched executions, and the latest request", async () => {
+    vi.useFakeTimers();
+    const now = new Date("2026-03-18T15:30:00.000Z");
+    vi.setSystemTime(now);
+
+    const t = createConvexTest();
+    const user = await createTestUser(t);
+    const authed = asAuthenticatedUser(t, user._id);
+    const canonicalTimeZoneId = "America/Chicago";
+    const weekStartDateKey = normalizeActivationDateKey(now.valueOf(), canonicalTimeZoneId);
+
+    const { activePlanId, weekId, firstWorkoutId, matchedWorkoutId } = await t.run(async (ctx) => {
+      const goalId = await ctx.db.insert("goals", {
+        userId: user._id,
+        type: "race",
+        label: "Spring 10K",
+        targetDate: Date.UTC(2026, 4, 2),
+        goalTimeSeconds: 2_700,
+        createdAt: now.valueOf(),
+      });
+      const activePlanId = await ctx.db.insert("trainingPlans", {
+        userId: user._id,
+        goalId,
+        startDateKey: weekStartDateKey,
+        canonicalTimeZoneId,
+        activatedAt: now.valueOf() - 10_000,
+        numberOfWeeks: 4,
+        volumeMode: "time",
+        peakWeekVolume: 320,
+        status: "active",
+        createdAt: now.valueOf() - 20_000,
+        updatedAt: now.valueOf(),
+      });
+      const weekId = await ctx.db.insert("trainingWeeks", {
+        planId: activePlanId,
+        weekNumber: 1,
+        weekStartDateKey,
+        weekEndDateKey: "2026-03-22",
+        targetVolumePercent: 0.75,
+        targetVolumeAbsolute: 240,
+        vdotAtGeneration: 52.7,
+        emphasis: "Settle into the block",
+        coachNotes: "Keep the easy days easy.",
+        generated: true,
+        createdAt: now.valueOf() - 19_000,
+        updatedAt: now.valueOf() - 19_000,
+      });
+      await ctx.db.insert("trainingWeeks", {
+        planId: activePlanId,
+        weekNumber: 2,
+        weekStartDateKey: "2026-03-23",
+        weekEndDateKey: "2026-03-29",
+        targetVolumePercent: 0.82,
+        targetVolumeAbsolute: 262,
+        emphasis: "Build",
+        generated: false,
+        createdAt: now.valueOf() - 18_000,
+        updatedAt: now.valueOf() - 18_000,
+      });
+
+      const matchedWorkoutId = await ctx.db.insert("workouts", {
+        planId: activePlanId,
+        weekId,
+        type: "tempo",
+        volumePercent: 0.3,
+        absoluteVolume: 70,
+        scheduledDateKey: "2026-03-18",
+        notes: "Controlled, not all-out.",
+        venue: "road",
+        origin: "planned",
+        status: "planned",
+        segments: [
+          {
+            order: 1,
+            label: "Tempo",
+            paceZone: "threshold",
+            targetValue: 20,
+            targetUnit: "seconds",
+          },
+        ],
+        createdAt: now.valueOf() - 17_000,
+        updatedAt: now.valueOf() - 17_000,
+      });
+      const firstWorkoutId = await ctx.db.insert("workouts", {
+        planId: activePlanId,
+        weekId,
+        type: "easyRun",
+        volumePercent: 0.2,
+        absoluteVolume: 45,
+        scheduledDateKey: "2026-03-17",
+        notes: "Stay conversational.",
+        venue: "road",
+        origin: "planned",
+        status: "planned",
+        segments: [],
+        createdAt: now.valueOf() - 16_000,
+        updatedAt: now.valueOf() - 16_000,
+      });
+
+      const healthKitWorkoutId = await ctx.db.insert("healthKitWorkouts", {
+        userId: user._id,
+        externalWorkoutId: "hk-matched-1",
+        startedAt: Date.UTC(2026, 2, 18, 12, 0, 0),
+        endedAt: Date.UTC(2026, 2, 18, 12, 42, 0),
+        durationSeconds: 2_520,
+        distanceMeters: 8_000,
+        rawPaceSecondsPerMeter: 0.315,
+        gradeAdjustedPaceSecondsPerMeter: 0.31,
+        averageHeartRate: 164,
+        historyStatus: "matched",
+        importedAt: now.valueOf() - 15_000,
+        createdAt: now.valueOf() - 15_000,
+        updatedAt: now.valueOf() - 15_000,
+      });
+      await ctx.db.insert("workoutExecutions", {
+        userId: user._id,
+        healthKitWorkoutId,
+        planId: activePlanId,
+        weekId,
+        plannedWorkoutId: matchedWorkoutId,
+        matchStatus: "matched",
+        matchMethod: "auto",
+        matchConfidence: 0.94,
+        matchDateKey: "2026-03-18",
+        checkInStatus: "submitted",
+        rpe: 6,
+        modifiers: [],
+        notes: "Felt smooth.",
+        feedbackStatus: "ready",
+        feedbackCommentary: "Good control throughout.",
+        feedbackAdjustments: ["Keep the next recovery day relaxed."],
+        createdAt: now.valueOf() - 14_000,
+        updatedAt: now.valueOf() - 14_000,
+      });
+
+      await ctx.db.insert("aiRequests", {
+        userId: user._id,
+        callType: "weekDetailGeneration",
+        status: "queued",
+        priority: "userBlocking",
+        dedupeKey: "week-1-old",
+        input: {
+          planId: activePlanId,
+          weekNumber: 1,
+        },
+        attemptCount: 0,
+        maxAttempts: 1,
+        promptRevision: "week-detail-v1",
+        schemaRevision: "week-detail-v1",
+        createdAt: now.valueOf() - 13_000,
+        updatedAt: now.valueOf() - 13_000,
+      });
+      await ctx.db.insert("aiRequests", {
+        userId: user._id,
+        callType: "weekDetailGeneration",
+        status: "succeeded",
+        priority: "interactive",
+        dedupeKey: "week-2",
+        input: {
+          planId: activePlanId,
+          weekNumber: 2,
+        },
+        attemptCount: 1,
+        maxAttempts: 1,
+        promptRevision: "week-detail-v1",
+        schemaRevision: "week-detail-v1",
+        completedAt: now.valueOf() - 12_000,
+        createdAt: now.valueOf() - 12_000,
+        updatedAt: now.valueOf() - 12_000,
+      });
+      await ctx.db.insert("aiRequests", {
+        userId: user._id,
+        callType: "weekDetailGeneration",
+        status: "failed",
+        priority: "interactive",
+        dedupeKey: "week-1-latest",
+        input: {
+          planId: activePlanId,
+          weekNumber: 1,
+        },
+        errorMessage: "Model output failed validation.",
+        attemptCount: 1,
+        maxAttempts: 1,
+        promptRevision: "week-detail-v1",
+        schemaRevision: "week-detail-v1",
+        createdAt: now.valueOf() - 11_000,
+        updatedAt: now.valueOf() - 11_000,
+      });
+
+      return { activePlanId, weekId, firstWorkoutId, matchedWorkoutId };
+    });
+
+    const result = await authed.query(api.plans.getWeekDetail, {
+      planId: activePlanId,
+      weekNumber: 1,
+    });
+
+    expect(result.plan).toMatchObject({
+      _id: activePlanId,
+      numberOfWeeks: 4,
+      volumeMode: "time",
+      peakWeekVolume: 320,
+      startDateKey: weekStartDateKey,
+      canonicalTimeZoneId,
+    });
+    expect(result.week).toMatchObject({
+      _id: weekId,
+      weekNumber: 1,
+      weekStartDateKey,
+      weekEndDateKey: "2026-03-22",
+      targetVolumePercent: 0.75,
+      targetVolumeAbsolute: 240,
+      emphasis: "Settle into the block",
+      coachNotes: "Keep the easy days easy.",
+      generated: true,
+    });
+    expect(result.workouts.map((workout) => workout._id)).toEqual([firstWorkoutId, matchedWorkoutId]);
+    expect(result.workouts[0]).toMatchObject({
+      _id: firstWorkoutId,
+      scheduledDateKey: "2026-03-17",
+      status: "planned",
+      execution: null,
+    });
+    expect(result.workouts[1]).toMatchObject({
+      _id: matchedWorkoutId,
+      scheduledDateKey: "2026-03-18",
+      status: "completed",
+      execution: {
+        plannedWorkoutId: matchedWorkoutId,
+        matchStatus: "matched",
+        matchMethod: "auto",
+        matchConfidence: 0.94,
+        checkInStatus: "submitted",
+        notes: "Felt smooth.",
+        feedback: {
+          status: "ready",
+          commentary: "Good control throughout.",
+          adjustments: ["Keep the next recovery day relaxed."],
+        },
+      },
+    });
+    expect(result.latestRequest).toMatchObject({
+      status: "failed",
+      errorMessage: "Model output failed validation.",
+    });
+    expect(result.currentWeekNumber).toBe(1);
+    expect(result.canGenerate).toBe(true);
+  });
 });
