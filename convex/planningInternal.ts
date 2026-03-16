@@ -4,7 +4,7 @@ import { v } from "convex/values";
 import { components, internal } from "./_generated/api";
 import { internalAction, internalMutation, internalQuery } from "./_generated/server";
 import { planDraftSchema, weekDraftSchema } from "./agentSchemas";
-import { describeAiError, parseJsonPayloadFromModel } from "./aiHelpers";
+import { describeAiError } from "./aiHelpers";
 import {
   buildPlanBuilderInstructions,
   buildWeekBuilderInstructions,
@@ -280,12 +280,12 @@ export const generatePlanDraftArtifacts = internalAction({
     let object: unknown | null = null;
     let objectError: string | undefined;
     try {
-      const objectResult = await thread.generateText(
+      const objectResult = await thread.generateObject(
         {
           promptMessageId: args.promptMessageId,
-          system:
-            "Return only valid JSON for the current structured plan draft. Stay faithful to the conversation and the supplied structured context. Do not add markdown fences or extra commentary.",
+          system: "Generate the current structured plan draft. Stay faithful to the conversation and the supplied structured context.",
           messages: [{ role: "user", content: supplementalMessage }],
+          schema: planDraftSchema,
         },
         {
           storageOptions: {
@@ -293,7 +293,7 @@ export const generatePlanDraftArtifacts = internalAction({
           },
         },
       );
-      object = parseJsonPayloadFromModel(objectResult.text);
+      object = objectResult.object;
     } catch (error) {
       objectError = describeAiError(error);
       console.error("Plan draft structured generation failed", {
@@ -420,12 +420,12 @@ export const generateWeekDraftArtifacts = internalAction({
     let object: unknown | null = null;
     let objectError: string | undefined;
     try {
-      const objectResult = await thread.generateText(
+      const objectResult = await thread.generateObject(
         {
           promptMessageId: args.promptMessageId,
-          system:
-            "Return only valid JSON for the current structured week draft. Stay faithful to the conversation and the supplied structured context. Do not add markdown fences or extra commentary.",
+          system: "Generate the current structured week draft. Stay faithful to the conversation and the supplied structured context.",
           messages: [{ role: "user", content: supplementalMessage }],
+          schema: weekDraftSchema,
         },
         {
           storageOptions: {
@@ -433,7 +433,7 @@ export const generateWeekDraftArtifacts = internalAction({
           },
         },
       );
-      object = parseJsonPayloadFromModel(objectResult.text);
+      object = objectResult.object;
     } catch (error) {
       objectError = describeAiError(error);
       console.error("Week draft structured generation failed", {
